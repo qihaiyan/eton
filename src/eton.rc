@@ -1,0 +1,183 @@
+#include "resource.h"
+#include <winres.h>
+#pragma code_page(65001)
+LANGUAGE 0x04, 0x02
+
+IDR_MENU_MAIN MENU
+BEGIN
+    POPUP "文件(&F)"
+    BEGIN
+        MENUITEM "新建(&N)\tCtrl+N",            IDM_NEW
+        MENUITEM "打开(&O)...\tCtrl+O",         IDM_OPEN
+        MENUITEM "以指定编码打开...",            IDM_OPENENC
+        MENUITEM "保存(&S)\tCtrl+S",            IDM_SAVE
+        MENUITEM "另存为(&A)...",                IDM_SAVEAS
+        MENUITEM "关闭标签(&W)\tCtrl+W",         IDM_CLOSE
+        MENUITEM SEPARATOR
+        POPUP "最近文件"
+        BEGIN
+            MENUITEM "(空)", IDM_RECENT_FIRST, GRAYED
+        END
+        MENUITEM SEPARATOR
+        MENUITEM "退出(&X)",                    IDM_EXIT
+    END
+    POPUP "编辑(&E)"
+    BEGIN
+        MENUITEM "撤销(&U)\tCtrl+Z",            IDM_UNDO
+        MENUITEM "重做(&R)\tCtrl+Y",            IDM_REDO
+        MENUITEM SEPARATOR
+        MENUITEM "剪切(&T)\tCtrl+X",            IDM_CUT
+        MENUITEM "复制(&C)\tCtrl+C",            IDM_COPY
+        MENUITEM "粘贴(&P)\tCtrl+V",            IDM_PASTE
+        MENUITEM "删除(&D)\tDel",               IDM_DELETE
+        MENUITEM SEPARATOR
+        MENUITEM "全选(&A)\tCtrl+A",            IDM_SELECTALL
+        MENUITEM SEPARATOR
+        MENUITEM "查找(&F)...\tCtrl+F",         IDM_FIND
+        MENUITEM "替换(&H)...\tCtrl+H",         IDM_REPLACE
+        MENUITEM "跳转到行(&G)...\tCtrl+G",     IDM_GOTO
+        MENUITEM "插入日期/时间(&I)",           IDM_TIME
+        MENUITEM SEPARATOR
+        MENUITEM "JSON 格式化(&J)\tCtrl+Shift+F", IDM_JSON_FMT
+        MENUITEM "JSON 压缩(&M)\tCtrl+Shift+M",   IDM_JSON_MIN
+    END
+    POPUP "视图(&V)"
+    BEGIN
+        MENUITEM "自动换行(&W)",                IDM_WRAP
+        MENUITEM "显示行号(&L)",                IDM_GUTTER
+        MENUITEM SEPARATOR
+        MENUITEM "放大(&+)\tCtrl++",            IDM_ZOOMIN
+        MENUITEM "缩小(&-)\tCtrl+-",            IDM_ZOOMOUT
+        MENUITEM "重置缩放(&0)\tCtrl+0",         IDM_ZOOMRST
+        MENUITEM SEPARATOR
+        MENUITEM "深色主题(&D)",                IDM_THEME
+    END
+    POPUP "编码(&N)"
+    BEGIN
+        MENUITEM "ANSI",                        IDM_ENC_ANSI
+        MENUITEM "UTF-8",                       IDM_ENC_UTF8
+        MENUITEM "UTF-8 (带 BOM)",              IDM_ENC_UTF8BOM
+        MENUITEM "UTF-16 LE",                   IDM_ENC_UTF16LE
+        MENUITEM "UTF-16 BE",                   IDM_ENC_UTF16BE
+        MENUITEM SEPARATOR
+        MENUITEM "以 ANSI 重新打开",             IDM_REOPEN_ANSI
+        MENUITEM "以 UTF-8 重新打开",            IDM_REOPEN_UTF8
+        MENUITEM "以 UTF-8(BOM) 重新打开",       IDM_REOPEN_UTF8BOM
+        MENUITEM "以 UTF-16 LE 重新打开",         IDM_REOPEN_UTF16LE
+        MENUITEM "以 UTF-16 BE 重新打开",         IDM_REOPEN_UTF16BE
+    END
+    POPUP "行尾(&E)"
+    BEGIN
+        MENUITEM "Windows (CRLF)",              IDM_EOL_CRLF
+        MENUITEM "Unix (LF)",                   IDM_EOL_LF
+        MENUITEM "Mac (CR)",                    IDM_EOL_CR
+        MENUITEM SEPARATOR
+        MENUITEM "转换行尾为当前格式",            IDM_EOL_CONVERT
+    END
+    POPUP "语言(&L)"
+    BEGIN
+        MENUITEM "纯文本",                      IDM_LANG_NONE
+        MENUITEM "C",                           IDM_LANG_C
+        MENUITEM "C++",                         IDM_LANG_CPP
+        MENUITEM "C#",                          IDM_LANG_CS
+        MENUITEM "Java",                        IDM_LANG_JAVA
+        MENUITEM "JavaScript",                  IDM_LANG_JS
+        MENUITEM "Python",                      IDM_LANG_PY
+        MENUITEM "XML/HTML",                    IDM_LANG_XML
+        MENUITEM "JSON",                        IDM_LANG_JSON
+        MENUITEM "SQL",                         IDM_LANG_SQL
+    END
+    POPUP "帮助(&H)"
+    BEGIN
+        MENUITEM "关于(&A)",                    IDM_ABOUT
+    END
+END
+
+IDR_ACCEL ACCELERATORS
+BEGIN
+    "N",  IDM_NEW,      VIRTKEY, CONTROL
+    "O",  IDM_OPEN,     VIRTKEY, CONTROL
+    "S",  IDM_SAVE,     VIRTKEY, CONTROL
+    "W",  IDM_CLOSE,    VIRTKEY, CONTROL
+    "F",  IDM_FIND,     VIRTKEY, CONTROL
+    "H",  IDM_REPLACE,  VIRTKEY, CONTROL
+    "G",  IDM_GOTO,     VIRTKEY, CONTROL
+    "Z",  IDM_UNDO,     VIRTKEY, CONTROL
+    "Y",  IDM_REDO,     VIRTKEY, CONTROL
+    "A",  IDM_SELECTALL,VIRTKEY, CONTROL
+    0x72, IDM_FINDNEXT, VIRTKEY
+    0x72, IDM_FINDPREV, VIRTKEY, SHIFT
+    "F",  IDM_JSON_FMT, VIRTKEY, CONTROL, SHIFT
+    "M",  IDM_JSON_MIN, VIRTKEY, CONTROL, SHIFT
+END
+
+IDD_FIND DIALOGEX 0, 0, 320, 130
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "查找"
+FONT 9, "Microsoft YaHei"
+BEGIN
+    LTEXT           "查找内容:", IDC_STATIC, 10, 12, 60, 14
+    EDITTEXT        IDC_FIND_TEXT, 70, 10, 180, 20, ES_AUTOHSCROLL
+    AUTOCHECKBOX    "区分大小写", IDC_FIND_CASE, 10, 40, 90, 16
+    AUTOCHECKBOX    "全词匹配",   IDC_FIND_WORD, 110, 40, 90, 16
+    AUTOCHECKBOX    "向下",       IDC_FIND_DOWN, 210, 40, 70, 16
+    PUSHBUTTON      "查找下一个", IDC_FIND_NEXT, 10, 70, 90, 22
+    PUSHBUTTON      "上一个",     IDC_FIND_PREV, 110, 70, 80, 22
+    PUSHBUTTON      "关闭",       IDC_FIND_CLOSE, 250, 70, 60, 22
+    LTEXT           "", IDC_FIND_STATUS, 10, 100, 300, 14
+END
+
+IDD_REPLACE DIALOGEX 0, 0, 320, 160
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "替换"
+FONT 9, "Microsoft YaHei"
+BEGIN
+    LTEXT           "查找内容:", IDC_STATIC, 10, 12, 60, 14
+    EDITTEXT        IDC_FIND_TEXT, 70, 10, 180, 20, ES_AUTOHSCROLL
+    LTEXT           "替换为:",   IDC_STATIC, 10, 40, 60, 14
+    EDITTEXT        IDC_REPL_TEXT, 70, 38, 180, 20, ES_AUTOHSCROLL
+    AUTOCHECKBOX    "区分大小写", IDC_FIND_CASE, 10, 68, 90, 16
+    AUTOCHECKBOX    "全词匹配",   IDC_FIND_WORD, 110, 68, 90, 16
+    AUTOCHECKBOX    "向下",       IDC_FIND_DOWN, 210, 68, 70, 16
+    PUSHBUTTON      "查找下一个", IDC_FIND_NEXT, 10, 95, 90, 22
+    PUSHBUTTON      "替换",       IDC_FIND_REPL, 110, 95, 80, 22
+    PUSHBUTTON      "全部替换",   IDC_FIND_REPLALL, 200, 95, 80, 22
+    PUSHBUTTON      "关闭",       IDC_FIND_CLOSE, 10, 125, 80, 22
+    LTEXT           "", IDC_FIND_STATUS, 10, 140, 300, 14
+END
+
+IDD_GOTO DIALOGEX 0, 0, 260, 100
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "跳转到行"
+FONT 9, "Microsoft YaHei"
+BEGIN
+    LTEXT           "行号:", IDC_GOTO_LABEL, 10, 14, 80, 14
+    EDITTEXT        IDC_GOTO_TEXT, 10, 32, 230, 20, ES_AUTOHSCROLL | ES_NUMBER
+    DEFPUSHBUTTON   "确定", IDC_GOTO_OK, 80, 64, 80, 24
+    PUSHBUTTON      "取消", IDC_GOTO_CANCEL, 170, 64, 80, 24
+END
+
+IDD_ABOUT DIALOGEX 0, 0, 320, 180
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "关于 eton"
+FONT 9, "Microsoft YaHei"
+BEGIN
+    LTEXT           "eton — 轻量级文本编辑器", IDC_STATIC, 20, 20, 280, 16
+    LTEXT           "基于原生 Win32 API (C) 实现，零第三方依赖。", IDC_STATIC, 20, 44, 280, 16
+    LTEXT           "支持多标签、语法高亮、编码转换、查找替换等。", IDC_STATIC, 20, 68, 280, 16
+    LTEXT           "版本 1.0  |  构建于 Visual Studio 2026 生成工具", IDC_STATIC, 20, 92, 280, 16
+    DEFPUSHBUTTON   "确定", IDC_GOTO_OK, 120, 140, 80, 24
+END
+
+IDD_OPENENC DIALOGEX 0, 0, 240, 160
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "以指定编码打开"
+FONT 9, "Microsoft YaHei"
+BEGIN
+    LTEXT           "选择编码:", IDC_STATIC, 12, 14, 200, 14
+    LISTBOX         IDC_OPENENC_LIST, 12, 34, 216, 90, LBS_NOTIFY | WS_VSCROLL | WS_BORDER
+    DEFPUSHBUTTON   "确定", IDC_GOTO_OK, 60, 132, 80, 24
+    PUSHBUTTON      "取消", IDC_GOTO_CANCEL, 148, 132, 80, 24
+END
+
+IDI_APP ICON "..\\res\\app.ico"
