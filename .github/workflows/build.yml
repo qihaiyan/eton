@@ -1,6 +1,7 @@
-# Build eton.exe on every push; sign it when a code signing certificate is
-# configured (repository secrets CODESIGN_PFX_B64 / CODESIGN_PFX_PASSWORD),
-# and attach it to a GitHub Release when a v* tag is pushed.
+# Build eton.exe only when a GitHub Release is published, or when triggered
+# manually from the Actions tab. The binary is signed when a code signing
+# certificate is configured (secrets CODESIGN_PFX_B64 / CODESIGN_PFX_PASSWORD)
+# and is attached to the release as an asset.
 #
 # Signing options that work with this workflow as-is:
 #   Any certificate you can export as a PFX (base64 into CODESIGN_PFX_B64).
@@ -10,9 +11,8 @@
 name: Build
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -64,9 +64,9 @@ jobs:
           path: eton.exe
           if-no-files-found: error
 
-      - name: Create release with binary
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Attach binary to the release
+        if: github.event_name == 'release'
         shell: cmd
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "%GITHUB_REF_NAME%" --title "%GITHUB_REF_NAME%" --generate-notes eton.exe
+        run: gh release upload "%GITHUB_REF_NAME%" eton.exe --clobber
