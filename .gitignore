@@ -56,3 +56,6 @@ dkms.conf
 
 # Bundled Scintilla/Lexilla import libraries needed by build.bat
 !deps/**/*.lib
+
+# Local build intermediates
+build/
