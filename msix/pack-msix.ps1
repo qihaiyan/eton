@@ -1,0 +1,120 @@
+﻿param(
+    [string]$Name = "A99C7AF7.ETON",
+    [string]$Publisher = "CN=15387737-D26A-48FB-9636-57EAD340851A",
+    [string]$Version = "1.0.4.0",
+    [switch]$Sign
+)
+
+$ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot
+$exe  = Join-Path $root "eton.exe"
+if (-not (Test-Path $exe)) { throw "未找到 eton.exe,请先运行 build.bat" }
+
+$rev = ($Version -split '\.')[3]
+if ($null -ne $rev -and $rev -ne '0') {
+    Write-Warning "版本 $Version 的第 4 段(修订号)非 0:微软商店会拒绝此包(包接受验证错误);本机侧载不受影响。"
+}
+
+$sdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+$makeappx = Get-ChildItem $sdkRoot -Recurse -Filter makeappx.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\" } |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+$signtool = Get-ChildItem $sdkRoot -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\" } |
+            Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+if (-not $makeappx) { throw "未找到 makeappx.exe,请安装 Windows SDK" }
+
+$layout = Join-Path $root "build\msix\layout"
+if (Test-Path $layout) { Remove-Item $layout -Recurse -Force }
+New-Item $layout -ItemType Directory -Force | Out-Null
+New-Item (Join-Path $layout "Assets") -ItemType Directory -Force | Out-Null
+
+Copy-Item $exe $layout
+$ctxDll = Join-Path $root "etonctx.dll"
+if (Test-Path $ctxDll) { Copy-Item $ctxDll $layout }
+else { throw "未找到 etonctx.dll,请先运行 build.bat(商店版右键菜单组件)" }
+
+Add-Type -AssemblyName System.Drawing
+$srcImg = [System.Drawing.Image]::FromFile((Join-Path $root "res\app.png"))
+function Save-Scaled([int]$px, [string]$file) {
+    $bmp = New-Object System.Drawing.Bitmap $px, $px
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.DrawImage($srcImg, 0, 0, $px, $px)
+    $g.Dispose()
+    $bmp.Save((Join-Path $layout "Assets\$file"), [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+Save-Scaled 44  "Square44x44Logo.png"
+Save-Scaled 44  "Square44x44Logo.scale-100.png"
+Save-Scaled 88  "Square44x44Logo.scale-200.png"
+Save-Scaled 44  "Square44x44Logo.targetsize-44.png"
+Save-Scaled 150 "Square150x150Logo.png"
+Save-Scaled 150 "Square150x150Logo.scale-100.png"
+Save-Scaled 300 "Square150x150Logo.scale-200.png"
+Save-Scaled 50  "StoreLogo.scale-100.png"
+Save-Scaled 50  "StoreLogo.png"
+$srcImg.Dispose()
+
+$manifest = Get-Content (Join-Path $PSScriptRoot "AppxManifest.template.xml") -Raw -Encoding UTF8
+$manifest = $manifest.Replace("__NAME__", $Name).Replace("__PUBLISHER__", $Publisher).Replace("__VERSION__", $Version)
+[System.IO.File]::WriteAllText((Join-Path $layout "AppxManifest.xml"), $manifest, (New-Object System.Text.UTF8Encoding $false))
+
+$langs = @{
+    "en-US" = @{ AppDescription = "Lightweight text editor" }
+    "zh-CN" = @{ AppDescription = "轻量级文本编辑器" }
+}
+foreach ($lang in $langs.Keys) {
+    $dir = Join-Path $layout "Strings\$lang"
+    New-Item $dir -ItemType Directory -Force | Out-Null
+    $resw = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n<root>`n"
+    foreach ($k in $langs[$lang].Keys) {
+        $resw += "  <data name=`"$k`" xml:space=`"preserve`"><value>" + $langs[$lang][$k] + "</value></data>`n"
+    }
+    $resw += "</root>`n"
+    [System.IO.File]::WriteAllText((Join-Path $dir "Resources.resw"), $resw, (New-Object System.Text.UTF8Encoding $false))
+}
+
+$makepri = Get-ChildItem $sdkRoot -Recurse -Filter makepri.exe -ErrorAction SilentlyContinue |
+           Where-Object { $_.FullName -match "\\x64\\" } |
+           Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+if (-not $makepri) { throw "未找到 makepri.exe，请安装 Windows SDK" }
+$runTag = [System.IO.Path]::GetRandomFileName()
+$priCfg = Join-Path $env:TEMP "eton-pc-$runTag.xml"
+$priOut = Join-Path $env:TEMP "eton-pri-$runTag.pri"
+$mkOut = Join-Path $env:TEMP "eton-mk-$runTag.log"
+$mkErr = Join-Path $env:TEMP "eton-mk-$runTag.err"
+$pr0 = Start-Process -FilePath $makepri -ArgumentList @('createconfig','/cf',$priCfg,'/dq','en-US','/pv','10.0.0') -RedirectStandardOutput $mkOut -RedirectStandardError $mkErr -NoNewWindow -Wait -PassThru
+if ($pr0.ExitCode -ne 0) { throw "makepri createconfig 失败" }
+$cfgText = [System.IO.File]::ReadAllText($priCfg)
+$cfgText = [regex]::Replace($cfgText, '<packaging>.*?</packaging>', '', 'Singleline')
+[System.IO.File]::WriteAllText($priCfg, $cfgText)
+$pr1 = Start-Process -FilePath $makepri -ArgumentList @('new','/pr',$layout,'/cf',$priCfg,'/of',$priOut) -RedirectStandardOutput $mkOut -RedirectStandardError $mkErr -NoNewWindow -Wait -PassThru
+if ($pr1.ExitCode -ne 0) { throw "makepri 生成 resources.pri 失败" }
+Copy-Item $priOut (Join-Path $layout "resources.pri") -Force
+
+
+$tag = if ($Name -eq "A99C7AF7.ETON") { "" } else { "-$($Name.ToLower())" }
+$outMsix = Join-Path $root ("eton{0}-{1}-x64.msix" -f $tag, $Version)
+if (Test-Path $outMsix) { Remove-Item $outMsix -Force }
+& $makeappx pack /o /v /d $layout /p $outMsix
+if ($LASTEXITCODE -ne 0) { throw "makeappx 打包失败" }
+
+if ($Sign) {
+    if (-not $signtool) { throw "未找到 signtool.exe" }
+    $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $Publisher -and $_.HasPrivateKey }
+    if (-not $cert) {
+        $cert = New-SelfSignedCertificate -Subject $Publisher -Type CodeSigningCert `
+                -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddYears(2)
+    }
+    & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint $outMsix
+    if ($LASTEXITCODE -ne 0) { throw "signtool 签名失败" }
+    $cerPath = Join-Path $root "build\msix\eton-test-signing.cer"
+    [System.IO.File]::WriteAllBytes($cerPath, $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+    Write-Host "已导出测试证书: $cerPath (安装包前需将其导入 LocalMachine\TrustedPeople)"
+}
+
+Write-Host "`nMSIX 打包完成: $outMsix"
+Write-Host "  Name      = $Name"
+Write-Host "  Publisher = $Publisher"
+Write-Host "  Version   = $Version"

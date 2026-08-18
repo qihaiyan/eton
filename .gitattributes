@@ -1,0 +1,19 @@
+# Batch files must stay CRLF: cmd's goto/label handling breaks on LF-only .bat
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Normal text, repo stores LF, checkout uses native endings
+*.c text
+*.h text
+*.rc text
+*.md text
+*.py text
+*.yml text
+*.wxs text
+*.manifest text
+
+# Binaries
+*.lib binary
+*.ico binary
+*.png binary
+*.exe binary

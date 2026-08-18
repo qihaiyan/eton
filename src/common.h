@@ -1,0 +1,337 @@
+#ifndef COMMON_H
+#define COMMON_H
+#include <windows.h>
+#include <commctrl.h>
+#include <windowsx.h>
+#include <shlwapi.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
+#include "Scintilla.h"
+#include "Lexilla.h"
+#include "resource.h"
+#include "i18n.h"
+#define WM_APP_TABSEL      (WM_APP + 1)
+#define WM_APP_TABCLOSE    (WM_APP + 2)
+#define WM_APP_GUTUPDATE   (WM_APP + 3)
+#define WM_APP_RECOLOR     (WM_APP + 4)
+#define WM_MDIMG_READY     (WM_APP + 5)
+#define MAX_DOCS 64
+#define MAX_RECENT 12
+typedef enum {
+    ENC_ANSI = 0,
+    ENC_UTF8,
+    ENC_UTF8_BOM,
+    ENC_UTF16LE,
+    ENC_UTF16BE
+} Encoding;
+#define ENC_AUTO (-1)
+typedef BOOL (*IoProgressFn)(UINT64 done, UINT64 total, void* ctx);
+typedef enum {
+    LANG_NONE = 0,
+    LANG_C, LANG_CPP, LANG_CS, LANG_JAVA, LANG_JS,
+    LANG_PY, LANG_XML, LANG_JSON, LANG_SQL,
+    LANG_MD, LANG_YAML
+} LangID;
+typedef struct {
+    HWND hwndEdit;
+    wchar_t path[MAX_PATH];
+    wchar_t title[256];
+    wchar_t baseTitle[256];
+    wchar_t draft[64];
+    Encoding enc;
+    int eol;
+    BOOL dirty;
+    BOOL isNew;
+    LangID lang;
+    FILETIME ftWrite;
+    BOOL previewOn;
+    unsigned modGen;
+    unsigned bkpGen;
+    BOOL bakRestored;
+} Doc;
+extern HINSTANCE g_hInst;
+extern HWND g_hwndMain, g_hwndTab, g_hwndTool, g_hwndStatus;
+extern UINT g_dpi;
+int UI_Scale(int px);
+extern Doc g_docs[MAX_DOCS];
+extern int g_docCount;
+extern int g_curDoc;
+extern HFONT g_hFont;
+extern int g_fontGen;
+extern int g_fontSize;
+extern BOOL g_wordWrap;
+extern int g_editorDWrite;
+extern BOOL g_showGutter;
+extern BOOL g_dark;
+extern int g_gutterWidth;
+extern wchar_t g_recent[MAX_RECENT][MAX_PATH];
+extern int g_recentCount;
+extern COLORREF g_clrBg, g_clrFg, g_clrSelBg, g_clrGutterBg, g_clrGutterFg,
+               g_clrStatusBg, g_clrStatusFg;
+extern BOOL g_suppressDirty;
+extern BOOL g_draftsDirty;
+extern BOOL g_sessionDirty;
+extern BOOL g_mdSplit;
+extern BOOL g_mdSyncLock;
+BOOL Editor_Init(void);
+void Editor_ApplyThemeColors(void);
+int  Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew);
+void Editor_CloseDoc(int index);
+void Editor_Activate(int index);
+void Editor_Layout(void);
+void Editor_SetFont(void);
+void Editor_OnDpiChanged(void);
+void Editor_ApplyTextRendering(void);
+void Editor_Zoom(int delta);
+void Editor_ApplyTheme(int index);
+void Editor_SetLang(int index, LangID lang);
+void Editor_OnLanguageChanged(void);
+void Editor_MarkDirty(int index, BOOL dirty);
+void Editor_UpdateStatus(void);
+HWND Editor_ActiveEdit(void);
+void Editor_UpdateGutter(int index);
+void Editor_OnNotify(LPARAM lp);
+BOOL Editor_SaveDoc(int index, BOOL askPath);
+BOOL Editor_SaveDocAs(int index);
+void Editor_UpdateTitle(int index);
+int  Editor_FindDocByPath(const wchar_t* path);
+int  Editor_IndexFromHwnd(HWND hed);
+void Editor_ApplyWrap(int index);
+void Editor_ConvertEol(int index, int eol);
+BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc);
+void Editor_ComputeGutterWidth(int index);
+void Editor_SetText(int index, const char* utf8);
+char* Editor_GetTextUtf8(int index, DWORD* outLen);
+void Editor_ToggleBookmark(int index);
+void Editor_GotoBookmark(int index, BOOL next);
+void OpenFileByPath(const wchar_t* path);
+const wchar_t* EncodingName(Encoding e);
+Encoding DetectEncoding(const BYTE* data, DWORD size, BOOL* hasBom);
+BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
+                     Encoding* outEnc, int* outEol,
+                     IoProgressFn progress, void* ctx);
+BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
+                       IoProgressFn progress, void* ctx);
+extern wchar_t g_findText[512];
+extern wchar_t g_replText[512];
+extern BOOL g_findCase, g_findWord, g_findDown, g_findRegex, g_findExt;
+extern BOOL g_findAllTabs;
+extern LONG g_findStart;
+extern HWND g_hFindDlg;
+void Dlg_Find(HWND hwnd, BOOL replace);
+void Dlg_Goto(HWND hwnd);
+void Dlg_About(HWND hwnd);
+void Dlg_OpenEnc(HWND hwnd);
+void DlgCenterOwner(HWND hdlg);
+void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re);
+LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re,
+                BOOL down, LONG start, BOOL wrap, BOOL* found);
+int  Find_TextToUtf8(const wchar_t* src, char* utf8, int utf8Max);
+void Json_FormatActiveDoc(BOOL minify);
+enum {
+    DT_B64_ENC = 0, DT_B64_DEC, DT_URL_ENC, DT_URL_DEC, DT_UNI_ESC, DT_UNI_UNESC
+};
+void DevTools_TransformActiveDoc(int op);
+void DevTools_InsertUuid(void);
+void DevTools_ShowHashDlg(HWND parent);
+void DevTools_ShowTsDlg(HWND parent);
+char* DevUtil_B64Encode(const char* in, size_t n, size_t* outN);
+BOOL  DevUtil_B64Decode(const char* in, size_t n, char** out, size_t* outN, size_t* errPos);
+char* DevUtil_UrlEncode(const char* in, size_t n, size_t* outN);
+BOOL  DevUtil_UrlDecode(const char* in, size_t n, char** out, size_t* outN, size_t* errPos);
+char* DevUtil_Escape(const char* in, size_t n, size_t* outN);
+BOOL  DevUtil_Unescape(const char* in, size_t n, char** out, size_t* outN, size_t* errPos);
+BOOL  DevUtil_Hash(const wchar_t* alg, const BYTE* data, DWORD len, BYTE* out, DWORD outLen);
+BOOL  DevUtil_UuidV4(char out[37]);
+typedef struct MdFonts {
+    HFONT body, bold, emph, boldemph;
+    HFONT h[6];
+    HFONT mono;
+    HFONT sm;
+    HFONT mathIt, mathUp, mathItS, mathUpS, mathItSS, mathUpSS;
+    int  lineH;
+} MdFonts;
+typedef struct MdTheme {
+    COLORREF bg, fg, fgMuted;
+    COLORREF head;
+    COLORREF link;
+    COLORREF quoteBar;
+    COLORREF codeBg, codeBorder, codeFg;
+    COLORREF synKw, synStr, synCom, synNum, synPre;
+    COLORREF tableLine, tableHeadBg;
+    COLORREF hrule;
+    COLORREF selBg;
+    COLORREF merNodeFill, merNodeBorder, merNodeText, merEdge;
+    COLORREF merLabelBg, merLabelFg;
+    COLORREF seqNoteBg, seqNoteBorder, seqNoteFg;
+    COLORREF frame;
+} MdTheme;
+enum { HL_KW = 1, HL_STR, HL_COM, HL_NUM, HL_PRE };
+typedef struct { int pos, len; unsigned char type; } CodeSpan;
+int MdHl_Tokenize(const wchar_t* code, int len, const char* lang, CodeSpan** out);
+typedef struct MermaidDiagram MermaidDiagram;
+MermaidDiagram* Mermaid_Parse(const char* src, int len);
+void  Mermaid_Free(MermaidDiagram* d);
+SIZE  Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f);
+void  Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
+                   const MdFonts* f, const MdTheme* th);
+enum { STY_BOLD = 1, STY_EM = 2, STY_CODE = 4, STY_STRIKE = 8,
+       STY_LINK = 16, STY_IMG = 32, STY_BR = 64,
+       STY_MATH = 128, STY_MATHDISP = 256,
+       STY_KW = 512, STY_STR = 1024, STY_COM = 2048, STY_NUM = 4096,
+       STY_PRE = 8192 };
+typedef struct MdRun {
+    wchar_t* text;
+    unsigned style;
+    wchar_t* href;
+    wchar_t* link;
+    int imgW;
+    struct MathBox* math;
+} MdRun;
+typedef struct MdBlock MdBlock;
+typedef enum {
+    MDB_P, MDB_H, MDB_CODE, MDB_HTML, MDB_HR,
+    MDB_QUOTE, MDB_UL, MDB_OL, MDB_LI, MDB_TABLE
+} MdBlockType;
+struct MdBlock {
+    int type;
+    MdRun* runs; int nRuns, capRuns;
+    int level;
+    wchar_t* code; int codeLen;
+    CodeSpan* hl; int hlN;
+    char* mmdSrc; int mmdSrcLen;
+    char fenceLang[24];
+    MermaidDiagram* diag;
+    BOOL isTask; wchar_t taskMark;
+    int itemNum; wchar_t itemDelim;
+    BOOL tight;
+    int nCols, nRows;
+    int* aligns;
+    MdBlock** cells;
+    MdBlock** children; int nChildren, capChildren;
+};
+typedef enum {
+    MB_ROW, MB_GLYPHS, MB_FRAC, MB_SCRIPT, MB_RADICAL, MB_BIGOP, MB_ENV
+} MbKind;
+enum {
+    MBENV_PLAIN = 0,
+    MBENV_PAREN,
+    MBENV_BRACKET,
+    MBENV_BRACE,
+    MBENV_VBAR,
+    MBENV_VVBAR,
+    MBENV_CASES
+};
+typedef struct MathBox MathBox;
+struct MathBox {
+    MbKind kind;
+    int w, h, asc;
+    struct MathBox** kids; int nKids;
+    wchar_t* text;
+    int level;
+    BOOL italic;
+    int spaceAfter;
+    int raiseY;
+    int env;
+    int cols;
+};
+MathBox* Math_Build(const wchar_t* latex);
+void  Math_Free(MathBox* b);
+void  Math_Measure(MathBox* b, HDC hdc, const MdFonts* f);
+void  Math_MeasureCacheReset(void);
+void  MdNormalizeMathDelims(char* utf8, DWORD* len);
+void  Math_Draw(const MathBox* b, HDC hdc, int x, int yBase,
+                const MdTheme* th, const MdFonts* f);
+int   Math_Width(const MathBox* b);
+int   Math_Height(const MathBox* b);
+int   Math_Ascent(const MathBox* b);
+const MdBlock* MdView_EnsureDocModel(void);
+const MdFonts* MdView_DocFonts(HDC hdc);
+BOOL MdView_ResolveImage(const wchar_t* href, wchar_t* out, int cch);
+BOOL MdView_ImageSize(const wchar_t* full, UINT* w, UINT* h);
+void MdView_Register(void);
+void MdView_Create(HWND parent);
+void MdView_Toggle(void);
+void MdView_ToggleSplit(void);
+void MdView_OnActivate(void);
+void MdView_OnLayout(int x, int y, int w, int h);
+BOOL MdView_IsVisible(void);
+void MdView_OnDpiChanged(void);
+void MdView_OnThemeChange(void);
+void MdView_OnZoom(void);
+void MdView_RefreshIfActive(int index);
+void MdView_Reset(void);
+void Mermaid_FontsChanged(void);
+void MdView_SyncScrollFromEdit(double frac);
+double MdView_GetScrollFraction(void);
+void MdTheme_Build(MdTheme* th);
+extern BOOL g_mdOutline;
+void MdOutline_Register(void);
+void MdOutline_Create(HWND parent);
+BOOL MdOutline_IsVisible(void);
+int  MdOutline_Width(void);
+void MdOutline_OnLayout(int x, int y, int w, int h);
+void MdOutline_OnDocChange(void);
+void MdOutline_Toggle(void);
+void MdOutline_NotifyModified(int index);
+void MdOutline_OnCaretLine(int line);
+void MdOutline_OnThemeChange(void);
+void MdOutline_OnDpiChanged(void);
+extern BOOL g_fileTree;
+void FileTree_Register(void);
+void FileTree_Create(HWND parent);
+BOOL FileTree_IsVisible(void);
+int  FileTree_Width(void);
+void FileTree_OnLayout(int x, int y, int w, int h);
+void FileTree_OnDocChange(void);
+void FileTree_Toggle(void);
+void FileTree_OnThemeChange(void);
+void FileTree_OnDpiChanged(void);
+void FileDiff_Run(void);
+void MdImg_Init(HWND notifyWnd);
+BOOL MdImg_CachePath(const wchar_t* url, wchar_t* out, int cch);
+void MdImg_Ensure(const wchar_t* url);
+double Editor_SyncScrollFromPreview(double frac);
+void MdExport_Html(void);
+void MdExport_Pdf(void);
+void MdExport_Docx(void);
+BOOL MdView_PrintPages(HDC hdc, int printableW, int printableH);
+void ShowError(const wchar_t* msg);
+int  WFmtV(wchar_t* buf, int cch, const wchar_t* fmt, ...);
+#define WFmt(buf, ...) WFmtV((buf), (int)(sizeof(buf) / sizeof(wchar_t)), __VA_ARGS__)
+void AddRecent(const wchar_t* path);
+void RefreshRecentMenu(void);
+void ApplyTitleBarTheme(HWND hwnd);
+void TabBar_Register(void);
+void TabBar_ApplyTheme(void);
+int  TabBar_HitTestPublic(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow);
+void Toolbar_Register(void);
+void Toolbar_UpdateStates(void);
+void StatusBar_Register(void);
+void StatusBar_SetParts(const int* rightEdges, int n);
+BOOL StatusBar_SetText(int part, const wchar_t* text);
+void ScrollBars_Create(HWND parent);
+int  ScrollBars_TotalLines(HWND hed);
+int  ScrollBars_Thickness(void);
+void ScrollBars_Layout(int x, int y, int w, int h, int thickness, BOOL showH);
+void ScrollBars_Update(void);
+void ScrollBars_Repaint(void);
+BOOL DiskWriteTimePublic(const wchar_t* path, FILETIME* ft);
+BOOL Session_IniPath(wchar_t* out, DWORD cch);
+void Session_Save(void);
+void Session_SaveDrafts(void);
+void Session_DiscardDraft(int index);
+int  Session_Restore(void);
+void Session_SaveWindow(HWND hwnd);
+int  Session_RestoreWindow(HWND hwnd, int nShowCmd);
+void Settings_Load(void);
+void Settings_Save(void);
+void Session_AutoBackupWrite(int index);
+void Session_FlushDirtyAsync(void);
+void Session_WaitBackupDone(void);
+void Session_AutoBackupDiscard(const wchar_t* path);
+BOOL Session_AutoBackupExists(const wchar_t* path);
+BOOL Session_AutoBackupRead(const wchar_t* path, char** out, DWORD* len);
+#endif

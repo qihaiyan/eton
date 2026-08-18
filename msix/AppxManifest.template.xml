@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  eton MSIX 清单模板。__NAME__ / __PUBLISHER__ / __VERSION__ 由 pack-msix.ps1 替换。
+
+  提交微软商店时:
+    __NAME__      = Partner Center 保留的应用名(Package/Identity Name)
+    __PUBLISHER__ = Partner Center 显示的 Publisher 字符串(形如 CN=XXXXXXXX-....)
+    __VERSION__   = 四段式版本号(如 0.0.1.0),每次提交需递增
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4">
+
+  <Identity Name="__NAME__"
+            Version="__VERSION__"
+            Publisher="__PUBLISHER__"
+            ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>ETON</DisplayName>
+    <PublisherDisplayName>海易华天</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Resources>
+    <Resource Language="zh-CN" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Dependencies>
+    <!-- desktop4:FileExplorerContextMenus 需要 10.0.18362 -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.18362.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="eton"
+                 Executable="eton.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="ETON"
+        Description="ms-resource:AppDescription"
+        BackgroundColor="transparent"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        Square150x150Logo="Assets\Square150x150Logo.png" />
+      <Extensions>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="textfiles">
+            <uap:DisplayName>ETON</uap:DisplayName>
+            <uap:InfoTip>用 ETON 文本编辑器打开</uap:InfoTip>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.txt</uap:FileType>
+              <uap:FileType>.log</uap:FileType>
+              <uap:FileType>.ini</uap:FileType>
+              <uap:FileType>.cfg</uap:FileType>
+              <uap:FileType>.conf</uap:FileType>
+              <uap:FileType>.md</uap:FileType>
+              <uap:FileType>.markdown</uap:FileType>
+              <uap:FileType>.json</uap:FileType>
+              <uap:FileType>.xml</uap:FileType>
+              <uap:FileType>.yaml</uap:FileType>
+              <uap:FileType>.yml</uap:FileType>
+              <uap:FileType>.toml</uap:FileType>
+              <uap:FileType>.csv</uap:FileType>
+              <uap:FileType>.c</uap:FileType>
+              <uap:FileType>.h</uap:FileType>
+              <uap:FileType>.cpp</uap:FileType>
+              <uap:FileType>.hpp</uap:FileType>
+              <uap:FileType>.cc</uap:FileType>
+              <uap:FileType>.cs</uap:FileType>
+              <uap:FileType>.java</uap:FileType>
+              <uap:FileType>.py</uap:FileType>
+              <uap:FileType>.go</uap:FileType>
+              <uap:FileType>.rs</uap:FileType>
+              <uap:FileType>.js</uap:FileType>
+              <uap:FileType>.ts</uap:FileType>
+              <uap:FileType>.html</uap:FileType>
+              <uap:FileType>.htm</uap:FileType>
+              <uap:FileType>.css</uap:FileType>
+              <uap:FileType>.sh</uap:FileType>
+              <uap:FileType>.ps1</uap:FileType>
+              <uap:FileType>.sql</uap:FileType>
+              <uap:FileType>.rc</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <!-- .md/.markdown 右键"用 Eton 编辑"：IExplorerCommand 见 src/etonctx.c -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop4:ItemType Type=".md">
+              <desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" />
+            </desktop4:ItemType>
+            <desktop4:ItemType Type=".markdown">
+              <desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" />
+            </desktop4:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer AppId="B3E27C4A-1F58-4D69-8A04-2E9C5F30D812" DisplayName="ETON Context Menu">
+              <com:Class Id="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" Path="etonctx.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>
