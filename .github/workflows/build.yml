@@ -73,7 +73,7 @@ jobs:
         shell: cmd
         run: |
           dotnet tool install --global wix
-          "%USERPROFILE%\.dotnet\tools\wix.exe" build -arch x64 eton.wxs -d Version=%VERSION% -o eton-%VERSION%-x64.msi
+          "%USERPROFILE%\.dotnet\tools\wix.exe" build -arch x64 eton.wxs -d Version=%VERSION% -acceptEula wix7 -o eton-%VERSION%-x64.msi
 
       - name: Sign MSI
         if: steps.cert.outputs.exists == 'true'
