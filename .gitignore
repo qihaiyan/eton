@@ -62,4 +62,3 @@ build/
 
 # Stray image files not used by the build
 *- 副本*
-res/app.png
