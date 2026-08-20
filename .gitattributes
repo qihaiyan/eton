@@ -15,4 +15,5 @@
 # Binaries
 *.lib binary
 *.ico binary
+*.png binary
 *.exe binary
