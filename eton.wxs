@@ -19,7 +19,7 @@
     <Property Id="ARPPRODUCTICON" Value="appico" />
     <Icon Id="appico" SourceFile="res\app.ico" />
 
-    <StandardDirectory Id="ProgramFiles64326Folder">
+    <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="eton" />
     </StandardDirectory>
 
