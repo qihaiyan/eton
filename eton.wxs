@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  eton MSI installer definition (WiX v4+ syntax).
+  Version is injected at build time:  wix build -d Version=x.y.z
+  Install scope: per-machine (Program Files), Start Menu shortcut included.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="eton"
+      Manufacturer="HaiYan"
+      Version="$(var.Version)"
+      UpgradeCode="fc3cc7cb-585f-4710-bb39-7f6657821fb2"
+      Scope="perMachine"
+      Language="1033">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of eton is already installed." AllowSameVersionUpgrades="yes" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ARPPRODUCTICON" Value="appico" />
+    <Icon Id="appico" SourceFile="res\app.ico" />
+
+    <StandardDirectory Id="ProgramFiles64326Folder">
+      <Directory Id="INSTALLFOLDER" Name="eton" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuDir" Name="eton" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="eton" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+    <Component Id="MainExecutable" Directory="INSTALLFOLDER">
+      <File Id="eton.exe" Source="eton.exe" KeyPath="yes" />
+    </Component>
+
+    <Component Id="StartMenuShortcut" Directory="AppMenuDir">
+      <Shortcut Id="StartMenuEton"
+                Name="eton"
+                Description="eton text editor"
+                Target="[INSTALLFOLDER]eton.exe"
+                WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveAppMenuDir" Directory="AppMenuDir" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\eton" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+  </Package>
+</Wix>

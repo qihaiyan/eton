@@ -1,13 +1,16 @@
-# Build eton.exe only when a GitHub Release is published, or when triggered
-# manually from the Actions tab. The binary is signed when a code signing
-# certificate is configured (secrets CODESIGN_PFX_B64 / CODESIGN_PFX_PASSWORD)
-# and is attached to the release as an asset.
+# Build eton.exe and an MSI installer only when a GitHub Release is published,
+# or when triggered manually from the Actions tab. Both files are signed when
+# a code signing certificate is configured (secrets CODESIGN_PFX_B64 /
+# CODESIGN_PFX_PASSWORD) and are attached to the release as assets.
 #
 # Signing options that work with this workflow as-is:
 #   Any certificate you can export as a PFX (base64 into CODESIGN_PFX_B64).
 # For cloud-based signing (new certs are hardware-bound since June 2023 and
-# cannot be exported as PFX), swap the sign step for the vendor's action,
+# cannot be exported as PFX), swap the sign steps for the vendor's action,
 # e.g. Microsoft Trusted Signing: Microsoft/trusted-signing-action@v0
+#
+# Version: release tag v1.2.3 -> MSI ProductVersion 1.2.3;
+#          manual dispatch  -> 0.0.<run number>
 name: Build
 
 on:
@@ -26,6 +29,15 @@ jobs:
 
       # Sets up MSVC + Windows SDK in PATH (also makes signtool available)
       - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Determine version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_NAME" == v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=0.0.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          fi
 
       - name: Build
         shell: cmd
@@ -52,21 +64,41 @@ jobs:
           PFX_PASSWORD: ${{ secrets.CODESIGN_PFX_PASSWORD }}
         run: signtool sign /nologo /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f codesign.pfx /p "%PFX_PASSWORD%" eton.exe
 
-      - name: Verify signature
+      - name: Verify exe signature
         if: steps.cert.outputs.exists == 'true'
         shell: cmd
         run: signtool verify /pa /all eton.exe
 
-      - name: Upload artifact
+      - name: Build MSI installer
+        shell: cmd
+        run: |
+          dotnet tool install --global wix
+          "%USERPROFILE%\.dotnet\tools\wix.exe" build -arch x64 eton.wxs -d Version=%VERSION% -o eton-%VERSION%-x64.msi
+
+      - name: Sign MSI
+        if: steps.cert.outputs.exists == 'true'
+        shell: cmd
+        env:
+          PFX_PASSWORD: ${{ secrets.CODESIGN_PFX_PASSWORD }}
+        run: signtool sign /nologo /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f codesign.pfx /p "%PFX_PASSWORD%" "eton-%VERSION%-x64.msi"
+
+      - name: Verify MSI signature
+        if: steps.cert.outputs.exists == 'true'
+        shell: cmd
+        run: signtool verify /pa "eton-%VERSION%-x64.msi"
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: eton-windows-x64
-          path: eton.exe
+          path: |
+            eton.exe
+            eton-*-x64.msi
           if-no-files-found: error
 
-      - name: Attach binary to the release
+      - name: Attach files to the release
         if: github.event_name == 'release'
         shell: cmd
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "%GITHUB_REF_NAME%" eton.exe --clobber
+        run: gh release upload "%GITHUB_REF_NAME%" eton.exe "eton-%VERSION%-x64.msi" --clobber
