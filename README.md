@@ -43,8 +43,9 @@ eton/
 │   ├── scintilla/     #   libscintilla.lib + 头文件
 │   └── lexilla/       #   liblexilla.lib + 头文件
 ├── res/
-│   ├── app.ico        # 程序图标（32×32 32bit）
-│   └── make_ico.py    # 生成 app.ico 的脚本（可选，已生成好）
+│   ├── app.png        # 程序图标源图（1080×1080）
+│   ├── app.ico        # 程序图标（由 app.png 生成，16–256px 多尺寸）
+│   └── make_ico.py    # 从 app.png 生成 app.ico 的脚本（可选，需 Pillow）
 └── src/
     ├── common.h       # 全局结构、枚举、跨模块函数声明（含 resource.h）
     ├── resource.h     # 菜单/命令/控件/对话框 的所有 ID 常量
