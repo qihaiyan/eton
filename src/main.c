@@ -31,7 +31,7 @@ BOOL g_suppressDirty = FALSE;
 BOOL g_draftsDirty = FALSE;   /* 有未命名文档内容变化，待写草稿 */
 
 void ShowError(const wchar_t* msg) {
-    MessageBoxW(NULL, msg, L"eton", MB_ICONERROR);
+    MessageBoxW(NULL, msg, L"ETON", MB_ICONERROR);
 }
 
 /* ---------------- recent files ---------------- */
@@ -208,7 +208,7 @@ static BOOL ConfirmExit(void) {
         if (g_docs[i].dirty && !g_docs[i].isNew) {   /* 草稿自动保存，无需确认 */
             wchar_t msg[300];
             wsprintf(msg, L"文件 \"%s\" 尚未保存，是否保存？", g_docs[i].title);
-            int r = MessageBoxW(g_hwndMain, msg, L"eton", MB_YESNOCANCEL | MB_ICONQUESTION);
+            int r = MessageBoxW(g_hwndMain, msg, L"ETON", MB_YESNOCANCEL | MB_ICONQUESTION);
             if (r == IDCANCEL) return FALSE;
             if (r == IDYES) { if (!Editor_SaveDoc(i, FALSE)) return FALSE; }
         }
@@ -385,7 +385,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     wc.lpszClassName = L"etonClass";
     RegisterClassExW(&wc);
 
-    HWND hwnd = CreateWindowExW(0, L"etonClass", L"eton",
+    HWND hwnd = CreateWindowExW(0, L"etonClass", L"ETON",
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 900, 640,
         NULL, NULL, hInst, NULL);
     if (!hwnd) return 1;

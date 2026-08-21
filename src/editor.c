@@ -480,7 +480,7 @@ void Editor_CloseDoc(int index) {
     if (!g_docs[index].isNew && g_docs[index].dirty) {
         wchar_t msg[300];
         wsprintf(msg, L"文件 \"%s\" 已修改，是否保存后再关闭？", g_docs[index].title);
-        int r = MessageBoxW(g_hwndMain, msg, L"eton", MB_YESNOCANCEL | MB_ICONQUESTION);
+        int r = MessageBoxW(g_hwndMain, msg, L"ETON", MB_YESNOCANCEL | MB_ICONQUESTION);
         if (r == IDCANCEL) return;
         if (r == IDYES) { if (!Editor_SaveDoc(index, FALSE)) return; }
     } else if (g_docs[index].isNew) {

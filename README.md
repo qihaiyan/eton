@@ -1,4 +1,4 @@
-# eton
+# ETON
 
 一个用 **原生 Win32 C API**（不依赖 MFC / Qt / .NET / Electron）实现的、类 Notepad++ 的 Windows 文本编辑器。
 

@@ -159,10 +159,10 @@ END
 
 IDD_ABOUT DIALOGEX 0, 0, 320, 180
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "关于 eton"
+CAPTION "关于 ETON"
 FONT 9, "Microsoft YaHei"
 BEGIN
-    LTEXT           "eton — 轻量级文本编辑器", IDC_STATIC, 20, 20, 280, 16
+    LTEXT           "ETON — 轻量级文本编辑器", IDC_STATIC, 20, 20, 280, 16
     LTEXT           "基于原生 Win32 API (C) 实现，零第三方依赖。", IDC_STATIC, 20, 44, 280, 16
     LTEXT           "支持多标签、语法高亮、编码转换、查找替换等。", IDC_STATIC, 20, 68, 280, 16
     LTEXT           "版本 1.0  |  构建于 Visual Studio 2026 生成工具", IDC_STATIC, 20, 92, 280, 16
@@ -198,12 +198,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName",      "HaiYan"
-            VALUE "FileDescription",  "eton text editor"
+            VALUE "FileDescription",  "ETON text editor"
             VALUE "FileVersion",      ET_VERSION_STR
             VALUE "InternalName",     "eton"
             VALUE "LegalCopyright",   "Copyright (C) 2026 HaiYan"
             VALUE "OriginalFilename", "eton.exe"
-            VALUE "ProductName",      "eton"
+            VALUE "ProductName",      "ETON"
             VALUE "ProductVersion",   ET_VERSION_STR
         END
     END

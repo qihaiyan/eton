@@ -6,7 +6,7 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
-      Name="eton"
+      Name="ETON"
       Manufacturer="HaiYan"
       Version="$(var.Version)"
       UpgradeCode="fc3cc7cb-585f-4710-bb39-7f6657821fb2"
@@ -20,14 +20,14 @@
     <Icon Id="appico" SourceFile="res\app.ico" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="eton" />
+      <Directory Id="INSTALLFOLDER" Name="ETON" />
     </StandardDirectory>
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="AppMenuDir" Name="eton" />
     </StandardDirectory>
 
-    <Feature Id="Main" Title="eton" Level="1">
+    <Feature Id="Main" Title="ETON" Level="1">
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="StartMenuShortcut" />
     </Feature>
@@ -38,8 +38,8 @@
 
     <Component Id="StartMenuShortcut" Directory="AppMenuDir">
       <Shortcut Id="StartMenuEton"
-                Name="eton"
-                Description="eton text editor"
+                Name="ETON"
+                Description="ETON text editor"
                 Target="[INSTALLFOLDER]eton.exe"
                 WorkingDirectory="INSTALLFOLDER" />
       <RemoveFolder Id="RemoveAppMenuDir" Directory="AppMenuDir" On="uninstall" />
