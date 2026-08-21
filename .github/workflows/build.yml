@@ -39,6 +39,18 @@ jobs:
             echo "VERSION=0.0.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
           fi
 
+      - name: Generate version header
+        shell: bash
+        run: |
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          PATCH="${PATCH%%.*}"
+          cat > src/version.h <<EOF
+          #define ET_VERSION_MAJOR ${MAJOR:-0}
+          #define ET_VERSION_MINOR ${MINOR:-0}
+          #define ET_VERSION_PATCH ${PATCH:-0}
+          #define ET_VERSION_STR   "$VERSION"
+          EOF
+
       - name: Build
         shell: cmd
         run: build.bat auto

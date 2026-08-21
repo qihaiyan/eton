@@ -49,7 +49,8 @@ eton/
 └── src/
     ├── common.h       # 全局结构、枚举、跨模块函数声明（含 resource.h）
     ├── resource.h     # 菜单/命令/控件/对话框 的所有 ID 常量
-    ├── eton.rc        # 菜单、加速键、对话框、图标资源
+    ├── version.h      # 版本号定义（VERSIONINFO 资源用；CI 按发布标签生成）
+    ├── eton.rc        # 菜单、加速键、对话框、图标、版本信息资源
     ├── main.c         # 程序入口、主窗口过程、命令分发、最近文件、拖放
     ├── editor.c       # 多标签/文档管理、Scintilla 控件、缩放、词法器
     ├── tabbar.c       # 自绘标签栏（绘制与点击处理）
