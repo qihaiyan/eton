@@ -7,7 +7,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
       Name="ETON"
-      Manufacturer="HaiYan"
+      Manufacturer="海易华天"
       Version="$(var.Version)"
       UpgradeCode="fc3cc7cb-585f-4710-bb39-7f6657821fb2"
       Scope="perMachine"
