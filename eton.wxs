@@ -11,7 +11,7 @@
       Version="$(var.Version)"
       UpgradeCode="fc3cc7cb-585f-4710-bb39-7f6657821fb2"
       Scope="perMachine"
-      Language="1033">
+      Language="2052">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of eton is already installed." AllowSameVersionUpgrades="yes" />
     <MediaTemplate EmbedCab="yes" />
