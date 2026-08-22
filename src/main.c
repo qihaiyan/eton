@@ -15,6 +15,11 @@
 /* ---------------- globals ---------------- */
 HINSTANCE g_hInst;
 HWND g_hwndMain, g_hwndTab, g_hwndStatus;
+UINT g_dpi = 96;
+
+int UI_Scale(int px) {
+    return MulDiv(px, (int)g_dpi, 96);
+}
 Doc g_docs[MAX_DOCS];
 int g_docCount = 0;
 int g_curDoc = -1;
@@ -327,6 +332,16 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ResizeStatus();
             Editor_Layout();
             return 0;
+        case WM_DPICHANGED: {
+            /* 跨显示器移动时按新 DPI 重设窗口尺寸（按系统建议矩形）并重排界面 */
+            g_dpi = HIWORD(wp);
+            const RECT* sug = (const RECT*)lp;
+            SetWindowPos(hwnd, NULL, sug->left, sug->top,
+                         sug->right - sug->left, sug->bottom - sug->top,
+                         SWP_NOZORDER | SWP_NOACTIVATE);
+            Editor_OnDpiChanged();
+            return 0;
+        }
         case WM_COMMAND:
             return OnCommand(hwnd, wp, lp);
         case WM_DROPFILES: {
@@ -373,6 +388,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     (void)cmdLine; (void)hPrev;
     g_hInst = hInst;
+    g_dpi = GetDpiForSystem();   /* 窗口创建前先取系统 DPI，建窗后再按所在显示器校正 */
     WNDCLASSEXW wc; memset(&wc, 0, sizeof(wc));
     wc.cbSize = sizeof(wc);
     wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -386,9 +402,13 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     RegisterClassExW(&wc);
 
     HWND hwnd = CreateWindowExW(0, L"etonClass", L"ETON",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 900, 640,
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, UI_Scale(900), UI_Scale(640),
         NULL, NULL, hInst, NULL);
     if (!hwnd) return 1;
+    {
+        UINT dpi = GetDpiForWindow(hwnd);   /* 窗口实际落在的显示器可能与系统 DPI 不同 */
+        if (dpi && dpi != g_dpi) { g_dpi = dpi; Editor_OnDpiChanged(); }
+    }
     ShowWindow(hwnd, nShow);
     UpdateWindow(hwnd);
 

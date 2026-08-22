@@ -1,8 +1,8 @@
 #include "common.h"
 
 /* ---------- internal state ---------- */
-static int g_tabHeight = 26;
-static int g_statusHeight = 22;
+static const int TAB_HEIGHT_96 = 26;      /* 96-DPI 基准高度，实际按 g_dpi 缩放 */
+static const int STATUS_HEIGHT_96 = 22;
 
 /* Scintilla lexer names indexed by LangID (1-based in our enum, 0=NONE) */
 static const char* LexerName[] = {
@@ -40,14 +40,16 @@ void Editor_ApplyThemeColors(void) {
 }
 
 /* ---------- font ---------- */
-void Editor_SetFont(void) {
+static void RecreateTabFont(void) {
     if (g_hFont) DeleteObject(g_hFont);
-    HDC hdc = GetDC(NULL);
-    int h = -MulDiv(g_fontSize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
-    ReleaseDC(NULL, hdc);
+    int h = -MulDiv(g_fontSize, (int)g_dpi, 72);
     g_hFont = CreateFontW(h, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                           DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
+}
+
+void Editor_SetFont(void) {
+    RecreateTabFont();
     /* Apply to all Scintilla editors via SCI_STYLESETFONT (expects UTF-8 name) */
     for (int i = 0; i < g_docCount; i++) {
         if (g_docs[i].hwndEdit) {
@@ -57,6 +59,14 @@ void Editor_SetFont(void) {
         }
     }
     Editor_Layout();
+}
+
+/* DPI 变化（跨显示器拖动）：重建标签栏字体并重排。Scintilla 字号为磅值，
+   由其内部按窗口 DPI 自行缩放，无需干预。 */
+void Editor_OnDpiChanged(void) {
+    RecreateTabFont();
+    Editor_Layout();
+    InvalidateRect(g_hwndTab, NULL, TRUE);
 }
 
 /* ---------- init ---------- */
@@ -321,9 +331,12 @@ void Editor_ComputeGutterWidth(int index) {
     int lines = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
     int digits = 3;
     int t = lines; while (t >= 10) { digits++; t /= 10; }
-    /* Scintilla measures in pixels; ~8px per digit for Consolas 11pt */
-    int w = digits * 8 + 6;
-    if (w < 36) w = 36;
+    /* 用行号样式的真实字宽测量（随 DPI/字号自动正确），替代固定像素估算 */
+    char nines[24];
+    memset(nines, '9', (size_t)digits);
+    nines[digits] = '\0';
+    int w = (int)SendMessage(hed, SCI_TEXTWIDTH, STYLE_LINENUMBER, (LPARAM)nines) + UI_Scale(8);
+    if (w < UI_Scale(36)) w = UI_Scale(36);
     g_gutterWidth = w;
     SendMessage(hed, SCI_SETMARGINWIDTHN, 0, w);  /* margin 0 = line numbers */
 }
@@ -331,12 +344,14 @@ void Editor_ComputeGutterWidth(int index) {
 void Editor_Layout(void) {
     RECT rc; GetClientRect(g_hwndMain, &rc);
     int cx = rc.right, cy = rc.bottom;
+    int tabH = UI_Scale(TAB_HEIGHT_96);
+    int statusH = UI_Scale(STATUS_HEIGHT_96);
 
-    SetWindowPos(g_hwndTab, NULL, 0, 0, cx, g_tabHeight, SWP_NOZORDER);
-    SetWindowPos(g_hwndStatus, NULL, 0, cy - g_statusHeight, cx, g_statusHeight, SWP_NOZORDER);
+    SetWindowPos(g_hwndTab, NULL, 0, 0, cx, tabH, SWP_NOZORDER);
+    SetWindowPos(g_hwndStatus, NULL, 0, cy - statusH, cx, statusH, SWP_NOZORDER);
 
-    int top = g_tabHeight;
-    int bottom = cy - g_statusHeight;
+    int top = tabH;
+    int bottom = cy - statusH;
     int h = bottom - top;
 
     if (g_curDoc >= 0 && g_curDoc < g_docCount) {

@@ -13,9 +13,9 @@ static void TabBar_Rects(HWND hwnd, RECT* out, int* n) {
         HFONT old = (HFONT)SelectObject(hdc, g_hFont);
         SIZE sz; GetTextExtentPoint32W(hdc, g_docs[i].title, (int)wcslen(g_docs[i].title), &sz);
         SelectObject(hdc, old); ReleaseDC(hwnd, hdc);
-        int w = sz.cx + 40;
-        if (w < 90) w = 90;
-        if (w > 240) w = 240;
+        int w = sz.cx + UI_Scale(40);
+        if (w < UI_Scale(90)) w = UI_Scale(90);
+        if (w > UI_Scale(240)) w = UI_Scale(240);
         out[i].left = x; out[i].top = 0;
         out[i].right = x + w; out[i].bottom = rc.bottom;
         x += w;
@@ -43,11 +43,11 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, g_dark ? RGB(220,220,220) : RGB(0,0,0));
             HFONT old = (HFONT)SelectObject(hdc, g_hFont);
-            RECT tr = {rects[i].left + 8, rects[i].top, rects[i].right - 18, rects[i].bottom};
+            RECT tr = {rects[i].left + UI_Scale(8), rects[i].top, rects[i].right - UI_Scale(18), rects[i].bottom};
             DrawTextW(hdc, g_docs[i].title, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             SelectObject(hdc, old);
-            RECT cb = {rects[i].right - 16, rects[i].top + (rects[i].bottom - rects[i].top)/2 - 7,
-                       rects[i].right - 4,  rects[i].top + (rects[i].bottom - rects[i].top)/2 + 7};
+            RECT cb = {rects[i].right - UI_Scale(16), rects[i].top + (rects[i].bottom - rects[i].top)/2 - UI_Scale(7),
+                       rects[i].right - UI_Scale(4),  rects[i].top + (rects[i].bottom - rects[i].top)/2 + UI_Scale(7)};
             wchar_t xc[2] = {L'x', 0};
             DrawTextW(hdc, xc, 1, &cb, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
@@ -60,8 +60,8 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         RECT rects[MAX_DOCS]; int n = 0; TabBar_Rects(hwnd, rects, &n);
         for (int i = 0; i < n; i++) {
             if (mx >= rects[i].left && mx < rects[i].right) {
-                RECT cb = {rects[i].right - 16, rects[i].top + 4,
-                           rects[i].right - 4,  rects[i].bottom - 4};
+                RECT cb = {rects[i].right - UI_Scale(16), rects[i].top + 4,
+                           rects[i].right - UI_Scale(4),  rects[i].bottom - 4};
                 if (mx >= cb.left && mx <= cb.right && my >= cb.top && my <= cb.bottom) {
                     PostMessage(g_hwndMain, WM_APP_TABCLOSE, (WPARAM)i, 0);
                 } else {

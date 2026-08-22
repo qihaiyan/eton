@@ -52,6 +52,8 @@ typedef struct {
 /* globals (defined in main.c) */
 extern HINSTANCE g_hInst;
 extern HWND g_hwndMain, g_hwndTab, g_hwndStatus;
+extern UINT g_dpi;            /* 主窗口当前 DPI（96 基准，随 WM_DPICHANGED 更新） */
+int UI_Scale(int px);         /* 96-DPI 基准像素值 → 当前 DPI 实际像素 */
 extern Doc g_docs[MAX_DOCS];
 extern int g_docCount;
 extern int g_curDoc;
@@ -77,6 +79,7 @@ void Editor_CloseDoc(int index);
 void Editor_Activate(int index);
 void Editor_Layout(void);
 void Editor_SetFont(void);
+void Editor_OnDpiChanged(void);
 void Editor_Zoom(int delta);
 void Editor_ApplyTheme(int index);
 void Editor_SetLang(int index, LangID lang);
