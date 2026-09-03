@@ -1,14 +1,12 @@
 #include "common.h"
 
+/* 打开文件的大小上限：转换过程内存放大约 4~5 倍，超限拒绝打开 */
+#define BIGFILE_LIMIT (100ULL * 1024 * 1024)
+
 const wchar_t* EncodingName(Encoding e) {
-    switch (e) {
-        case ENC_ANSI:     return L"ANSI";
-        case ENC_UTF8:     return L"UTF-8";
-        case ENC_UTF8_BOM: return L"UTF-8 BOM";
-        case ENC_UTF16LE:  return L"UTF-16 LE";
-        case ENC_UTF16BE:  return L"UTF-16 BE";
-    }
-    return L"?";
+    /* 编码显示名与编码菜单/对话框共用一套文案（随界面语言切换，见 i18n.c） */
+    if ((int)e < 0 || (int)e > ENC_UTF16BE) return L"?";
+    return T((StrId)(STR_ENCNAME_ANSI + (int)e));
 }
 
 /* detect BOM / try utf8 */
@@ -79,7 +77,7 @@ static wchar_t* NormalizeNewlines(const wchar_t* src, DWORD len, int* outEol) {
 
 wchar_t* LoadFileToWStr(const wchar_t* path, Encoding enc, DWORD* outLenChars, int* outEol) {
     HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) { ShowError(L"无法打开文件。"); return NULL; }
+    if (h == INVALID_HANDLE_VALUE) { ShowError(T(STR_MSG_CANT_OPEN)); return NULL; }
     DWORD size = GetFileSize(h, NULL);
     BYTE* raw = (BYTE*)malloc(size ? size : 1);
     if (!raw) { CloseHandle(h); return NULL; }
@@ -196,7 +194,7 @@ BOOL SaveWStrToFile(const wchar_t* path, const wchar_t* text, DWORD lenChars, En
     }
 
     HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) { ShowError(L"无法写入文件。"); free(bytes); free(conv); return FALSE; }
+    if (h == INVALID_HANDLE_VALUE) { ShowError(T(STR_MSG_CANT_WRITE)); free(bytes); free(conv); return FALSE; }
     DWORD wr = 0;
     if (byteLen > 0) ok = WriteFile(h, bytes, byteLen, &wr, NULL);
     CloseHandle(h);
@@ -218,8 +216,16 @@ BOOL HasUnsupportedForAnsi(const wchar_t* text, DWORD len) {
    everything to UTF-8. Also detects EOL type. */
 char* LoadFileToUtf8(const wchar_t* path, Encoding* detectedEnc, int* outEol) {
     HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) { ShowError(L"无法打开文件。"); return NULL; }
+    if (h == INVALID_HANDLE_VALUE) { ShowError(T(STR_MSG_CANT_OPEN)); return NULL; }
     DWORD size = GetFileSize(h, NULL);
+    /* 超大文件保护：转换过程内存放大约 4~5 倍，超过上限直接拒绝 */
+    if (size > BIGFILE_LIMIT) {
+        wchar_t msg[128];
+        wsprintf(msg, T(STR_MSG_FILE_TOO_BIG), (int)(BIGFILE_LIMIT / (1024 * 1024)));
+        ShowError(msg);
+        CloseHandle(h);
+        return NULL;
+    }
     BYTE* raw = (BYTE*)malloc(size ? size : 1);
     if (!raw) { CloseHandle(h); return NULL; }
     DWORD rd = 0;
@@ -334,7 +340,7 @@ BOOL SaveUtf8ToFile(const wchar_t* path, const char* text, DWORD len, Encoding e
     }
 
     HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) { ShowError(L"无法写入文件。"); free(bytes); free(conv); return FALSE; }
+    if (h == INVALID_HANDLE_VALUE) { ShowError(T(STR_MSG_CANT_WRITE)); free(bytes); free(conv); return FALSE; }
     DWORD wr = 0;
     if (byteLen > 0) ok = WriteFile(h, bytes, byteLen, &wr, NULL);
     CloseHandle(h);

@@ -12,22 +12,27 @@
 
 | 类别 | 说明 |
 | --- | --- |
-| 多标签 | 自定义标签栏（含 × 关闭按钮），可同时编辑多个文件 |
-| 语法高亮 | 9 种语言：C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL（基于 Scintilla + Lexilla 词法器） |
-| 多编码 | ANSI(系统代码页) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE，打开时自动探测 BOM，状态栏显示当前编码 |
+| 多标签 | 自定义标签栏（含 × 关闭按钮），可同时编辑多个文件；Ctrl+Tab / Ctrl+Shift+Tab（或 Ctrl+PgDn/PgUp）循环切换；标签放不下自动出现 ◀▶ 滚动按钮并支持滚轮滚动；中键关闭、双击空白新建、悬停显示完整路径、右键菜单（关闭/关闭其他/关闭全部） |
+| 界面语言 | 简体中文 / English 双语界面，`帮助` 菜单底部直接勾选切换，运行时即时生效（菜单、对话框、消息、状态栏全部跟随）；选择保存在 session.ini，未选择过时首次启动跟随系统 UI 语言 |
+| 语法高亮 | 9 种语言：C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL（基于 Scintilla + Lexilla 词法器）；按扩展名自动识别，也可在语言菜单手动切换；语法语言下显示代码折叠边距（点击 +/− 折叠/展开） |
+| 多编码 | ANSI(系统代码页) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE，打开时自动探测 BOM，状态栏显示当前编码；另存 ANSI 时若内容含无法表示的字符会提示乱码风险 |
 | 行尾转换 | CRLF / LF / CR，可一键"转换为…"；新文档及探测不到行尾的文件默认 Unix (LF)，打开已有文件时按内容自动探测并保持 |
 | JSON 工具 | 编辑菜单：JSON 格式化（Ctrl+Shift+F）/ JSON 压缩（Ctrl+Shift+M）；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
-| 查找 / 替换 / 转到 | 支持区分大小写、全词匹配、向上/向下、循环查找；`替换` 支持单个替换与全部替换；`转到行` |
+| 查找 / 替换 / 转到 | 非模态查找对话框（查找时可继续编辑，Enter=查找下一个，Esc=关闭）；支持区分大小写、全词匹配、正则表达式、向上/向下、循环查找；命中项全部高亮显示；`替换` 支持单个替换与全部替换（正则支持  分组引用）；`转到行` |
+| 书签 | Ctrl+F2 切换当前行书签、F2 / Shift+F2 在书签间跳转，书签行整行高亮 |
 | 最近文件 | 自动记录最近打开的文件，菜单可一键重新打开 |
-| 行号槽 | Scintilla 内建行号 margin，随编辑区滚动实时同步 |
+| 行号槽 | Scintilla 内建行号 margin，随编辑区滚动实时同步；当前行自动高亮 |
 | 缩放 | Ctrl+= 放大 / Ctrl+- 缩小 / Ctrl+0 复位，状态栏显示缩放比例 |
 | 自动换行 | 视图菜单可切换软换行 |
 | 状态栏 | 实时显示 字符数 / 行 / 列 / 编码 / 行尾 / 缩放 |
-| 主题 | 亮色与暗色两套配色，语法高亮颜色随之切换 |
+| 主题 | 亮色与暗色两套配色，标题栏、菜单（含下拉/右键弹窗）、对话框、标签栏、编辑区、滚动条、状态栏全部跟随；系统 MessageBox 仍为系统样式 |
+| 设置记忆 | 主题 / 自动换行 / 行号 / 字号 / 界面语言随退出保存、启动恢复 |
 | 启动参数 | 可 `eton.exe 文件1 文件2 …` 直接打开多个文件 |
 | 文件拖放 | 从资源管理器拖文件到窗口即可打开，支持一次拖入多个；已打开的文件切换到对应标签，目录自动忽略 |
 | 会话恢复 | 按原顺序记住上次的全部标签（文件与未命名草稿的相对位置不变）及激活标签，下次启动自动恢复（带命令行参数启动时不恢复）；已删除的文件自动跳过 |
-| 草稿 | 未命名文档的内容自动保存草稿（每 10 秒定时落盘），崩溃或直接退出后可恢复；草稿关闭/退出均无"未保存"提示，关闭标签即弃稿，清空内容自动移除 |
+| 草稿与备份 | 未命名文档内容每 10 秒保存草稿，崩溃后可恢复；已保存文件的未保存修改也每 10 秒自动备份（autoback），异常退出后再次打开该文件时询问是否恢复；关闭标签或保存后备份自动清除 |
+| 外部修改检测 | 保存前检测文件是否被其他程序修改并提示覆盖风险；切回窗口时检测磁盘变化并询问是否重新加载（仅限未编辑的文档） |
+| 大文件保护 | 超过 100 MB 的文件拒绝打开并提示，避免内存放大导致卡死 |
 
 ---
 
@@ -47,14 +52,16 @@ eton/
 │   ├── app.ico        # 程序图标（由 app.png 生成，16–256px 多尺寸）
 │   └── make_ico.py    # 从 app.png 生成 app.ico 的脚本（可选，需 Pillow）
 └── src/
-    ├── common.h       # 全局结构、枚举、跨模块函数声明（含 resource.h）
+    ├── common.h       # 全局结构、枚举、跨模块函数声明（含 resource.h、i18n.h）
     ├── resource.h     # 菜单/命令/控件/对话框 的所有 ID 常量
+    ├── i18n.h         # 界面多语言：字符串 ID 枚举与接口
+    ├── i18n.c         # 中/英文字符串表、T() 取词、主菜单构建、对话框文字覆盖
     ├── version.h      # 版本号定义（VERSIONINFO 资源用；CI 按发布标签生成）
-    ├── eton.rc        # 菜单、加速键、对话框、图标、版本信息资源
-    ├── main.c         # 程序入口、主窗口过程、命令分发、最近文件、拖放
+    ├── eton.rc        # 加速键、对话框、图标、版本信息资源（菜单由代码构建）
+    ├── main.c         # 程序入口、主窗口过程、命令分发、最近文件、拖放、界面语言切换
     ├── editor.c       # 多标签/文档管理、Scintilla 控件、缩放、词法器
     ├── tabbar.c       # 自绘标签栏（绘制与点击处理）
-    ├── session.c      # 会话/草稿持久化与恢复
+    ├── session.c      # 会话/草稿持久化与恢复（含界面语言选择）
     ├── fileio.c       # 编码探测、读写、行尾规范化、UTF-8 转换
     ├── jsonfmt.c      # JSON 校验 + 格式化/压缩（单遍解析，RFC 8259）
     └── dialogs.c      # 查找/替换/转到/关于/打开编码 对话框
@@ -75,7 +82,7 @@ eton/
 1. 自动定位 MSVC 环境：优先用环境变量 `VCVARS` 指定的 `vcvarsall.bat`，其次用 `vswhere` 查找（支持任意盘符 / 版本 / 发行版，含 Build Tools），最后回退扫描常见安装路径；
 2. 调用 `vcvarsall.bat x64` 初始化 MSVC 环境；
 3. 用 `rc.exe` 编译资源 `eton.rc` → `build\eton.res`；
-4. 用 `cl.exe` 编译 7 个 `.c` 并链接为 `eton.exe`（含 Scintilla + Lexilla 静态库）。
+4. 用 `cl.exe` 编译 8 个 `.c` 并链接为 `eton.exe`（含 Scintilla + Lexilla 静态库）。
 
 自动化 / CI 场景用无交互模式：`build.bat auto`——不暂停，成功输出 `BUILD_OK` 且退出码为 0，失败输出 `RCFAIL` / `CLFAIL` / `VCVARSFAIL` 且退出码非 0。
 
@@ -92,7 +99,7 @@ rc /nologo /fo build\app.res app.rc
 cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
    /I"deps\scintilla" /I"deps\lexilla" ^
    /Fo"build/" /Fe:eton.exe ^
-   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c build\eton.res build\app.res ^
+   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c src\i18n.c build\eton.res build\app.res ^
    /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /LIBPATH:"deps\scintilla" /LIBPATH:"deps\lexilla" ^
    libscintilla.lib liblexilla.lib ^
    user32.lib gdi32.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib
@@ -116,12 +123,18 @@ cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
 - **新建 / 打开 / 保存 / 关闭**：文件菜单或工具栏，对应 `Ctrl+N / O / S / W`。
 - **切换语言高亮**：语言菜单选择（打开 `.c/.py/.json` 等文件时会按扩展名自动猜测，也可手动改）。
 - **切换编码 / 行尾**：编码、行尾菜单；修改后状态栏会更新。新文档默认 LF (Unix) 行尾，已有文件按内容探测（CRLF 优先）。注意：把含非 ANSI 字符的文件"另存为 ANSI"时程序会提示潜在乱码风险。
-- **查找替换**：`Ctrl+F` / `Ctrl+H`；`F3` 查找下一个，`Shift+F3` 查找上一个。
+- **查找替换**：`Ctrl+F` / `Ctrl+H` 打开**非模态**对话框（查找时可继续编辑；Enter=查找下一个，Esc=关闭）；`F3` 查找下一个，`Shift+F3` 查找上一个；可勾选"正则表达式"（替换支持 `` 分组引用），命中的全部匹配会高亮显示。
 - **转到行**：`Ctrl+G`。
 - **JSON 格式化 / 压缩**：编辑菜单，或 `Ctrl+Shift+F` / `Ctrl+Shift+M`。无选区时处理整个文档，有选区时只处理选区；内容非法 JSON 时弹窗提示出错行列并跳转选中出错字符。
 - **缩放**：`Ctrl+=` 放大、`Ctrl+-` 缩小、`Ctrl+0` 复位。
 - **自动换行**：视图菜单切换。
-- **暗色主题**：在"视图 → 主题"或设置中切换（语法高亮配色随之改变）。
+- **暗色主题**：在"视图 → 主题"切换（标题栏/标签栏/状态栏/语法高亮配色随之改变）。
+- **书签**：`Ctrl+F2` 切换当前行书签，`F2` / `Shift+F2` 上下跳转。
+- **代码折叠**：打开语法语言文件后，行号旁出现折叠边距，点击 +/− 折叠或展开。
+- **右键菜单**：编辑区右键=剪切/复制/粘贴/全选/打开所在文件夹；标签右键=关闭/关闭其他/关闭全部；标签中键关闭、双击空白新建。
+- **切换标签**：`Ctrl+Tab` / `Ctrl+Shift+Tab`（或 `Ctrl+PgDn` / `Ctrl+PgUp`）循环切换。
+- **自动备份**：已保存文件的未保存修改每 10 秒备份一次，程序异常退出后再次打开该文件会询问是否恢复；正常保存或关闭后备份自动删除。
+- **切换界面语言**：`帮助 → 界面语言` 选择 简体中文 / English，即时生效（无需重启）；下次启动记住上次选择，首次启动跟随系统语言。
 - **命令行打开**：`eton.exe path\to\file.txt`，支持多个文件。
 - **拖放打开**：把文件从资源管理器拖到窗口上，一次可拖多个；已打开的文件会切换到对应标签页，拖入目录会被忽略。
 - **会话恢复**：退出后再启动，自动打开上次编辑的文件标签并回到最后激活的标签；带文件参数启动时只打开参数指定的文件。会话保存在 `%APPDATA%\eton\session.ini`，每次标签变化即落盘，异常退出也不丢。
@@ -138,14 +151,14 @@ cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
 - **编码与行尾**：`fileio.c` 负责 BOM 探测、各编码与 UTF-8 的转换（Scintilla 内部用 UTF-8）、以及 CRLF/LF/CR 规范化与转换。
 - **JSON 工具**：`jsonfmt.c` 用单遍递归下降解析器边校验（RFC 8259 严格语法）边输出——格式化按嵌套深度缩进、压缩则剔除全部空白；字符串/数字按原文透传（保留 `\uXXXX` 等转义写法）。替换通过 Scintilla 的 target + `SCI_REPLACETARGET` 完成，单步可撤销。
 - **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
+- **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。
 
 ---
 
 ## 已知限制 / 后续可扩展
 
-- 查找/替换当前为单文件、无正则表达式（Scintilla 支持 `SCFIND_REGEXP`，可按需启用）。
-- 未实现：代码折叠、列块选择、宏、插件体系、打印。Scintilla 原生支持折叠，可按需开启。
-- 自动语言识别（按扩展名）尚未接入，当前需手动在语言菜单切换。
+- 查找/替换为单文件（无跨文件/文件夹搜索）；正则语法为 Scintilla 内建（类 POSIX）。
+- 未实现：列块选择、宏、插件体系、打印。Scintilla 原生支持折叠（已启用）、打印（SCI_FORMATRANGE，可按需接入）。
 
 ---
 

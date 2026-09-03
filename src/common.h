@@ -12,6 +12,7 @@
 #include "Scintilla.h"
 #include "Lexilla.h"
 #include "resource.h"
+#include "i18n.h"
 
 /* custom window messages */
 #define WM_APP_TABSEL      (WM_APP + 1)
@@ -47,6 +48,7 @@ typedef struct {
     BOOL dirty;
     BOOL isNew;
     LangID lang;
+    FILETIME ftWrite;    /* 打开/保存时的磁盘时间戳（外部修改检测用） */
 } Doc;
 
 /* globals (defined in main.c) */
@@ -83,6 +85,7 @@ void Editor_OnDpiChanged(void);
 void Editor_Zoom(int delta);
 void Editor_ApplyTheme(int index);
 void Editor_SetLang(int index, LangID lang);
+void Editor_OnLanguageChanged(void);   /* 界面语言切换后刷新未命名标题与状态栏 */
 void Editor_MarkDirty(int index, BOOL dirty);
 void Editor_UpdateStatus(void);
 HWND Editor_ActiveEdit(void);
@@ -99,6 +102,8 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc);
 void Editor_ComputeGutterWidth(int index);
 void Editor_SetText(int index, const char* utf8);
 char* Editor_GetTextUtf8(int index, DWORD* outLen);
+void Editor_ToggleBookmark(int index);
+void Editor_GotoBookmark(int index, BOOL next);
 void OpenFileByPath(const wchar_t* path);
 
 /* fileio.c */
@@ -114,14 +119,16 @@ wchar_t* ApplyEol(const wchar_t* text, DWORD len, int eol, DWORD* outLen);
 /* dialogs.c */
 extern wchar_t g_findText[512];
 extern wchar_t g_replText[512];
-extern BOOL g_findCase, g_findWord, g_findDown;
+extern BOOL g_findCase, g_findWord, g_findDown, g_findRegex;
 extern LONG g_findStart;
+extern HWND g_hFindDlg;   /* 非模态查找/替换对话框（空 = 未打开） */
 void Dlg_Find(HWND hwnd, BOOL replace);
 void Dlg_Goto(HWND hwnd);
 void Dlg_About(HWND hwnd);
 void Dlg_OpenEnc(HWND hwnd);
-LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL down,
-                LONG start, BOOL wrap, BOOL* found);
+void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re);
+LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re,
+                BOOL down, LONG start, BOOL wrap, BOOL* found);
 
 /* jsonfmt.c */
 void Json_FormatActiveDoc(BOOL minify);
@@ -130,14 +137,40 @@ void Json_FormatActiveDoc(BOOL minify);
 void ShowError(const wchar_t* msg);
 void AddRecent(const wchar_t* path);
 void RefreshRecentMenu(void);
+void ApplyTitleBarTheme(HWND hwnd);   /* 按 g_dark 设置深/浅标题栏 */
 
 /* tabbar.c */
 void TabBar_Register(void);
+void TabBar_ApplyTheme(void);   /* tooltip 深/浅主题跟随 */
+int  TabBar_HitTestPublic(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow);
+
+/* statusbar.c（自绘状态栏，颜色随主题） */
+void StatusBar_Register(void);
+void StatusBar_SetParts(const int* rightEdges, int n);
+BOOL StatusBar_SetText(int part, const wchar_t* text);
+
+/* scrollbar.c（自绘滚动条，替代 Scintilla 经典滚动条） */
+void ScrollBars_Create(HWND parent);
+int  ScrollBars_Thickness(void);
+void ScrollBars_Layout(int x, int y, int w, int h, int thickness, BOOL showH);
+void ScrollBars_Update(void);
+void ScrollBars_Repaint(void);
+
+/* editor.c */
+BOOL DiskWriteTimePublic(const wchar_t* path, FILETIME* ft);
 
 /* session.c */
+BOOL Session_IniPath(wchar_t* out, DWORD cch);   /* %APPDATA%\eton\session.ini */
 void Session_Save(void);
 void Session_SaveDrafts(void);
 void Session_DiscardDraft(int index);
 int  Session_Restore(void);
+void Settings_Load(void);   /* [settings]：主题/换行/行号/字号（启动时） */
+void Settings_Save(void);   /* 同上（退出时） */
+/* 正式文件的定时自动备份（防崩溃丢内容，%APPDATA%\eton\autoback\） */
+void Session_AutoBackupWrite(int index);
+void Session_AutoBackupDiscard(const wchar_t* path);
+BOOL Session_AutoBackupExists(const wchar_t* path);
+BOOL Session_AutoBackupRead(const wchar_t* path, char** out, DWORD* len);
 
 #endif /* COMMON_H */

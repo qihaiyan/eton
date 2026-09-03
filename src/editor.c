@@ -76,7 +76,7 @@ BOOL Editor_Init(void) {
 
     TabBar_Register();
     Editor_ApplyThemeColors();
-    g_fontSize = 11;
+    /* g_fontSize 已由 Settings_Load 在启动时恢复（默认 11），不可在此重置 */
     Editor_SetFont();
     return TRUE;
 }
@@ -93,6 +93,45 @@ static void ApplyScintillaStyle(HWND hed) {
     SendMessage(hed, SCI_STYLESETBACK, STYLE_LINENUMBER, (LPARAM)g_clrGutterBg);
     SendMessage(hed, SCI_STYLESETFORE, STYLE_LINENUMBER, (LPARAM)g_clrGutterFg);
 
+    /* 折叠边距（margin 1）：仅语法语言下由 ApplyLexer 设宽度 */
+    SendMessage(hed, SCI_SETMARGINTYPEN, 1, SC_MARGIN_SYMBOL);
+    SendMessage(hed, SCI_SETMARGINMASKN, 1, SC_MASK_FOLDERS);
+    SendMessage(hed, SCI_SETMARGINSENSITIVEN, 1, 1);
+    SendMessage(hed, SCI_SETFOLDMARGINCOLOUR, 1, (LPARAM)g_clrGutterBg);
+    SendMessage(hed, SCI_SETFOLDMARGINHICOLOUR, 1, (LPARAM)g_clrGutterBg);
+    {
+        /* 折叠树标记（25..31 为 Scintilla 保留的折叠标记号） */
+        COLORREF fFold = g_dark ? RGB(220,220,220) : RGB(80,80,80);
+        COLORREF bFold = g_dark ? RGB(60,70,90)    : RGB(200,200,200);
+        struct { int num; int mark; } fm[] = {
+            { SC_MARKNUM_FOLDEROPEN,    SC_MARK_BOXMINUS },
+            { SC_MARKNUM_FOLDER,        SC_MARK_BOXPLUS },
+            { SC_MARKNUM_FOLDERSUB,     SC_MARK_VLINE },
+            { SC_MARKNUM_FOLDERTAIL,    SC_MARK_TCORNER },
+            { SC_MARKNUM_FOLDEREND,     SC_MARK_BOXPLUSCONNECTED },
+            { SC_MARKNUM_FOLDEROPENMID, SC_MARK_BOXMINUSCONNECTED },
+            { SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_TCORNER },
+        };
+        for (int i = 0; i < (int)(sizeof(fm)/sizeof(fm[0])); i++) {
+            SendMessage(hed, SCI_MARKERDEFINE, fm[i].num, fm[i].mark);
+            SendMessage(hed, SCI_MARKERSETFORE, fm[i].num, (LPARAM)fFold);
+            SendMessage(hed, SCI_MARKERSETBACK, fm[i].num, (LPARAM)bFold);
+        }
+    }
+
+    /* 书签（marker 24，SC_MARK_BACKGROUND 直接给整行上底色，无需占边距） */
+    SendMessage(hed, SCI_MARKERDEFINE, 24, SC_MARK_BACKGROUND);
+    SendMessage(hed, SCI_MARKERSETFORE, 24, (LPARAM)(g_dark ? RGB(80,70,25) : RGB(255,238,170)));
+
+    /* 查找全部高亮（indicator 20；8-10 为 IME 保留） */
+    SendMessage(hed, SCI_INDICSETSTYLE, 20, INDIC_ROUNDBOX);
+    SendMessage(hed, SCI_INDICSETFORE, 20, (LPARAM)(g_dark ? RGB(255,220,100) : RGB(255,200,0)));
+    SendMessage(hed, SCI_INDICSETALPHA, 20, 50);
+
+    /* 当前行高亮 */
+    SendMessage(hed, SCI_SETCARETLINEVISIBLE, 1, 0);
+    SendMessage(hed, SCI_SETCARETLINEBACK, (LPARAM)(g_dark ? RGB(40,40,46) : RGB(242,242,234)), 0);
+
     /* Selection colors */
     SendMessage(hed, SCI_SETSELBACK, 1, (LPARAM)g_clrSelBg);
     SendMessage(hed, SCI_SETSELFORE, 1, (LPARAM)g_clrFg);
@@ -108,8 +147,12 @@ static void ApplyScintillaStyle(HWND hed) {
     /* EOL visibility off */
     SendMessage(hed, SCI_SETVIEWEOL, 0, 0);
 
-    /* Disable horizontal scrollbar when wrapping */
-    SendMessage(hed, SCI_SETHSCROLLBAR, g_wordWrap ? 0 : 1, 0);
+    /* 关闭 Scintilla 自带右键菜单，右键统一走主窗口的上下文菜单 */
+    SendMessage(hed, SCI_USEPOPUP, 0, 0);
+
+    /* 禁用原生滚动条（经典浅色外观，无法随主题变化），改用自绘滚动条 */
+    SendMessage(hed, SCI_SETVSCROLLBAR, 0, 0);
+    SendMessage(hed, SCI_SETHSCROLLBAR, 0, 0);
 
     /* Apply dark/light syntax colors if a language is set */
     Editor_ComputeGutterWidth(Editor_IndexFromHwnd(hed));
@@ -117,6 +160,8 @@ static void ApplyScintillaStyle(HWND hed) {
 
 /* ---------- apply language lexer + keywords ---------- */
 static void ApplyLexer(HWND hed, LangID lang) {
+    /* 折叠边距宽度：语法语言显示，纯文本隐藏 */
+    SendMessage(hed, SCI_SETMARGINWIDTHN, 1, (lang == LANG_NONE) ? 0 : UI_Scale(14));
     if (lang == LANG_NONE) {
         /* Clear lexer: set to null lexer */
         ILexer5* nullLex = CreateLexer("null");
@@ -129,6 +174,10 @@ static void ApplyLexer(HWND hed, LangID lang) {
     ILexer5* lex = CreateLexer(name);
     if (!lex) return;
     SendMessage(hed, SCI_SETILEXER, 0, (LPARAM)lex);
+
+    /* 打开词法器折叠支持 */
+    SendMessage(hed, SCI_SETPROPERTY, (WPARAM)"fold", (LPARAM)"1");
+    SendMessage(hed, SCI_SETPROPERTY, (WPARAM)"fold.compact", (LPARAM)"0");
 
     /* For cpp-family lexers, set keywords per language.
        Scintilla cpp lexer keyword sets: 0=primary, 1=secondary, 2=doc comment.
@@ -182,6 +231,64 @@ static void ApplyLexer(HWND hed, LangID lang) {
 }
 
 /* ---------- helpers ---------- */
+/* 按扩展名猜测语法语言（打开/重新加载文件时自动应用） */
+static LangID LangFromPath(const wchar_t* path) {
+    static const struct { const wchar_t* ext; LangID lang; } map[] = {
+        { L".c",    LANG_C },  { L".h",    LANG_C },
+        { L".cpp",  LANG_CPP },{ L".cc",   LANG_CPP },{ L".cxx", LANG_CPP },
+        { L".hpp",  LANG_CPP },{ L".hh",   LANG_CPP },
+        { L".cs",   LANG_CS }, { L".java", LANG_JAVA },
+        { L".js",   LANG_JS }, { L".mjs",  LANG_JS },{ L".ts", LANG_JS },
+        { L".py",   LANG_PY }, { L".pyw",  LANG_PY },
+        { L".xml",  LANG_XML },{ L".html", LANG_XML },{ L".htm", LANG_XML },
+        { L".xaml", LANG_XML },{ L".svg",  LANG_XML },{ L".xsl", LANG_XML },
+        { L".json", LANG_JSON },{ L".sql",  LANG_SQL },
+    };
+    const wchar_t* ext = PathFindExtensionW(path);
+    if (!ext || ext == path) return LANG_NONE;   /* 无扩展名 */
+    for (int i = 0; i < (int)(sizeof(map)/sizeof(map[0])); i++)
+        if (_wcsicmp(ext, map[i].ext) == 0) return map[i].lang;
+    return LANG_NONE;
+}
+
+/* 读文件在磁盘上的最后写入时间（失败返回 FALSE，*ft 清零） */
+static BOOL DiskWriteTime(const wchar_t* path, FILETIME* ft) {
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &fa)) {
+        ZeroMemory(ft, sizeof(*ft));
+        return FALSE;
+    }
+    *ft = fa.ftLastWriteTime;
+    return TRUE;
+}
+
+/* 另存为 ANSI 前确认：内容含系统代码页无法表示的字符时提示乱码风险 */
+static BOOL ConfirmAnsiOk(const char* utf8, DWORD len) {
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, NULL, 0);
+    if (wlen <= 0) return TRUE;
+    wchar_t* w = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
+    if (!w) return TRUE;
+    MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, w, wlen);
+    BOOL bad = HasUnsupportedForAnsi(w, (DWORD)wlen);
+    free(w);
+    if (!bad) return TRUE;
+    int r = MessageBoxW(g_hwndMain, T(STR_MSG_ANSI_WARN), T(STR_TITLE_SAVE),
+                        MB_YESNO | MB_ICONWARNING);
+    return r == IDYES;
+}
+
+/* 保存前检测：文件在磁盘上被其他程序改过则提示覆盖风险 */
+static BOOL ConfirmOverwriteOk(Doc* d) {
+    if (d->isNew || d->path[0] == L'\0') return TRUE;
+    FILETIME cur;
+    if (!DiskWriteTime(d->path, &cur)) return TRUE;   /* 文件已消失，保存即重建 */
+    if (CompareFileTime(&cur, &d->ftWrite) == 0) return TRUE;
+    wchar_t msg[400];
+    wsprintf(msg, T(STR_MSG_FILE_CHANGED_OVERWRITE), d->title);
+    return MessageBoxW(g_hwndMain, msg, T(STR_TITLE_SAVE),
+                       MB_YESNO | MB_ICONWARNING) == IDYES;
+}
+
 void Editor_UpdateTitle(int index) {
     Doc* d = &g_docs[index];
     /* Derive the clean base title from baseTitle (for new files) or from
@@ -217,7 +324,7 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     d->hwndEdit = CreateWindowExW(0, L"Scintilla", NULL,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         0, 0, 0, 0, g_hwndMain, NULL, g_hInst, NULL);
-    if (!d->hwndEdit) { MessageBoxW(g_hwndMain, L"创建 Scintilla 控件失败。", L"错误", MB_ICONERROR); return -1; }
+    if (!d->hwndEdit) { MessageBoxW(g_hwndMain, T(STR_MSG_SCINTILLA_FAIL), T(STR_ERROR), MB_ICONERROR); return -1; }
 
     /* Configure Scintilla */
     SendMessage(d->hwndEdit, SCI_SETCODEPAGE, SC_CP_UTF8, 0);  /* UTF-8 internal */
@@ -234,7 +341,7 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     d->lang = LANG_NONE;
     if (isNew) {
         d->path[0] = L'\0';
-        wcscpy_s(d->baseTitle, 256, title ? title : L"未命名");
+        wcscpy_s(d->baseTitle, 256, title ? title : T(STR_UNTITLED));
         d->enc = ENC_UTF8;
     } else {
         wcscpy_s(d->path, MAX_PATH, path); d->path[MAX_PATH-1]=L'\0';
@@ -280,7 +387,30 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
     wcscpy_s(d->path, MAX_PATH, path);
     d->dirty = FALSE;
     free(utf8);
+    /* 扩展名自动识别语法语言 */
+    d->lang = LangFromPath(path);
+    ApplyLexer(d->hwndEdit, d->lang);
+    /* 记录磁盘时间戳，供外部修改检测 */
+    DiskWriteTime(d->path, &d->ftWrite);
     Editor_UpdateTitle(index);
+
+    /* 恢复本次会话前的自动备份（程序异常退出时该文件的未保存内容） */
+    if (Session_AutoBackupExists(path)) {
+        char* bak = NULL; DWORD bakLen = 0;
+        BOOL have = Session_AutoBackupRead(path, &bak, &bakLen);
+        wchar_t msg[600];
+        wsprintf(msg, T(STR_MSG_AUTOBACKUP), d->title);
+        int r = MessageBoxW(g_hwndMain, msg, T(STR_TITLE_SAVE), MB_YESNO | MB_ICONQUESTION);
+        if (r == IDYES && have) {
+            Editor_SetText(index, bak);
+            d->dirty = TRUE;
+            Editor_UpdateTitle(index);
+            InvalidateRect(g_hwndTab, NULL, FALSE);
+        } else {
+            Session_AutoBackupDiscard(path);
+        }
+        free(bak);
+    }
     return TRUE;
 }
 
@@ -304,7 +434,6 @@ void Editor_ApplyWrap(int index) {
     HWND hed = g_docs[index].hwndEdit;
     /* Scintilla wrap mode - no need for style hack like RichEdit */
     SendMessage(hed, SCI_SETWRAPMODE, g_wordWrap ? SC_WRAP_WORD : SC_WRAP_NONE, 0);
-    SendMessage(hed, SCI_SETHSCROLLBAR, g_wordWrap ? 0 : 1, 0);
     Editor_Layout();
 }
 
@@ -328,6 +457,10 @@ void Editor_ConvertEol(int index, int eol) {
 void Editor_ComputeGutterWidth(int index) {
     if (index < 0 || index >= g_docCount) return;
     HWND hed = g_docs[index].hwndEdit;
+    if (!g_showGutter) {   /* 全局关闭行号时所有文档的行号槽都收起 */
+        SendMessage(hed, SCI_SETMARGINWIDTHN, 0, 0);
+        return;
+    }
     int lines = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
     int digits = 3;
     int t = lines; while (t >= 10) { digits++; t /= 10; }
@@ -353,12 +486,18 @@ void Editor_Layout(void) {
     int top = tabH;
     int bottom = cy - statusH;
     int h = bottom - top;
+    int sbw = ScrollBars_Thickness();
+    BOOL showH = !g_wordWrap;   /* 换行模式下没有横向滚动，隐藏水平条 */
+
+    ScrollBars_Layout(0, top, cx, h, sbw, showH);
 
     if (g_curDoc >= 0 && g_curDoc < g_docCount) {
         Editor_ComputeGutterWidth(g_curDoc);
-        /* Scintilla owns its own line-number margin, so the edit fills the whole area */
-        SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, 0, top, cx, h, SWP_NOZORDER);
+        /* 编辑区让出滚动条条带；Scintilla 行号槽在自身 margin 内 */
+        SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, 0, top,
+                     cx - sbw, h - (showH ? sbw : 0), SWP_NOZORDER);
     }
+    ScrollBars_Update();
 }
 
 /* ---------- zoom / wrap / lang / theme ---------- */
@@ -402,6 +541,12 @@ void Editor_OnNotify(LPARAM lp) {
 
     if (scn->nmhdr.code == SCN_UPDATEUI) {
         Editor_UpdateStatus();
+    } else if (scn->nmhdr.code == SCN_MARGINCLICK) {
+        /* 点击折叠边距（margin 1）切换折叠 */
+        if (scn->margin == 1) {
+            int line = (int)SendMessage(hed, SCI_LINEFROMPOSITION, scn->position, 0);
+            SendMessage(hed, SCI_TOGGLEFOLD, line, 0);
+        }
     } else if (scn->nmhdr.code == SCN_MODIFIED) {
         if (scn->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) {
             if (!g_suppressDirty) {
@@ -438,16 +583,20 @@ BOOL Editor_SaveDoc(int index, BOOL askPath) {
     DWORD len = 0;
     char* text = Scintilla_GetTextUtf8(d->hwndEdit, &len);
     if (!text) return FALSE;
+    if (d->enc == ENC_ANSI && !ConfirmAnsiOk(text, len)) { free(text); return FALSE; }
+    if (!ConfirmOverwriteOk(d)) { free(text); return FALSE; }
     BOOL ok = SaveUtf8ToFile(d->path, text, len, d->enc, d->eol);
     free(text);
     if (ok) {
         d->dirty = FALSE;
         SendMessage(d->hwndEdit, SCI_SETSAVEPOINT, 0, 0);
         AddRecent(d->path);
+        DiskWriteTime(d->path, &d->ftWrite);
+        Session_AutoBackupDiscard(d->path);   /* 已保存，备份作废 */
         Editor_UpdateTitle(index);
         InvalidateRect(g_hwndTab, NULL, FALSE);
     } else {
-        MessageBoxW(g_hwndMain, L"保存失败。", L"错误", MB_ICONERROR);
+        MessageBoxW(g_hwndMain, T(STR_MSG_SAVE_FAILED), T(STR_ERROR), MB_ICONERROR);
     }
     return ok;
 }
@@ -456,9 +605,11 @@ BOOL Editor_SaveDocAs(int index) {
     Doc* d = &g_docs[index];
     wchar_t fname[MAX_PATH] = {0};
     if (!d->isNew) { wcscpy_s(fname, MAX_PATH, d->path); PathStripPathW(fname); }
-    else wcscpy_s(fname, MAX_PATH, L"未命名.txt");
+    else wcscpy_s(fname, MAX_PATH, T(STR_UNTITLED_TXT));
 
-    wchar_t filter[] = L"文本文件 (*.txt)\0*.txt\0所有文件 (*.*)\0*.*\0";
+    wchar_t filter[256];
+    I18n_JoinFilter(filter, 256, STR_FILTER_TXT, STR_FILTER_TXTPAT,
+                             STR_FILTER_ALL, STR_FILTER_ALLPAT);
     OPENFILENAMEW ofn; memset(&ofn, 0, sizeof(ofn));
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = g_hwndMain;
@@ -474,12 +625,15 @@ BOOL Editor_SaveDocAs(int index) {
     DWORD len = 0;
     char* text = Scintilla_GetTextUtf8(d->hwndEdit, &len);
     if (!text) return FALSE;
+    if (d->enc == ENC_ANSI && !ConfirmAnsiOk(text, len)) { free(text); return FALSE; }
     BOOL ok = SaveUtf8ToFile(d->path, text, len, d->enc, d->eol);
     free(text);
     if (ok) {
         d->dirty = FALSE;
         SendMessage(d->hwndEdit, SCI_SETSAVEPOINT, 0, 0);
         AddRecent(d->path);
+        DiskWriteTime(d->path, &d->ftWrite);
+        Session_AutoBackupDiscard(d->path);   /* 已保存，旧路径备份作废 */
         Editor_UpdateTitle(index);
         InvalidateRect(g_hwndTab, NULL, FALSE);
         Session_DiscardDraft(index);   /* 另存为正式文件后，移除其草稿 */
@@ -494,18 +648,20 @@ void Editor_CloseDoc(int index) {
     /* 草稿（未命名文档）不弹"未保存"提示：关闭标签即弃稿；异常退出由草稿兜底 */
     if (!g_docs[index].isNew && g_docs[index].dirty) {
         wchar_t msg[300];
-        wsprintf(msg, L"文件 \"%s\" 已修改，是否保存后再关闭？", g_docs[index].title);
-        int r = MessageBoxW(g_hwndMain, msg, L"ETON", MB_YESNOCANCEL | MB_ICONQUESTION);
+        wsprintf(msg, T(STR_MSG_FILE_MODIFIED), g_docs[index].title);
+        int r = MessageBoxW(g_hwndMain, msg, T(STR_APP_TITLE), MB_YESNOCANCEL | MB_ICONQUESTION);
         if (r == IDCANCEL) return;
         if (r == IDYES) { if (!Editor_SaveDoc(index, FALSE)) return; }
     } else if (g_docs[index].isNew) {
         Session_DiscardDraft(index);
     }
+    if (!g_docs[index].isNew && g_docs[index].path[0])
+        Session_AutoBackupDiscard(g_docs[index].path);   /* 关闭即放弃，备份作废 */
     DestroyWindow(g_docs[index].hwndEdit);
     for (int i = index; i < g_docCount - 1; i++) g_docs[i] = g_docs[i + 1];
     g_docCount--;
     if (g_docCount == 0) {
-        int ni = Editor_NewDoc(NULL, L"未命名", TRUE);
+        int ni = Editor_NewDoc(NULL, T(STR_UNTITLED), TRUE);
         Editor_Activate(ni);
     } else {
         if (index < g_curDoc) g_curDoc--;   /* 关闭的是活动标签左侧的标签时，活动索引随之前移 */
@@ -541,7 +697,8 @@ HWND Editor_ActiveEdit(void) {
 
 void Editor_UpdateStatus(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) {
-        SendMessage(g_hwndStatus, SB_SETTEXT, 0, (LPARAM)L"");
+        StatusBar_SetText(0, L"");
+        ScrollBars_Update();
         return;
     }
     HWND hed = g_docs[g_curDoc].hwndEdit;
@@ -557,17 +714,81 @@ void Editor_UpdateStatus(void) {
 
     wchar_t s1[64], s2[32], s3[32], s4[64], s5[64];
     if (selStart != selEnd)
-        wsprintf(s1, L"已选 %d 个字符", (int)(selEnd - selStart));
+        wsprintf(s1, T(STR_STATUS_SEL_CHARS), (int)(selEnd - selStart));
     else
-        wsprintf(s1, L"共 %d 个字符", (int)len);
-    wsprintf(s2, L"第 %d 行 / 共 %d 行", line + 1, totalLines);
-    wsprintf(s3, L"列 %d", col);
+        wsprintf(s1, T(STR_STATUS_CHARS), (int)len);
+    wsprintf(s2, T(STR_STATUS_LN), line + 1, totalLines);
+    wsprintf(s3, T(STR_STATUS_COL), col);
     wsprintf(s4, L"%s", EncodingName(d->enc));
     const wchar_t* eolname = d->eol == 0 ? L"CRLF" : (d->eol == 1 ? L"LF" : L"CR");
     wsprintf(s5, L"%s  |  %d%%", eolname, g_fontSize * 10);
-    SendMessage(g_hwndStatus, SB_SETTEXT, 0, (LPARAM)s1);
-    SendMessage(g_hwndStatus, SB_SETTEXT, 1, (LPARAM)s2);
-    SendMessage(g_hwndStatus, SB_SETTEXT, 2, (LPARAM)s3);
-    SendMessage(g_hwndStatus, SB_SETTEXT, 3, (LPARAM)s4);
-    SendMessage(g_hwndStatus, SB_SETTEXT, 4, (LPARAM)s5);
+    StatusBar_SetText(0, s1);
+    StatusBar_SetText(1, s2);
+    StatusBar_SetText(2, s3);
+    StatusBar_SetText(3, s4);
+    StatusBar_SetText(4, s5);
+    ScrollBars_Update();
+}
+
+/* ---------- 界面语言切换 ----------
+   切换语言后把未命名标签的标题换成新语言（"未命名" / "Untitled" 及带序号的
+   草稿标题），已打开文件的标签显示文件名，不受影响；状态栏同步刷新。 */
+void Editor_OnLanguageChanged(void) {
+    for (int i = 0; i < g_docCount; i++) {
+        Doc* d = &g_docs[i];
+        if (!d->isNew || d->path[0] != L'\0') continue;
+        int n;
+        if (wcscmp(d->baseTitle, L"未命名") == 0 || wcscmp(d->baseTitle, L"Untitled") == 0) {
+            wcscpy_s(d->baseTitle, 256, T(STR_UNTITLED));
+        } else if (swscanf(d->baseTitle, L"未命名 %d", &n) == 1 ||
+                   swscanf(d->baseTitle, L"Untitled %d", &n) == 1) {
+            wchar_t t[64];
+            wsprintf(t, T(STR_UNTITLED_N), n);
+            wcscpy_s(d->baseTitle, 256, t);
+        } else {
+            continue;
+        }
+        Editor_UpdateTitle(i);
+    }
+    InvalidateRect(g_hwndTab, NULL, FALSE);
+    Editor_UpdateStatus();
+}
+
+/* ---------- 书签 ----------
+   用 marker 24（SC_MARK_BACKGROUND 整行底色）标记，随文档存在；
+   F2 / Shift+F2 在书签间循环跳转，Ctrl+F2 切换当前行。 */
+#define BM_MARKER 24
+#define BM_MASK   (1 << BM_MARKER)
+
+void Editor_ToggleBookmark(int index) {
+    if (index < 0 || index >= g_docCount) return;
+    HWND hed = g_docs[index].hwndEdit;
+    int line = (int)SendMessage(hed, SCI_LINEFROMPOSITION,
+                                (WPARAM)SendMessage(hed, SCI_GETCURRENTPOS, 0, 0), 0);
+    if (SendMessage(hed, SCI_MARKERGET, line, 0) & BM_MASK)
+        SendMessage(hed, SCI_MARKERDELETE, line, BM_MARKER);
+    else
+        SendMessage(hed, SCI_MARKERADD, line, BM_MARKER);
+}
+
+void Editor_GotoBookmark(int index, BOOL next) {
+    if (index < 0 || index >= g_docCount) return;
+    HWND hed = g_docs[index].hwndEdit;
+    int total = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
+    int line = (int)SendMessage(hed, SCI_LINEFROMPOSITION,
+                                (WPARAM)SendMessage(hed, SCI_GETCURRENTPOS, 0, 0), 0);
+    int target;
+    if (next) {
+        target = (int)SendMessage(hed, SCI_MARKERNEXT, line + 1, BM_MASK);
+        if (target < 0) target = (int)SendMessage(hed, SCI_MARKERNEXT, 0, BM_MASK);
+    } else {
+        target = (int)SendMessage(hed, SCI_MARKERPREVIOUS, line - 1, BM_MASK);
+        if (target < 0) target = (int)SendMessage(hed, SCI_MARKERPREVIOUS, total, BM_MASK);
+    }
+    if (target >= 0) SendMessage(hed, SCI_GOTOLINE, target, 0);
+}
+
+/* main.c 外部修改检测用的磁盘时间戳封装 */
+BOOL DiskWriteTimePublic(const wchar_t* path, FILETIME* ft) {
+    return DiskWriteTime(path, ft);
 }

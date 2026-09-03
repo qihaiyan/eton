@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  eton MSIX 清单模板。__NAME__ / __PUBLISHER__ / __VERSION__ 由 pack-msix.ps1 替换。
+
+  提交微软商店时:
+    __NAME__      = Partner Center 保留的应用名(Package/Identity Name)
+    __PUBLISHER__ = Partner Center 显示的 Publisher 字符串(形如 CN=XXXXXXXX-....)
+    __VERSION__   = 四段式版本号(如 0.0.1.0),每次提交需递增
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+
+  <Identity Name="__NAME__"
+            Version="__VERSION__"
+            Publisher="__PUBLISHER__"
+            ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>ETON</DisplayName>
+    <PublisherDisplayName>海易华天</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Resources>
+    <Resource Language="zh-CN" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="eton"
+                 Executable="eton.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="ETON"
+        Description="轻量级文本编辑器"
+        BackgroundColor="transparent"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        Square150x150Logo="Assets\Square150x150Logo.png" />
+    </Application>
+  </Applications>
+</Package>

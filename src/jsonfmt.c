@@ -267,24 +267,10 @@ static int Json_Reprint(const char* src, size_t len, int minify,
 }
 
 static const wchar_t* JsonErrText(int code) {
-    switch (code) {
-        case JERR_EMPTY:       return L"内容为空，未找到 JSON 值。";
-        case JERR_EOF:         return L"JSON 不完整（意外结束）。";
-        case JERR_CHAR:        return L"无效字符，此处应为 JSON 值（注意是否有多余的逗号）。";
-        case JERR_STRING_CTRL: return L"字符串中包含未转义的控制字符。";
-        case JERR_ESCAPE:      return L"无效的转义序列。";
-        case JERR_UNICODE:     return L"\\u 转义后应跟随 4 位十六进制数。";
-        case JERR_NUMBER:      return L"无效的数字格式。";
-        case JERR_LITERAL:     return L"无效的字面量（应为 true / false / null）。";
-        case JERR_KEY:         return L"对象的键必须是字符串（注意是否有多余的逗号）。";
-        case JERR_COLON:       return L"键后应跟随 ':'。";
-        case JERR_COMMA_OBJ:   return L"期望 ',' 或 '}'。";
-        case JERR_COMMA_ARR:   return L"期望 ',' 或 ']'。";
-        case JERR_TRAILING:    return L"JSON 值结束后存在多余内容。";
-        case JERR_DEPTH:       return L"嵌套层级过深。";
-        case JERR_MEM:         return L"内存不足。";
-    }
-    return L"未知错误。";
+    /* 错误码与 i18n.h 的 STR_JERR_* 顺序一一对应（JERR_EMPTY 起） */
+    if (code >= JERR_EMPTY && code <= JERR_MEM)
+        return T((StrId)(STR_JERR_EMPTY + (code - JERR_EMPTY)));
+    return T(STR_JERR_UNKNOWN);
 }
 
 /* ---------- 对当前文档执行 JSON 格式化 / 压缩 ----------
@@ -301,8 +287,8 @@ void Json_FormatActiveDoc(BOOL minify) {
     Sci_Position start = hasSel ? selStart : 0;
     Sci_Position end = hasSel ? selEnd : docLen;
     if (end <= start) {
-        MessageBoxW(g_hwndMain, L"当前内容为空，没有可处理的 JSON。",
-                    minify ? L"JSON 压缩" : L"JSON 格式化", MB_ICONINFORMATION);
+        MessageBoxW(g_hwndMain, T(STR_JSON_EMPTY),
+                    minify ? T(STR_JSON_TITLE_MIN) : T(STR_JSON_TITLE_FMT), MB_ICONINFORMATION);
         return;
     }
 
@@ -338,10 +324,10 @@ void Json_FormatActiveDoc(BOOL minify) {
         int line = (int)SendMessage(hed, SCI_LINEFROMPOSITION, abs, 0);
         int col = (int)(abs - (Sci_Position)SendMessage(hed, SCI_POSITIONFROMLINE, line, 0)) + 1;
         wchar_t msg[256];
-        _snwprintf(msg, 256, L"JSON 解析失败（第 %d 行，第 %d 列）：\n%s",
+        _snwprintf(msg, 256, T(STR_JSON_ERR_FMT),
                    line + 1, col, JsonErrText(errCode));
         msg[255] = L'\0';
-        MessageBoxW(g_hwndMain, msg, minify ? L"JSON 压缩" : L"JSON 格式化", MB_ICONERROR);
+        MessageBoxW(g_hwndMain, msg, minify ? T(STR_JSON_TITLE_MIN) : T(STR_JSON_TITLE_FMT), MB_ICONERROR);
         /* 选中出错处的字符并滚动到可见位置 */
         SendMessage(hed, SCI_GOTOPOS, abs, 0);
         SendMessage(hed, SCI_SETSEL, abs, (abs < docLen) ? abs + 1 : abs);
