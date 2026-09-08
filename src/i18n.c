@@ -480,18 +480,22 @@ BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     SplitAccel(text, label, 200, accel, 64);
     HDC hdc = GetDC(hwnd);
     HFONT old = (HFONT)SelectObject(hdc, MenuFont());
-    SIZE ls = {0, 0}, as = {0, 0};
-    GetTextExtentPoint32W(hdc, label, (int)wcslen(label), &ls);
-    if (accel[0]) GetTextExtentPoint32W(hdc, accel, (int)wcslen(accel), &as);
+    /* 用 DT_CALCRECT 量宽：与绘制一致地吃掉 & 助记符前缀，
+       GetTextExtentPoint32W 会把 & 本身也计入导致条目偏宽 */
+    RECT rl = {0, 0, 0, 0}, ra = {0, 0, 0, 0};
+    DrawTextW(hdc, label, -1, &rl, DT_CALCRECT | DT_SINGLELINE);
+    if (accel[0]) DrawTextW(hdc, accel, -1, &ra, DT_CALCRECT | DT_SINGLELINE);
+    int lw = rl.right - rl.left, lh = rl.bottom - rl.top;
+    int aw = ra.right - ra.left;
     SelectObject(hdc, old); ReleaseDC(hwnd, hdc);
     if (isBar) {
-        mis->itemHeight = ls.cy + 7;
-        mis->itemWidth  = 2 * 7 + ls.cx;
+        mis->itemHeight = lh + 7;
+        mis->itemWidth  = 2 * UI_Scale(4) + lw;   /* 两侧各 4px，紧凑 */
         return TRUE;
     }
-    int gutter = ls.cy + 6;   /* 勾选标记区 */
-    mis->itemHeight = ls.cy + 9;
-    mis->itemWidth  = 10 + gutter + ls.cx + (accel[0] ? as.cx + 20 : 0) + 14;
+    int gutter = lh + 6;   /* 勾选标记区 */
+    mis->itemHeight = lh + 9;
+    mis->itemWidth  = 10 + gutter + lw + (accel[0] ? aw + 20 : 0) + 14;
     /* bit1 = 有子菜单：为系统绘制的子菜单箭头预留宽度 */
     if (mis->itemData && ((uintptr_t)mis->itemData & 2))
         mis->itemWidth += UI_Scale(14);
@@ -537,17 +541,28 @@ BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
         FillRect(hdc, &chip, cb);
         DeleteObject(cb);
     }
-    if (checked) {   /* 勾选符号：两段线画 ✓，不依赖字体字形 */
+    if (checked) {   /* 勾选符号：细线小号 ✓，紧贴文字（参考 Notepad++ 样式） */
+        int tx = dis->rcItem.left + 6 + gutter;              /* 文字起点 */
+        int gh = ls.cy + 6;
         int cy = (dis->rcItem.top + dis->rcItem.bottom) / 2;
-        HPEN pen = CreatePen(PS_SOLID, 2, fg);
+        POINT pts[3] = {
+            { tx - gh * 80 / 100, cy - gh *  3 / 100 },
+            { tx - gh * 50 / 100, cy + gh *  17 / 100 },
+            { tx - gh * 20 / 100, cy - gh *  23 / 100 },
+        };
+        LOGBRUSH lb; memset(&lb, 0, sizeof(lb));
+        lb.lbStyle = BS_SOLID; lb.lbColor = fg;
+        int pw = gh / 15 > 1 ? gh / 15 : 1;
+        HPEN pen = ExtCreatePen(PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND,
+                                pw, &lb, 0, NULL);
         HPEN oldp = (HPEN)SelectObject(hdc, pen);
-        MoveToEx(hdc, dis->rcItem.left + 6, cy, NULL);
-        LineTo(hdc, dis->rcItem.left + 6 + gutter / 2 - 1, cy + 4);
-        LineTo(hdc, dis->rcItem.left + 6 + gutter - 3, cy - 5);
+        Polyline(hdc, pts, 3);
         SelectObject(hdc, oldp);
         DeleteObject(pen);
     }
-    RECT lr = { dis->rcItem.left + 6 + gutter, dis->rcItem.top, dis->rcItem.right - 8, dis->rcItem.bottom };
+    RECT lr = { dis->rcItem.left + 6 + gutter, dis->rcItem.top,
+                dis->rcItem.right - 8 - (isBar ? gutter : 0), dis->rcItem.bottom };
+    if (isBar) lr.left = dis->rcItem.left + UI_Scale(4);
     DrawTextW(hdc, label, -1, &lr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     if (accel[0]) {
         SetTextColor(hdc, dim);
@@ -680,7 +695,7 @@ HMENU I18n_BuildMainMenu(void) {
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_XML, L"XML/HTML");
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_JSON, L"JSON");
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_SQL, L"SQL");
-    I18n_OwnerAppend(bar, MF_POPUP, (UINT_PTR)mLang, T(STR_MENU_SYNTAX));
+    AddBar(bar, (UINT_PTR)mLang, STR_MENU_SYNTAX);
 
     /* 帮助 */
     HMENU mHelp = CreatePopupMenu();
