@@ -185,7 +185,7 @@ powershell -File msix\pack-msix.ps1 -Sign
 
 ## 实现要点（给想改代码的同学）
 
-- **编辑器内核**：使用 Scintilla 5.4.3 + Lexilla 5.3.3（Notepad++ 同款内核），静态链接。Scintilla 用样式 ID（0-255）给字符着色，不碰选区、不滚动、不触发重绘风暴，大文件性能优秀。
+- **编辑器内核**：使用 Scintilla 5.6.6 + Lexilla 5.4.9（Notepad++ 同款内核），静态链接（重编静态库见 `deps\make-deps.cmd`）。Scintilla 用样式 ID（0-255）给字符着色，不碰选区、不滚动、不触发重绘风暴，大文件性能优秀。
 - **标签栏**：自绘窗口类（`NPPTabBar`），通过 `WM_PAINT` 绘制标签 + 关闭按钮。
 - **行号**：Scintilla 内建 `SC_MARGIN_NUMBER`，不需要自绘 Gutter。
 - **语法着色**：`editor.c` 的 `ApplyLexer` 用 `CreateLexer("cpp"/"python"/...)` 创建词法器，`SCI_SETILEXER` 设给 Scintilla，再按主题设各样式 ID 的颜色。

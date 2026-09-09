@@ -26,6 +26,7 @@ enum class WhiteSpace {
 enum class TabDrawMode {
 	LongArrow = 0,
 	StrikeOut = 1,
+	ControlChar = 2,
 };
 
 enum class EndOfLine {
@@ -165,6 +166,18 @@ enum class FontWeight {
 	Bold = 700,
 };
 
+enum class FontStretch {
+	UltraCondensed = 1,
+	ExtraCondensed = 2,
+	Condensed = 3,
+	SemiCondensed = 4,
+	Normal = 5,
+	SemiExpanded = 6,
+	Expanded = 7,
+	ExtraExpanded = 8,
+	UltraExpanded = 9,
+};
+
 enum class Element {
 	List = 0,
 	ListBack = 1,
@@ -178,6 +191,8 @@ enum class Element {
 	SelectionSecondaryBack = 15,
 	SelectionInactiveText = 16,
 	SelectionInactiveBack = 17,
+	SelectionInactiveAdditionalText = 18,
+	SelectionInactiveAdditionalBack = 19,
 	Caret = 40,
 	CaretAdditional = 41,
 	CaretLineBack = 50,
@@ -283,6 +298,12 @@ enum class ChangeHistoryOption {
 	Enabled = 1,
 	Markers = 2,
 	Indicators = 4,
+};
+
+enum class UndoSelectionHistoryOption {
+	Disabled = 0,
+	Enabled = 1,
+	Scroll = 2,
 };
 
 enum class FoldLevel {
@@ -411,6 +432,7 @@ enum class Status {
 	Ok = 0,
 	Failure = 1,
 	BadAlloc = 2,
+	OutsideDocument = 3,
 	WarnStart = 1000,
 	RegEx = 1001,
 };
@@ -496,6 +518,7 @@ enum class Technology {
 	DirectWrite = 1,
 	DirectWriteRetain = 2,
 	DirectWriteDC = 3,
+	DirectWrite1 = 4,
 };
 
 enum class LineEndType {
@@ -579,6 +602,8 @@ enum class Update {
 	Selection = 0x2,
 	VScroll = 0x4,
 	HScroll = 0x8,
+	Text = 0x10,
+	LineCount = 0x20,
 };
 
 enum class FocusChange {
@@ -632,6 +657,11 @@ enum class CharacterSource {
 	DirectInput = 0,
 	TentativeInput = 1,
 	ImeResult = 2,
+};
+
+enum class ScaleTechnique {
+	Default = 0,
+	PixelAligned = 1,
 };
 
 enum class Bidirectional {
@@ -688,6 +718,7 @@ using sptr_t = intptr_t;
 constexpr Position InvalidPosition = -1;
 constexpr int CpUtf8 = 65001;
 constexpr int MarkerMax = 31;
+constexpr int MaskHistory = 0x01E00000;
 constexpr int MaskFolders = 0xFE000000;
 constexpr int MaxMargin = 4;
 constexpr int FontSizeMultiplier = 100;
