@@ -176,6 +176,8 @@ void Session_Save(void);
 void Session_SaveDrafts(void);
 void Session_DiscardDraft(int index);
 int  Session_Restore(void);
+void Session_SaveWindow(HWND hwnd);                   /* [window]：窗口矩形与最大化状态（退出时保存） */
+int  Session_RestoreWindow(HWND hwnd, int nShowCmd);  /* 启动时恢复窗口位置（无记录则居中），返回 ShowWindow 参数 */
 void Settings_Load(void);   /* [settings]：主题/换行/行号/字号（启动时） */
 void Settings_Save(void);   /* 同上（退出时） */
 /* 正式文件的定时自动备份（防崩溃丢内容，%APPDATA%\eton\autoback\） */

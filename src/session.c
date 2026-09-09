@@ -275,6 +275,70 @@ int Session_Restore(void) {
     return opened;
 }
 
+/* ---------------- 窗口位置记忆 ----------------
+   退出时把恢复态矩形与最大化状态写入 [window];启动时恢复,并把矩形拉回
+   最近显示器的工作区内(防更换/拔掉显示器后窗口落到屏幕外);
+   无有效记录(首次运行/记录损坏)时在所在显示器工作区居中。 */
+#define WIN_MINVIS 60   /* 恢复后标题栏至少留 60px 可见,保证还能拖回来 */
+
+static void Session_CenterOnMonitor(HWND hwnd) {
+    RECT rc;
+    if (!GetWindowRect(hwnd, &rc)) return;
+    HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi; mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(mon, &mi)) return;
+    SetWindowPos(hwnd, NULL,
+                 mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - (rc.right - rc.left)) / 2,
+                 mi.rcWork.top  + ((mi.rcWork.bottom - mi.rcWork.top)  - (rc.bottom - rc.top)) / 2,
+                 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
+}
+
+void Session_SaveWindow(HWND hwnd) {
+    WINDOWPLACEMENT wp; wp.length = sizeof(wp);
+    if (!GetWindowPlacement(hwnd, &wp)) return;
+    RECT rc = wp.rcNormalPosition;
+    wchar_t ini[MAX_PATH];
+    if (!Session_IniPath(ini, MAX_PATH)) return;
+    wchar_t v[16];
+    wsprintf(v, L"%d", (int)rc.left);   WritePrivateProfileStringW(L"window", L"left",   v, ini);
+    wsprintf(v, L"%d", (int)rc.top);    WritePrivateProfileStringW(L"window", L"top",    v, ini);
+    wsprintf(v, L"%d", (int)(rc.right - rc.left));  WritePrivateProfileStringW(L"window", L"width",  v, ini);
+    wsprintf(v, L"%d", (int)(rc.bottom - rc.top));  WritePrivateProfileStringW(L"window", L"height", v, ini);
+    WritePrivateProfileStringW(L"window", L"max", wp.showCmd == SW_SHOWMAXIMIZED ? L"1" : L"0", ini);
+    WritePrivateProfileStringW(L"window", L"valid", L"1", ini);
+}
+
+int Session_RestoreWindow(HWND hwnd, int nShowCmd) {
+    wchar_t ini[MAX_PATH];
+    if (!Session_IniPath(ini, MAX_PATH)) { Session_CenterOnMonitor(hwnd); return nShowCmd; }
+    if (GetPrivateProfileIntW(L"window", L"valid", 0, ini) == 0) {
+        Session_CenterOnMonitor(hwnd);
+        return nShowCmd;
+    }
+    LONG l = GetPrivateProfileIntW(L"window", L"left",   0, ini);
+    LONG t = GetPrivateProfileIntW(L"window", L"top",    0, ini);
+    LONG w = GetPrivateProfileIntW(L"window", L"width",  0, ini);
+    LONG h = GetPrivateProfileIntW(L"window", L"height", 0, ini);
+    BOOL max = GetPrivateProfileIntW(L"window", L"max",  0, ini) != 0;
+    if (w < 200 || h < 120) {   /* 尺寸记录异常,回退默认位置 */
+        Session_CenterOnMonitor(hwnd);
+        return nShowCmd;
+    }
+    RECT rc = { l, t, l + w, t + h };
+    HMONITOR mon = MonitorFromRect(&rc, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi; mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(mon, &mi)) { Session_CenterOnMonitor(hwnd); return nShowCmd; }
+    RECT wa = mi.rcWork;
+    if (w > wa.right - wa.left) { w = wa.right - wa.left; rc.right = rc.left + w; }
+    if (h > wa.bottom - wa.top) { h = wa.bottom - wa.top; rc.bottom = rc.top + h; }
+    if (rc.right < wa.left + WIN_MINVIS) OffsetRect(&rc, wa.left + WIN_MINVIS - rc.right, 0);
+    if (rc.bottom < wa.top + WIN_MINVIS) OffsetRect(&rc, 0, wa.top + WIN_MINVIS - rc.bottom);
+    if (rc.left > wa.right - WIN_MINVIS) OffsetRect(&rc, wa.right - WIN_MINVIS - rc.left, 0);
+    if (rc.top > wa.bottom - WIN_MINVIS) OffsetRect(&rc, 0, wa.bottom - WIN_MINVIS - rc.top);
+    SetWindowPos(hwnd, NULL, rc.left, rc.top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+    return max ? SW_SHOWMAXIMIZED : nShowCmd;
+}
+
 /* ---------------- 设置持久化（session.ini [settings]） ----------------
    主题/换行/行号/字号随退出保存、启动恢复；界面语言(uilang)由 i18n.c 读写。 */
 void Settings_Load(void) {

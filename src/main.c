@@ -576,6 +576,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             Session_SaveDrafts();
             Session_Save();
             Settings_Save();
+            Session_SaveWindow(hwnd);
             KillTimer(hwnd, 1);
             PostQuitMessage(0); return 0;
     }
@@ -610,7 +611,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
         UINT dpi = GetDpiForWindow(hwnd);   /* 窗口实际落在的显示器可能与系统 DPI 不同 */
         if (dpi && dpi != g_dpi) { g_dpi = dpi; Editor_OnDpiChanged(); }
     }
-    ShowWindow(hwnd, nShow);
+    ShowWindow(hwnd, Session_RestoreWindow(hwnd, nShow));   /* 恢复上次窗口位置,首次运行居中 */
     UpdateWindow(hwnd);
 
     HACCEL accel = LoadAcceleratorsW(hInst, MAKEINTRESOURCEW(IDR_ACCEL));
