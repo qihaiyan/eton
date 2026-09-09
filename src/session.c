@@ -322,12 +322,15 @@ void Session_AutoBackupWrite(int index) {
     if (index < 0 || index >= g_docCount) return;
     Doc* d = &g_docs[index];
     if (d->isNew || !d->dirty || d->path[0] == L'\0') return;
+    /* 先用零开销的长度查询过滤超大文档：SCI_GETTEXT 是整篇拷贝，
+       放在 10 秒定时器里对大文件会造成周期性卡顿 */
+    if (!d->hwndEdit ||
+        SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) > (LRESULT)AUTOBACK_MAX) return;
     wchar_t p[MAX_PATH];
     if (!Session_AutoBackupPath(d->path, p, MAX_PATH)) return;
     DWORD len = 0;
     char* text = Editor_GetTextUtf8(index, &len);
     if (!text) return;
-    if (len > AUTOBACK_MAX) { free(text); return; }
     HANDLE h = CreateFileW(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h != INVALID_HANDLE_VALUE) {
         DWORD wr; WriteFile(h, text, len, &wr, NULL);

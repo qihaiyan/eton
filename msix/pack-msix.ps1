@@ -25,6 +25,12 @@ $root = Split-Path -Parent $PSScriptRoot
 $exe  = Join-Path $root "eton.exe"
 if (-not (Test-Path $exe)) { throw "未找到 eton.exe,请先运行 build.bat" }
 
+# 商店规则:版本第 4 段(修订号)必须为 0,形如 0.0.2.1 会被上传校验拒绝
+$rev = ($Version -split '\.')[3]
+if ($null -ne $rev -and $rev -ne '0') {
+    Write-Warning "版本 $Version 的第 4 段(修订号)非 0:微软商店会拒绝此包(包接受验证错误);本机侧载不受影响。"
+}
+
 # ---------- 定位 SDK 工具 ----------
 $sdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
 $makeappx = Get-ChildItem $sdkRoot -Recurse -Filter makeappx.exe -ErrorAction SilentlyContinue |
