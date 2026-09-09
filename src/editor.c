@@ -445,6 +445,22 @@ static void ProgressEnd(void) {
     if (g_hwndMain) SetFocus(g_hwndMain);
 }
 
+/* 低于该阈值的读写毫秒级完成，进度框一闪而过反而像弹窗干扰——不显示进度。
+   加载看磁盘文件大小；保存还要看文档本身长度（首次保存时磁盘上还没有大文件）。 */
+#define PROGRESS_MIN (4 * 1024 * 1024)
+
+static BOOL ProgressWorthy(const wchar_t* path) {
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (!path || !path[0] || !GetFileAttributesExW(path, GetFileExInfoStandard, &fa)) return FALSE;
+    ULARGE_INTEGER sz; sz.HighPart = fa.nFileSizeHigh; sz.LowPart = fa.nFileSizeLow;
+    return sz.QuadPart >= PROGRESS_MIN;
+}
+
+static BOOL SaveProgressWorthy(const Doc* d) {
+    if (ProgressWorthy(d->path)) return TRUE;
+    return SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) >= PROGRESS_MIN;
+}
+
 /* ---------- load file into doc ---------- */
 /* 整体替换文档内容（不产生脏标记/撤销历史），加载文件与恢复草稿共用 */
 void Editor_SetText(int index, const char* utf8) {
@@ -470,9 +486,10 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
     SendMessage(hed, WM_SETREDRAW, FALSE, 0);
     SendMessage(hed, SCI_SETUNDOCOLLECTION, FALSE, 0);
     SendMessage(hed, SCI_CLEARALL, 0, 0);
-    ProgressBegin(STR_LOAD_ING, path);
+    BOOL prog = ProgressWorthy(path);
+    if (prog) ProgressBegin(STR_LOAD_ING, path);
     BOOL ok = StreamLoadToDoc(hed, path, enc, &detected, &eol, ProgressCb, NULL);
-    ProgressEnd();
+    if (prog) ProgressEnd();
     SendMessage(hed, SCI_SETUNDOCOLLECTION, TRUE, 0);
     SendMessage(hed, WM_SETREDRAW, TRUE, 0);
     RedrawWindow(hed, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN);
@@ -483,7 +500,9 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
     SendMessage(hed, SCI_SETEOLMODE, sci_eol, 0);
     SendMessage(hed, SCI_EMPTYUNDOBUFFER, 0, 0);
     SendMessage(hed, SCI_SETSAVEPOINT, 0, 0);
-    SendMessage(hed, SCI_GOTOPOS, 0, 0);
+    /* 光标清空后已在位置 0,不再调 SCI_GOTOPOS:超大单行文档上该调用会强制
+       整行布局(400MB 单行实测:5.4.3 需 22s,5.6.6 反而 38s+),而光标/滚动
+       本就停在文件开头。勿加回。 */
     d->eol = eol;
     d->enc = detected;
     d->isNew = FALSE;
@@ -684,9 +703,10 @@ BOOL Editor_SaveDoc(int index, BOOL askPath) {
     }
     if (d->enc == ENC_ANSI && !ConfirmAnsiOk(d->hwndEdit)) return FALSE;
     if (!ConfirmOverwriteOk(d)) return FALSE;
-    ProgressBegin(STR_SAVE_ING, d->path);
+    BOOL prog = SaveProgressWorthy(d);
+    if (prog) ProgressBegin(STR_SAVE_ING, d->path);
     BOOL ok = StreamSaveFromDoc(d->hwndEdit, d->path, d->enc, d->eol, ProgressCb, NULL);
-    ProgressEnd();
+    if (prog) ProgressEnd();
     if (ok) {
         d->dirty = FALSE;
         SendMessage(d->hwndEdit, SCI_SETSAVEPOINT, 0, 0);
@@ -723,9 +743,10 @@ BOOL Editor_SaveDocAs(int index) {
     d->isNew = FALSE;
     d->baseTitle[0] = L'\0';  /* now derived from path in Editor_UpdateTitle */
     if (d->enc == ENC_ANSI && !ConfirmAnsiOk(d->hwndEdit)) return FALSE;
-    ProgressBegin(STR_SAVE_ING, d->path);
+    BOOL prog = SaveProgressWorthy(d);
+    if (prog) ProgressBegin(STR_SAVE_ING, d->path);
     BOOL ok = StreamSaveFromDoc(d->hwndEdit, d->path, d->enc, d->eol, ProgressCb, NULL);
-    ProgressEnd();
+    if (prog) ProgressEnd();
     if (ok) {
         d->dirty = FALSE;
         SendMessage(d->hwndEdit, SCI_SETSAVEPOINT, 0, 0);
