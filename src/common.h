@@ -30,6 +30,10 @@ typedef enum {
     ENC_UTF16LE,
     ENC_UTF16BE
 } Encoding;
+#define ENC_AUTO (-1)   /* 自动探测编码（Editor_LoadFile / StreamLoadToDoc 的 enc 参数） */
+
+/* 流式 IO 进度回调：返回 FALSE 表示用户取消 */
+typedef BOOL (*IoProgressFn)(UINT64 done, UINT64 total, void* ctx);
 
 typedef enum {
     LANG_NONE = 0,
@@ -113,6 +117,13 @@ wchar_t* LoadFileToWStr(const wchar_t* path, Encoding enc, DWORD* outLenChars, i
 /* Scintilla uses UTF-8; this loads file bytes and returns a UTF-8 string + length */
 char* LoadFileToUtf8(const wchar_t* path, Encoding* detectedEnc, int* outEol);
 BOOL SaveUtf8ToFile(const wchar_t* path, const char* text, DWORD len, Encoding enc, int eol);
+/* 流式大文件 IO：加载直通 Scintilla 控件、保存从控件分块取出写入临时文件后原子替换，
+   峰值内存约等于文件大小（旧全量路径为 4~5 倍） */
+BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
+                     Encoding* outEnc, int* outEol,
+                     IoProgressFn progress, void* ctx);
+BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
+                       IoProgressFn progress, void* ctx);
 BOOL HasUnsupportedForAnsi(const wchar_t* text, DWORD len);
 wchar_t* ApplyEol(const wchar_t* text, DWORD len, int eol, DWORD* outLen);
 

@@ -262,15 +262,39 @@ static BOOL DiskWriteTime(const wchar_t* path, FILETIME* ft) {
     return TRUE;
 }
 
-/* 另存为 ANSI 前确认：内容含系统代码页无法表示的字符时提示乱码风险 */
-static BOOL ConfirmAnsiOk(const char* utf8, DWORD len) {
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, NULL, 0);
-    if (wlen <= 0) return TRUE;
-    wchar_t* w = (wchar_t*)malloc((size_t)wlen * sizeof(wchar_t));
-    if (!w) return TRUE;
-    MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, w, wlen);
-    BOOL bad = HasUnsupportedForAnsi(w, (DWORD)wlen);
-    free(w);
+/* 另存为 ANSI 前确认：分块探测转换，内容含系统代码页无法表示的字符时提示乱码风险。
+   （用 WideCharToMultiByte 的默认字符回退判断，兼容 DBCS 代码页——按码点范围
+   判断会把中文系统下完全可表示的汉字误报成乱码风险） */
+static BOOL ConfirmAnsiOk(HWND hed) {
+    char buf[64 * 1024 + 8];      /* +8: GETTEXTRANGE 会多写一个 NUL 结尾 */
+    wchar_t w[64 * 1024];
+    char probe[128 * 1024 + 8];
+    Sci_Position total = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
+    Sci_Position pos = 0;
+    BOOL bad = FALSE;
+    while (pos < total && !bad) {
+        Sci_Position take = total - pos;
+        if (take > (Sci_Position)(sizeof(buf) - 8)) take = sizeof(buf) - 8;
+        struct Sci_TextRangeFull tr;
+        tr.chrg.cpMin = pos; tr.chrg.cpMax = pos + take; tr.lpstrText = buf;
+        SendMessage(hed, SCI_GETTEXTRANGEFULL, 0, (LPARAM)&tr);
+        if (pos + take < total) {
+            /* 非末块退到最后一个换行，避免拆 UTF-8 字符（char 有符号，字节比较须转无符号） */
+            while (take > 0 && buf[take-1] != '\n') take--;
+            if (take == 0) {
+                take = (total - pos < (Sci_Position)(sizeof(buf) - 8)) ? total - pos : (Sci_Position)(sizeof(buf) - 8);
+                while (take > 0 && ((unsigned char)buf[take-1] & 0xC0) == 0x80) take--;
+                if (take > 0 && (unsigned char)buf[take-1] >= 0xC0) take--;
+            }
+        }
+        pos += take;
+        int n = (take > 0) ? MultiByteToWideChar(CP_UTF8, 0, buf, (int)take, w, 64 * 1024) : 0;
+        if (n > 0) {
+            BOOL used = FALSE;
+            WideCharToMultiByte(CP_ACP, 0, w, n, probe, sizeof(probe), "?", &used);
+            if (used) bad = TRUE;
+        }
+    }
     if (!bad) return TRUE;
     int r = MessageBoxW(g_hwndMain, T(STR_MSG_ANSI_WARN), T(STR_TITLE_SAVE),
                         MB_YESNO | MB_ICONWARNING);
@@ -355,6 +379,72 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     return idx;
 }
 
+/* ---------- 大文件加载/保存进度框 ---------- */
+static HWND s_hwndProg = NULL;
+static BOOL s_progCancel = FALSE;
+
+static INT_PTR CALLBACK ProgressProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_INITDIALOG) {
+        SendMessageW(GetDlgItem(hdlg, IDC_PROG_BAR), PBM_SETRANGE, 0, MAKELPARAM(0, 100));
+        return TRUE;
+    }
+    if (msg == WM_COMMAND &&
+        (LOWORD(wp) == IDC_PROG_CANCEL || LOWORD(wp) == IDCANCEL)) {
+        s_progCancel = TRUE;
+        return TRUE;
+    }
+    (void)lp;
+    return FALSE;
+}
+
+/* 泵消息：主窗口已禁用，仅进度框响应输入（Esc/取消按钮 → 置取消标志） */
+static void ProgressPump(void) {
+    MSG msg;
+    while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+        if (msg.message == WM_QUIT) {
+            s_progCancel = TRUE;
+            PostQuitMessage((int)msg.wParam);   /* 重投给主循环；此处必须 break，否则会再次取到形成死循环 */
+            break;
+        }
+        if (!s_hwndProg || !IsDialogMessageW(s_hwndProg, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
+static void ProgressBegin(StrId verb, const wchar_t* path) {
+    wchar_t label[MAX_PATH + 32];
+    wchar_t name[MAX_PATH];
+    wcscpy_s(name, MAX_PATH, path);
+    PathStripPathW(name);
+    wsprintf(label, L"%s %s", T(verb), name);
+    s_progCancel = FALSE;
+    s_hwndProg = CreateDialogParamW(g_hInst, MAKEINTRESOURCEW(IDD_PROGRESS),
+                                    g_hwndMain, ProgressProc, 0);
+    if (!s_hwndProg) return;
+    EnableWindow(g_hwndMain, FALSE);
+    SetDlgItemTextW(s_hwndProg, IDC_PROG_TEXT, label);
+    SetDlgItemTextW(s_hwndProg, IDC_PROG_CANCEL, T(STR_CANCEL));
+    ShowWindow(s_hwndProg, SW_SHOW);
+    ProgressPump();
+}
+
+static BOOL ProgressCb(UINT64 done, UINT64 total, void* ctx) {
+    (void)ctx;
+    if (s_hwndProg && total)
+        SendDlgItemMessageW(s_hwndProg, IDC_PROG_BAR, PBM_SETPOS,
+                            (int)(done * 100 / total), 0);
+    ProgressPump();
+    return !s_progCancel;
+}
+
+static void ProgressEnd(void) {
+    if (s_hwndProg) { DestroyWindow(s_hwndProg); s_hwndProg = NULL; }
+    EnableWindow(g_hwndMain, TRUE);
+    if (g_hwndMain) SetFocus(g_hwndMain);
+}
+
 /* ---------- load file into doc ---------- */
 /* 整体替换文档内容（不产生脏标记/撤销历史），加载文件与恢复草稿共用 */
 void Editor_SetText(int index, const char* utf8) {
@@ -370,23 +460,35 @@ void Editor_SetText(int index, const char* utf8) {
 }
 
 BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
+    Doc* d = &g_docs[index];
+    HWND hed = d->hwndEdit;
     Encoding detected = ENC_UTF8;
     int eol = 0;
-    char* utf8 = LoadFileToUtf8(path, &detected, &eol);
-    if (!utf8) return FALSE;
-    Doc* d = &g_docs[index];
-    Editor_SetText(index, utf8);
-    /* EOL mode */
+
+    /* 流式加载：分块转码直通 Scintilla，带进度与取消 */
+    g_suppressDirty = TRUE;
+    SendMessage(hed, WM_SETREDRAW, FALSE, 0);
+    SendMessage(hed, SCI_SETUNDOCOLLECTION, FALSE, 0);
+    SendMessage(hed, SCI_CLEARALL, 0, 0);
+    ProgressBegin(STR_LOAD_ING, path);
+    BOOL ok = StreamLoadToDoc(hed, path, enc, &detected, &eol, ProgressCb, NULL);
+    ProgressEnd();
+    SendMessage(hed, SCI_SETUNDOCOLLECTION, TRUE, 0);
+    SendMessage(hed, WM_SETREDRAW, TRUE, 0);
+    RedrawWindow(hed, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN);
+    g_suppressDirty = FALSE;
+    if (!ok) return FALSE;   /* 打不开或已取消 */
+
     int sci_eol = (eol == 0) ? SC_EOL_CRLF : (eol == 1 ? SC_EOL_LF : SC_EOL_CR);
-    SendMessage(d->hwndEdit, SCI_SETEOLMODE, sci_eol, 0);
-    /* Goto start */
-    SendMessage(d->hwndEdit, SCI_GOTOPOS, 0, 0);
+    SendMessage(hed, SCI_SETEOLMODE, sci_eol, 0);
+    SendMessage(hed, SCI_EMPTYUNDOBUFFER, 0, 0);
+    SendMessage(hed, SCI_SETSAVEPOINT, 0, 0);
+    SendMessage(hed, SCI_GOTOPOS, 0, 0);
     d->eol = eol;
     d->enc = detected;
     d->isNew = FALSE;
     wcscpy_s(d->path, MAX_PATH, path);
     d->dirty = FALSE;
-    free(utf8);
     /* 扩展名自动识别语法语言 */
     d->lang = LangFromPath(path);
     ApplyLexer(d->hwndEdit, d->lang);
@@ -580,13 +682,11 @@ BOOL Editor_SaveDoc(int index, BOOL askPath) {
     if (askPath || d->isNew || d->path[0] == L'\0') {
         return Editor_SaveDocAs(index);
     }
-    DWORD len = 0;
-    char* text = Scintilla_GetTextUtf8(d->hwndEdit, &len);
-    if (!text) return FALSE;
-    if (d->enc == ENC_ANSI && !ConfirmAnsiOk(text, len)) { free(text); return FALSE; }
-    if (!ConfirmOverwriteOk(d)) { free(text); return FALSE; }
-    BOOL ok = SaveUtf8ToFile(d->path, text, len, d->enc, d->eol);
-    free(text);
+    if (d->enc == ENC_ANSI && !ConfirmAnsiOk(d->hwndEdit)) return FALSE;
+    if (!ConfirmOverwriteOk(d)) return FALSE;
+    ProgressBegin(STR_SAVE_ING, d->path);
+    BOOL ok = StreamSaveFromDoc(d->hwndEdit, d->path, d->enc, d->eol, ProgressCb, NULL);
+    ProgressEnd();
     if (ok) {
         d->dirty = FALSE;
         SendMessage(d->hwndEdit, SCI_SETSAVEPOINT, 0, 0);
@@ -622,12 +722,10 @@ BOOL Editor_SaveDocAs(int index) {
     wcscpy_s(d->path, MAX_PATH, fname);
     d->isNew = FALSE;
     d->baseTitle[0] = L'\0';  /* now derived from path in Editor_UpdateTitle */
-    DWORD len = 0;
-    char* text = Scintilla_GetTextUtf8(d->hwndEdit, &len);
-    if (!text) return FALSE;
-    if (d->enc == ENC_ANSI && !ConfirmAnsiOk(text, len)) { free(text); return FALSE; }
-    BOOL ok = SaveUtf8ToFile(d->path, text, len, d->enc, d->eol);
-    free(text);
+    if (d->enc == ENC_ANSI && !ConfirmAnsiOk(d->hwndEdit)) return FALSE;
+    ProgressBegin(STR_SAVE_ING, d->path);
+    BOOL ok = StreamSaveFromDoc(d->hwndEdit, d->path, d->enc, d->eol, ProgressCb, NULL);
+    ProgressEnd();
     if (ok) {
         d->dirty = FALSE;
         SendMessage(d->hwndEdit, SCI_SETSAVEPOINT, 0, 0);
@@ -684,7 +782,7 @@ void OpenFileByPath(const wchar_t* path) {
     if (ex >= 0) { Editor_Activate(ex); return; }
     int ni = Editor_NewDoc(path, NULL, FALSE);
     if (ni < 0) return;
-    if (!Editor_LoadFile(ni, path, ENC_UTF8)) { Editor_CloseDoc(ni); return; }
+    if (!Editor_LoadFile(ni, path, ENC_AUTO)) { Editor_CloseDoc(ni); return; }
     AddRecent(path);
     Editor_Activate(ni);
 }

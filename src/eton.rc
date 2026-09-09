@@ -102,6 +102,16 @@ BEGIN
     PUSHBUTTON      "取消", IDC_GOTO_CANCEL, 148, 110, 72, 14
 END
 
+IDD_PROGRESS DIALOGEX 0, 0, 280, 68
+STYLE DS_SETFONT | DS_CENTER | WS_POPUP | WS_CAPTION
+CAPTION "ETON"
+FONT 9, "Microsoft YaHei"
+BEGIN
+    LTEXT           "", IDC_PROG_TEXT, 10, 12, 260, 10
+    CONTROL         "", IDC_PROG_BAR, "msctls_progress32", WS_CHILD | WS_VISIBLE, 10, 30, 260, 12
+    PUSHBUTTON      "取消", IDC_PROG_CANCEL, 114, 48, 52, 14
+END
+
 IDI_APP ICON "..\\res\\app.ico"
 
 #include "version.h"

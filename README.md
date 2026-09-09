@@ -32,7 +32,7 @@
 | 会话恢复 | 按原顺序记住上次的全部标签（文件与未命名草稿的相对位置不变）及激活标签，下次启动自动恢复（带命令行参数启动时不恢复）；已删除的文件自动跳过 |
 | 草稿与备份 | 未命名文档内容每 10 秒保存草稿，崩溃后可恢复；已保存文件的未保存修改也每 10 秒自动备份（autoback），异常退出后再次打开该文件时询问是否恢复；关闭标签或保存后备份自动清除 |
 | 外部修改检测 | 保存前检测文件是否被其他程序修改并提示覆盖风险；切回窗口时检测磁盘变化并询问是否重新加载（仅限未编辑的文档） |
-| 大文件保护 | 超过 100 MB 的文件拒绝打开并提示，避免内存放大导致卡死 |
+| 大文件支持 | 流式加载/保存（分块转码直通 Scintilla、临时文件+原子替换保存），可打开最高 1 GB 的文件，大文件加载/保存带进度框可取消；超过 1 GB 拒绝打开并提示；JSON 格式化等整篇内存操作对超过 100 MB 的文档禁用 |
 
 ---
 
@@ -189,6 +189,7 @@ powershell -File msix\pack-msix.ps1 -Sign
 - **行号**：Scintilla 内建 `SC_MARGIN_NUMBER`，不需要自绘 Gutter。
 - **语法着色**：`editor.c` 的 `ApplyLexer` 用 `CreateLexer("cpp"/"python"/...)` 创建词法器，`SCI_SETILEXER` 设给 Scintilla，再按主题设各样式 ID 的颜色。
 - **编码与行尾**：`fileio.c` 负责 BOM 探测、各编码与 UTF-8 的转换（Scintilla 内部用 UTF-8）、以及 CRLF/LF/CR 规范化与转换。
+- **大文件流式 IO**：`fileio.c` 的 `StreamLoadToDoc` 分块读取并按"换行/字符边界"安全切分（不拆 UTF-8 多字节字符、UTF-16 代理对、DBCS 双字节），逐块转码 `SCI_APPENDTEXT` 进 Scintilla；`StreamSaveFromDoc` 用 `SCI_GETTEXTRANGEFULL` 分块取出转换后写同目录临时文件，`MoveFileEx` 原子替换（取消/失败不破坏原文件）。注意 `char*` 字节比较须转 `unsigned char`（有符号 `char` 下 `>= 0xC0` 永远为假）。
 - **JSON 工具**：`jsonfmt.c` 用单遍递归下降解析器边校验（RFC 8259 严格语法）边输出——格式化按嵌套深度缩进、压缩则剔除全部空白；字符串/数字按原文透传（保留 `\uXXXX` 等转义写法）。替换通过 Scintilla 的 target + `SCI_REPLACETARGET` 完成，单步可撤销。
 - **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
 - **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。

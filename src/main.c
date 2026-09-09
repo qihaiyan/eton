@@ -437,7 +437,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE: {
             g_hwndMain = hwnd;
-            INITCOMMONCONTROLSEX icex; icex.dwSize = sizeof(icex); icex.dwICC = ICC_BAR_CLASSES;
+            INITCOMMONCONTROLSEX icex; icex.dwSize = sizeof(icex);
+            icex.dwICC = ICC_BAR_CLASSES | ICC_WIN95_CLASSES;   /* WIN95: 进度条(加载/保存进度框) */
             InitCommonControlsEx(&icex);
             ScrollBars_Create(hwnd);   /* 自绘滚动条（须先于 Editor_Init 的首次布局） */
             Editor_Init();

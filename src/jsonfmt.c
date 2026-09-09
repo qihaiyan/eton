@@ -292,6 +292,15 @@ void Json_FormatActiveDoc(BOOL minify) {
         return;
     }
 
+    /* 大文档门槛：格式化在内存构建整份输出，超大内容会拖垮内存与耗时 */
+    if (end - start > (Sci_Position)(100 * 1024 * 1024)) {
+        wchar_t msg[128];
+        wsprintf(msg, T(STR_MSG_JSON_BIG), 100);
+        MessageBoxW(g_hwndMain, msg,
+                    minify ? T(STR_JSON_TITLE_MIN) : T(STR_JSON_TITLE_FMT), MB_ICONINFORMATION);
+        return;
+    }
+
     Sci_Position rlen = end - start;
     char* src = (char*)malloc((size_t)rlen + 1);
     if (!src) return;

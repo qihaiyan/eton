@@ -179,6 +179,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"文件 \"%s\" 已在磁盘上被其他程序修改。\n是否重新加载？",
         L"文件过大（超过 %d MB），无法打开。",
         L"检测到 \"%s\" 存在未保存的自动备份（可能来自上次异常退出）。\n是否恢复备份内容？",
+
+        L"正在加载",
+        L"正在保存",
+        L"文档过大（超过 %d MB），JSON 工具仅支持较小的文档。",
     },
 
     /* ================= English ================= */
@@ -349,6 +353,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"File \"%s\" has been changed on disk by another program.\nReload it?",
         L"The file is too large (over %d MB) and cannot be opened.",
         L"An unsaved auto-backup of \"%s\" was found (possibly from an abnormal exit).\nRestore the backup content?",
+
+        L"Loading",
+        L"Saving",
+        L"The document is too large (over %d MB) for the JSON tools.",
     },
 };
 

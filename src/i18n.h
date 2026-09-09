@@ -184,6 +184,11 @@ typedef enum {
     STR_MSG_FILE_TOO_BIG,           /* 文件过大（%d MB 上限） */
     STR_MSG_AUTOBACKUP,             /* 发现自动备份，是否恢复 */
 
+    /* 大文件流式 IO */
+    STR_LOAD_ING,                   /* 进度框：正在加载 */
+    STR_SAVE_ING,                   /* 进度框：正在保存 */
+    STR_MSG_JSON_BIG,               /* JSON 工具大文档门槛 */
+
     STR_COUNT
 } StrId;
 

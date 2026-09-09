@@ -97,6 +97,7 @@
 #define IDD_GOTO    2102
 #define IDD_ABOUT   2103
 #define IDD_OPENENC 2104
+#define IDD_PROGRESS 2105   /* 大文件加载/保存进度框 */
 
 /* Find/Replace controls */
 #define IDC_FIND_TEXT   2201
@@ -130,5 +131,10 @@
 /* Open encoding */
 #define IDC_OPENENC_LIST 2501
 #define IDC_OPENENC_LBL  2502    /* "选择编码:" */
+
+/* Load/save progress */
+#define IDC_PROG_TEXT   2601
+#define IDC_PROG_BAR    2602
+#define IDC_PROG_CANCEL 2603
 
 #endif /* RESOURCE_H */
