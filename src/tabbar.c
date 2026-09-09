@@ -300,6 +300,7 @@ void TabBar_Register(void) {
     tc.style = CS_DBLCLKS;
     tc.lpfnWndProc = TabBarProc;
     tc.hInstance = g_hInst;
+    tc.hCursor = LoadCursorW(NULL, IDC_ARROW);
     tc.lpszClassName = L"NPPTabBar";
     tc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     RegisterClassExW(&tc);
