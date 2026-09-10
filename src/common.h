@@ -38,7 +38,8 @@ typedef BOOL (*IoProgressFn)(UINT64 done, UINT64 total, void* ctx);
 typedef enum {
     LANG_NONE = 0,
     LANG_C, LANG_CPP, LANG_CS, LANG_JAVA, LANG_JS,
-    LANG_PY, LANG_XML, LANG_JSON, LANG_SQL
+    LANG_PY, LANG_XML, LANG_JSON, LANG_SQL,
+    LANG_MD
 } LangID;
 
 typedef struct {
@@ -53,6 +54,7 @@ typedef struct {
     BOOL isNew;
     LangID lang;
     FILETIME ftWrite;    /* 打开/保存时的磁盘时间戳（外部修改检测用） */
+    BOOL previewOn;      /* Markdown 预览模式（仅 LANG_MD 文档有效） */
 } Doc;
 
 /* globals (defined in main.c) */
@@ -143,6 +145,57 @@ LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re,
 
 /* jsonfmt.c */
 void Json_FormatActiveDoc(BOOL minify);
+
+/* ---------- mdview.c / mermaid.c：Markdown 原生预览 ----------
+   MD4C 解析 + GDI 自绘（参照 tinta 的纯原生路线，零 Web 引擎）。
+   单一全局子窗口 ETONMDView，按当前文档 previewOn 显示/隐藏。 */
+
+/* 预览用字体集（mdview 构建；mermaid 布局测量共用） */
+typedef struct MdFonts {
+    HFONT body, bold, emph, boldemph;
+    HFONT h[6];        /* h1..h6（已含字重） */
+    HFONT mono;        /* 代码块/行内代码 */
+    HFONT sm;          /* 图表边标签等辅助文字（small 是 rpcndr.h 宏，不可用作成员名） */
+    int  lineH;        /* body 行高（px） */
+} MdFonts;
+
+/* 预览配色（随 g_dark 计算，绘制时现算现用） */
+typedef struct MdTheme {
+    COLORREF bg, fg, fgMuted;
+    COLORREF link;
+    COLORREF quoteBar;
+    COLORREF codeBg, codeBorder, codeFg;
+    COLORREF tableLine, tableHeadBg;
+    COLORREF hrule;
+    COLORREF selBg;         /* 图表画布底色（略区别于正文底） */
+    /* mermaid */
+    COLORREF merNodeFill, merNodeBorder, merNodeText, merEdge;
+    COLORREF merLabelBg, merLabelFg;
+    COLORREF seqNoteBg, seqNoteBorder, seqNoteFg;
+    COLORREF frame;         /* loop/alt/opt 框 */
+} MdTheme;
+
+/* mermaid.c：不支持的图族返回 NULL（mdview 回退为代码块显示） */
+typedef struct MermaidDiagram MermaidDiagram;
+MermaidDiagram* Mermaid_Parse(const char* src, int len);
+void  Mermaid_Free(MermaidDiagram* d);
+SIZE  Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f);
+void  Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
+                   const MdFonts* f, const MdTheme* th);
+
+/* mdview.c */
+void MdView_Register(void);   /* 注册窗口类（Editor_Init 内调用） */
+void MdView_Create(HWND parent);
+void MdView_Toggle(void);            /* F12：切换当前文档编辑/预览 */
+void MdView_OnActivate(void);        /* Editor_Activate 末尾：同步可见性+内容 */
+void MdView_OnLayout(int x, int y, int w, int h);   /* Editor_Layout 内：摆放 */
+BOOL MdView_IsVisible(void);
+void MdView_OnDpiChanged(void);
+void MdView_OnThemeChange(void);
+void MdView_OnZoom(void);
+void MdView_RefreshIfActive(int index);   /* 保存/重载后刷新内容 */
+void MdTheme_Build(MdTheme* th);          /* 按 g_dark 生成配色 */
+
 
 /* util */
 void ShowError(const wchar_t* msg);

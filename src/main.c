@@ -107,6 +107,11 @@ static void UpdateMenuChecks(void) {
     Check(m, IDM_WRAP, g_wordWrap);
     Check(m, IDM_GUTTER, g_showGutter);
     Check(m, IDM_THEME, g_dark);
+    /* Markdown 预览：仅当前文档为 Markdown 时可用 */
+    BOOL isMd = (g_curDoc >= 0 && g_docs[g_curDoc].lang == LANG_MD);
+    Check(m, IDM_VIEW_MD, isMd && g_docs[g_curDoc].previewOn);
+    EnableMenuItem(m, IDM_VIEW_MD, isMd ? MF_BYCOMMAND | MF_ENABLED
+                                        : MF_BYCOMMAND | MF_GRAYED);
     Encoding e = (g_curDoc >= 0) ? g_docs[g_curDoc].enc : ENC_UTF8;
     LangID lg = (g_curDoc >= 0) ? g_docs[g_curDoc].lang : LANG_NONE;
     int eol = (g_curDoc >= 0) ? g_docs[g_curDoc].eol : 0;
@@ -316,6 +321,7 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             g_dark = !g_dark; Editor_ApplyThemeColors();
             I18n_ApplySystemThemeMode();   /* 系统箭头/消息框明暗跟随 */
             for (int i = 0; i < g_docCount; i++) Editor_ApplyTheme(i);
+            MdView_OnThemeChange();        /* 预览配色现算现用，重画即可 */
             ApplyTitleBarTheme(hwnd);
             InvalidateRect(g_hwndTab, NULL, FALSE);
             InvalidateRect(g_hwndStatus, NULL, FALSE);
@@ -339,7 +345,11 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
         case IDM_EOL_CONVERT: if (g_curDoc >= 0) Editor_ConvertEol(g_curDoc, g_docs[g_curDoc].eol); break;
         case IDM_LANG_NONE: case IDM_LANG_C: case IDM_LANG_CPP: case IDM_LANG_CS: case IDM_LANG_JAVA:
         case IDM_LANG_JS: case IDM_LANG_PY: case IDM_LANG_XML: case IDM_LANG_JSON: case IDM_LANG_SQL:
+        case IDM_LANG_MD:
             if (g_curDoc >= 0) { Editor_SetLang(g_curDoc, (LangID)(id - IDM_LANG_NONE)); UpdateMenuChecks(); } break;
+        case IDM_VIEW_MD:
+            MdView_Toggle();
+            break;
         case IDM_FINDNEXT: FindNextAccel(hwnd, TRUE); break;
         case IDM_FINDPREV: FindNextAccel(hwnd, FALSE); break;
         case IDM_ABOUT: Dlg_About(hwnd); break;

@@ -15,7 +15,8 @@ static const char* LexerName[] = {
     "python", /* LANG_PY */
     "xml",    /* LANG_XML */
     "json",   /* LANG_JSON */
-    "sql"     /* LANG_SQL */
+    "sql",    /* LANG_SQL */
+    "markdown"/* LANG_MD */
 };
 
 /* ---------- colors ---------- */
@@ -75,6 +76,8 @@ BOOL Editor_Init(void) {
     Scintilla_RegisterClasses(g_hInst);
 
     TabBar_Register();
+    MdView_Register();          /* Markdown 预览视图（WM_CREATE 时 g_hwndMain 已就绪） */
+    MdView_Create(g_hwndMain);
     Editor_ApplyThemeColors();
     /* g_fontSize 已由 Settings_Load 在启动时恢复（默认 11），不可在此重置 */
     Editor_SetFont();
@@ -160,8 +163,9 @@ static void ApplyScintillaStyle(HWND hed) {
 
 /* ---------- apply language lexer + keywords ---------- */
 static void ApplyLexer(HWND hed, LangID lang) {
-    /* 折叠边距宽度：语法语言显示，纯文本隐藏 */
-    SendMessage(hed, SCI_SETMARGINWIDTHN, 1, (lang == LANG_NONE) ? 0 : UI_Scale(14));
+    /* 折叠边距宽度：语法语言显示，纯文本与 markdown（无折叠结构）隐藏 */
+    SendMessage(hed, SCI_SETMARGINWIDTHN, 1,
+                (lang == LANG_NONE || lang == LANG_MD) ? 0 : UI_Scale(14));
     if (lang == LANG_NONE) {
         /* Clear lexer: set to null lexer */
         ILexer5* nullLex = CreateLexer("null");
@@ -196,7 +200,42 @@ static void ApplyLexer(HWND hed, LangID lang) {
         const char* kw = "true false null";
         SendMessage(hed, SCI_SETKEYWORDS, 0, (LPARAM)kw);
     }
-    /* XML/HTML lexer doesn't need keywords */
+    /* XML/HTML 与 Markdown lexer 不需要关键字 */
+
+    if (lang == LANG_MD) {
+        /* Markdown lexer 样式 ID（LexMarkdown）：2=粗体 3=斜体 4..9=H1..H6
+           11/12=无序/有序列表项 13=引用 14=删除线 15=水平线 16=链接 18=行内代码。
+           语义与 cpp 族完全不同，不能落入下方通用配色。 */
+        COLORREF cHead, cLink, cQuote, cCode;
+        if (g_dark) {
+            cHead  = RGB(86,156,214);
+            cLink  = RGB(78,201,176);
+            cQuote = RGB(106,153,85);
+            cCode  = RGB(206,145,120);
+        } else {
+            cHead  = RGB(9,105,192);
+            cLink  = RGB(1,109,163);
+            cQuote = RGB(0,128,0);
+            cCode  = RGB(163,21,21);
+        }
+        SendMessage(hed, SCI_STYLESETFORE, 2, (LPARAM)cHead);
+        SendMessage(hed, SCI_STYLESETBOLD, 2, 1);                     /* **粗体** */
+        SendMessage(hed, SCI_STYLESETITALIC, 3, 1);                   /* *斜体* */
+        for (int s = 4; s <= 9; s++) {                                /* H1..H6 */
+            SendMessage(hed, SCI_STYLESETFORE, s, (LPARAM)cHead);
+            SendMessage(hed, SCI_STYLESETBOLD, s, 1);
+            SendMessage(hed, SCI_STYLESETSIZE, s, g_fontSize + (9 - s));
+        }
+        SendMessage(hed, SCI_STYLESETFORE, 13, (LPARAM)cQuote);       /* > 引用 */
+        SendMessage(hed, SCI_STYLESETFORE, 14, (LPARAM)g_clrGutterFg);/* ~~删除线~~ */
+        SendMessage(hed, SCI_STYLESETFORE, 15, (LPARAM)g_clrGutterFg);/* 水平线 */
+        SendMessage(hed, SCI_STYLESETFORE, 16, (LPARAM)cLink);        /* 链接 */
+        SendMessage(hed, SCI_STYLESETUNDERLINE, 16, 1);
+        SendMessage(hed, SCI_STYLESETFORE, 18, (LPARAM)cCode);        /* `行内代码` */
+        SendMessage(hed, SCI_STYLESETFORE, 11, (LPARAM)cQuote);       /* 列表标记 */
+        SendMessage(hed, SCI_STYLESETFORE, 12, (LPARAM)cQuote);
+        return;   /* markdown 分支到此为止 */
+    }
 
     /* Set syntax colors based on theme */
     /* Scintilla style IDs for cpp lexer:
@@ -243,6 +282,7 @@ static LangID LangFromPath(const wchar_t* path) {
         { L".xml",  LANG_XML },{ L".html", LANG_XML },{ L".htm", LANG_XML },
         { L".xaml", LANG_XML },{ L".svg",  LANG_XML },{ L".xsl", LANG_XML },
         { L".json", LANG_JSON },{ L".sql",  LANG_SQL },
+        { L".md",   LANG_MD }, { L".markdown", LANG_MD },
     };
     const wchar_t* ext = PathFindExtensionW(path);
     if (!ext || ext == path) return LANG_NONE;   /* 无扩展名 */
@@ -363,6 +403,7 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     d->eol = 1;   /* 默认 Unix (LF) 行尾 */
     d->draft[0] = L'\0';
     d->lang = LANG_NONE;
+    d->previewOn = FALSE;
     if (isNew) {
         d->path[0] = L'\0';
         wcscpy_s(d->baseTitle, 256, title ? title : T(STR_UNTITLED));
@@ -540,11 +581,13 @@ void Editor_Activate(int index) {
     if (index < 0 || index >= g_docCount) return;
     g_curDoc = index;
     for (int i = 0; i < g_docCount; i++) {
-        BOOL show = (i == index);
+        /* 预览模式下当前文档的编辑器隐藏（由 MdView 顶替显示） */
+        BOOL show = (i == index) && !g_docs[i].previewOn;
         ShowWindow(g_docs[i].hwndEdit, show ? SW_SHOW : SW_HIDE);
     }
     Editor_ApplyWrap(index);
     Editor_Layout();
+    MdView_OnActivate();   /* 按当前文档 previewOn 显示预览并装载内容 */
     InvalidateRect(g_hwndTab, NULL, FALSE);
     Editor_UpdateStatus();
     Session_Save();   /* 标签集/激活标签变化时落盘，异常退出也不丢会话 */
@@ -607,6 +650,14 @@ void Editor_Layout(void) {
     int top = tabH;
     int bottom = cy - statusH;
     int h = bottom - top;
+
+    /* 预览模式：mdview 占据整个编辑区，编辑器滚动条全部隐藏 */
+    if (MdView_IsVisible()) {
+        ScrollBars_Layout(0, 0, 0, 0, 0, FALSE);
+        MdView_OnLayout(0, top, cx, h);
+        return;
+    }
+
     int sbw = ScrollBars_Thickness();
     BOOL showH = !g_wordWrap;   /* 换行模式下没有横向滚动，隐藏水平条 */
 
@@ -633,6 +684,7 @@ void Editor_Zoom(int delta) {
             SendMessage(g_docs[i].hwndEdit, SCI_STYLECLEARALL, 0, 0);
         }
     }
+    MdView_OnZoom();   /* 预览字号跟随编辑器字号（不可见时内部自行忽略） */
     Editor_UpdateStatus();
 }
 
@@ -677,6 +729,9 @@ void Editor_OnNotify(LPARAM lp) {
                 if (g_docs[idx].isNew) g_draftsDirty = TRUE;   /* 未命名文档内容变化，待写草稿 */
             }
         }
+    } else if (scn->nmhdr.code == SCN_SAVEPOINTREACHED) {
+        /* 保存完成（含另存为）：预览中的文档刷新渲染 */
+        MdView_RefreshIfActive(idx);
     }
 }
 

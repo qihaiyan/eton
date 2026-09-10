@@ -87,8 +87,8 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         /* 过滤器 */
         L"所有文件 (*.*)",
         L"*.*",
-        L"文本文件 (*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql)",
-        L"*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql",
+        L"文本文件 (*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md)",
+        L"*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md",
         L"文本文件 (*.txt)",
         L"*.txt",
 
@@ -183,6 +183,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"正在加载",
         L"正在保存",
         L"文档过大（超过 %d MB），JSON 工具仅支持较小的文档。",
+
+        L"Markdown 预览(&P)\tF12",
+        L"Markdown",
+        L"暂不支持该 Mermaid 图族的原生渲染，已回退为源码显示",
     },
 
     /* ================= English ================= */
@@ -261,8 +265,8 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         /* Filters */
         L"All files (*.*)",
         L"*.*",
-        L"Text files (*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql)",
-        L"*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql",
+        L"Text files (*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md)",
+        L"*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md",
         L"Text files (*.txt)",
         L"*.txt",
 
@@ -357,6 +361,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Loading",
         L"Saving",
         L"The document is too large (over %d MB) for the JSON tools.",
+
+        L"Markdown &Preview\tF12",
+        L"Markdown",
+        L"Native rendering for this Mermaid diagram type is not yet supported; showing source",
     },
 };
 
@@ -665,6 +673,8 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mView, STR_ITEM_ZOOMRST, IDM_ZOOMRST);
     AddSep(mView);
     AddIt(mView, STR_ITEM_THEME, IDM_THEME);
+    AddSep(mView);
+    AddIt(mView, STR_ITEM_MDPREVIEW, IDM_VIEW_MD);
     AddBar(bar, (UINT_PTR)mView, STR_MENU_VIEW);
 
     /* 编码 */
@@ -703,6 +713,7 @@ HMENU I18n_BuildMainMenu(void) {
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_XML, L"XML/HTML");
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_JSON, L"JSON");
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_SQL, L"SQL");
+    AddIt(mLang, STR_SYN_MARKDOWN, IDM_LANG_MD);
     AddBar(bar, (UINT_PTR)mLang, STR_MENU_SYNTAX);
 
     /* 帮助 */

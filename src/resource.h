@@ -49,6 +49,7 @@
 #define IDM_ZOOMOUT     1311
 #define IDM_ZOOMRST     1312
 #define IDM_THEME       1320
+#define IDM_VIEW_MD     1321   /* Markdown 预览开关（F12） */
 
 /* Encoding (save / current) */
 #define IDM_ENC_ANSI     1400
@@ -80,7 +81,8 @@
 #define IDM_LANG_XML     1607
 #define IDM_LANG_JSON    1608
 #define IDM_LANG_SQL     1609
-#define IDM_LANG_LAST    1609
+#define IDM_LANG_MD      1610   /* 须与 LangID 的 LANG_MD 顺序对齐 */
+#define IDM_LANG_LAST    1610
 
 /* Help */
 #define IDM_ABOUT       1999

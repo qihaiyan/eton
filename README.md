@@ -14,7 +14,8 @@
 | --- | --- |
 | 多标签 | 自定义标签栏（含 × 关闭按钮），可同时编辑多个文件；Ctrl+Tab / Ctrl+Shift+Tab（或 Ctrl+PgDn/PgUp）循环切换；标签放不下自动出现 ◀▶ 滚动按钮并支持滚轮滚动；中键关闭、双击空白新建、悬停显示完整路径、右键菜单（关闭/关闭其他/关闭全部） |
 | 界面语言 | 简体中文 / English 双语界面，`帮助` 菜单底部直接勾选切换，运行时即时生效（菜单、对话框、消息、状态栏全部跟随）；选择保存在 session.ini，未选择过时首次启动跟随系统 UI 语言 |
-| 语法高亮 | 9 种语言：C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL（基于 Scintilla + Lexilla 词法器）；按扩展名自动识别，也可在语言菜单手动切换；语法语言下显示代码折叠边距（点击 +/− 折叠/展开） |
+| 语法高亮 | 10 种语言：C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL / Markdown（基于 Scintilla + Lexilla 词法器）；按扩展名自动识别，也可在语言菜单手动切换；语法语言下显示代码折叠边距（点击 +/− 折叠/展开） |
+| Markdown 预览 | F12 在当前标签内切换 编辑 ↔ 渲染视图（Esc 退出）：MD4C 解析 + GDI 原生绘制（零 Web 引擎，参照 tinta 的路线）；支持标题分级、粗/斜/删除线、行内代码、链接（相对路径按文档目录解析，点击用系统默认程序打开）、任务列表 ☑/☐、有序/无序/嵌套列表、引用、表格（对齐）、代码块、分隔线；**Mermaid 流程图与原生时序图直接绘制**（节点形状、边标签、subgraph、participant/消息/Note/loop/alt 等），其余图族回退为源码显示并提示；配色跟随亮/暗主题，字号跟随编辑器缩放 |
 | 多编码 | ANSI(系统代码页) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE，打开时自动探测 BOM，状态栏显示当前编码；另存 ANSI 时若内容含无法表示的字符会提示乱码风险 |
 | 行尾转换 | CRLF / LF / CR，可一键"转换为…"；新文档及探测不到行尾的文件默认 Unix (LF)，打开已有文件时按内容自动探测并保持 |
 | JSON 工具 | 编辑菜单：JSON 格式化（Ctrl+Shift+F）/ JSON 压缩（Ctrl+Shift+M）；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
@@ -47,9 +48,10 @@ eton/
 ├── eton.exe           # 编译产物（单文件可移植）
 ├── eton.wxs           # MSI 安装包定义（WiX v7；CI 按发布标签构建）
 ├── msix/              # MSIX 打包：pack-msix.ps1 + AppxManifest.template.xml
-├── deps/              # Scintilla + Lexilla 依赖（内置，编译不再依赖外部目录）
+├── deps/              # Scintilla + Lexilla + MD4C 依赖（内置，编译不再依赖外部目录）
 │   ├── scintilla/     #   libscintilla.lib + 头文件
-│   └── lexilla/       #   liblexilla.lib + 头文件
+│   ├── lexilla/       #   liblexilla.lib + 头文件
+│   └── md4c/          #   MD4C 0.5.3（Markdown 解析器，MIT）源码 md4c.c/md4c.h
 ├── res/
 │   ├── app.png        # 程序图标源图（1080×1080）
 │   ├── app.ico        # 程序图标（由 app.png 生成，16–256px 多尺寸）
@@ -67,6 +69,8 @@ eton/
     ├── session.c      # 会话/草稿持久化与恢复（含界面语言选择）
     ├── fileio.c       # 编码探测、读写、行尾规范化、UTF-8 转换
     ├── jsonfmt.c      # JSON 校验 + 格式化/压缩（单遍解析，RFC 8259）
+    ├── mdview.c       # Markdown 原生预览视图（MD4C 解析 → 块树 → 排版 → GDI 绘制）
+    ├── mermaid.c      # Mermaid 原生渲染（流程图/时序图：解析 + 布局 + GDI 绘制）
     └── dialogs.c      # 查找/替换/转到/关于/打开编码 对话框
 ```
 
@@ -85,7 +89,7 @@ eton/
 1. 自动定位 MSVC 环境：优先用环境变量 `VCVARS` 指定的 `vcvarsall.bat`，其次用 `vswhere` 查找（支持任意盘符 / 版本 / 发行版，含 Build Tools），最后回退扫描常见安装路径；
 2. 调用 `vcvarsall.bat x64` 初始化 MSVC 环境；
 3. 用 `rc.exe` 编译资源 `eton.rc` → `build\eton.res`；
-4. 用 `cl.exe` 编译 8 个 `.c` 并链接为 `eton.exe`（含 Scintilla + Lexilla 静态库）。
+4. 用 `cl.exe` 编译全部 `.c`（含 `deps\md4c\md4c.c`）并链接为 `eton.exe`（含 Scintilla + Lexilla 静态库）。
 
 自动化 / CI 场景用无交互模式：`build.bat auto`——不暂停，成功输出 `BUILD_OK` 且退出码为 0，失败输出 `RCFAIL` / `CLFAIL` / `VCVARSFAIL` 且退出码非 0。
 
@@ -100,9 +104,9 @@ eton/
 rc /nologo /fo build\eton.res src\eton.rc
 rc /nologo /fo build\app.res app.rc
 cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
-   /I"deps\scintilla" /I"deps\lexilla" ^
+   /I"deps\scintilla" /I"deps\lexilla" /I"deps\md4c" ^
    /Fo"build/" /Fe:eton.exe ^
-   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c src\i18n.c build\eton.res build\app.res ^
+   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c src\i18n.c src\mdview.c src\mermaid.c deps\md4c\md4c.c build\eton.res build\app.res ^
    /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /LIBPATH:"deps\scintilla" /LIBPATH:"deps\lexilla" ^
    libscintilla.lib liblexilla.lib ^
    user32.lib gdi32.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib
@@ -170,6 +174,7 @@ powershell -File msix\pack-msix.ps1 -Sign
 - **缩放**：`Ctrl+=` 放大、`Ctrl+-` 缩小、`Ctrl+0` 复位。
 - **自动换行**：视图菜单切换。
 - **暗色主题**：在"视图 → 主题"切换（标题栏/标签栏/状态栏/语法高亮配色随之改变）。
+- **Markdown 预览**：打开 `.md` 文件后按 `F12`（或 视图 → Markdown 预览）切换到渲染视图，`Esc` 切回编辑；预览中滚轮/键盘滚动，点击链接用系统默认程序打开；保存后预览自动刷新，缩放与主题跟随编辑器。
 - **书签**：`Ctrl+F2` 切换当前行书签，`F2` / `Shift+F2` 上下跳转。
 - **代码折叠**：打开语法语言文件后，行号旁出现折叠边距，点击 +/− 折叠或展开。
 - **右键菜单**：编辑区右键=剪切/复制/粘贴/全选/打开所在文件夹；标签右键=关闭/关闭其他/关闭全部；标签中键关闭、双击空白新建。
@@ -194,11 +199,13 @@ powershell -File msix\pack-msix.ps1 -Sign
 - **JSON 工具**：`jsonfmt.c` 用单遍递归下降解析器边校验（RFC 8259 严格语法）边输出——格式化按嵌套深度缩进、压缩则剔除全部空白；字符串/数字按原文透传（保留 `\uXXXX` 等转义写法）。替换通过 Scintilla 的 target + `SCI_REPLACETARGET` 完成，单步可撤销。
 - **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
 - **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。
+- **Markdown 预览**：`mdview.c` 用 MD4C（`MD_DIALECT_GITHUB`）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式。`mermaid.c` 为 ```mermaid``` 代码块提供流程图（最长路径分层 + 层内重心排序）与时序图（生命线 + 垂直堆叠）的原生布局与 GDI 绘制，未覆盖图族回退为代码块。
 
 ---
 
 ## 已知限制 / 后续可扩展
 
+- Markdown 预览：Mermaid 目前原生支持流程图（flowchart/graph）与时序图（sequenceDiagram），其余图族（甘特图/饼图/类图/状态图/ER 图等）回退为源码显示，可按图族逐步补齐；数学公式、图片内嵌显示、导出 HTML/PDF 未实现。
 - 查找/替换为单文件（无跨文件/文件夹搜索）；正则语法为 Scintilla 内建（类 POSIX）。
 - 未实现：列块选择、宏、插件体系、打印。Scintilla 原生支持折叠（已启用）、打印（SCI_FORMATRANGE，可按需接入）。
 
@@ -206,4 +213,4 @@ powershell -File msix\pack-msix.ps1 -Sign
 
 ## 许可证
 
-本项目为示例代码，可自由学习、修改、再分发。Scintilla 与 Lexilla 遵循其各自的 License.txt（HPND 许可证）。
+本项目为示例代码，可自由学习、修改、再分发。Scintilla 与 Lexilla 遵循其各自的 License.txt（HPND 许可证）；MD4C（`deps/md4c/`）遵循 MIT 许可（见 `deps/md4c/LICENSE.md`）。

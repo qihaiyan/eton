@@ -189,6 +189,11 @@ typedef enum {
     STR_SAVE_ING,                   /* 进度框：正在保存 */
     STR_MSG_JSON_BIG,               /* JSON 工具大文档门槛 */
 
+    /* Markdown 预览（mdview/mermaid） */
+    STR_ITEM_MDPREVIEW,             /* 视图菜单：Markdown 预览 F12 */
+    STR_SYN_MARKDOWN,               /* 语言菜单：Markdown（专有名词，中英一致） */
+    STR_MD_MERMAID_UNSUP,           /* mermaid 图族暂不支持原生渲染的提示 */
+
     STR_COUNT
 } StrId;
 
