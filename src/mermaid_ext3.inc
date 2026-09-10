@@ -4,89 +4,188 @@
    由 mermaid.c 末尾 include。
    ================================================================ */
 
-/* ---------------- timeline ---------------- */
+/* ---------------- timeline ----------------
+   mermaid v10 风格：标题居中 + 分时段着色的水平轴线，
+   事件圆点骑轴、上下交替悬挂文字（圆点→竖线→文字块）。 */
+static COLORREF TlColor(const MdTheme* th, int idx) {
+    int dark = (GetRValue(th->bg) + GetGValue(th->bg) + GetBValue(th->bg)) < 384;
+    static const COLORREF kLight[6] = {
+        RGB(31,120,180), RGB(214,120,22), RGB(44,145,60),
+        RGB(205,73,74),  RGB(148,103,189), RGB(140,100,60) };
+    static const COLORREF kDark[6] = {
+        RGB(99,155,210), RGB(250,160,80), RGB(120,195,125),
+        RGB(230,110,112), RGB(180,150,220), RGB(200,160,120) };
+    return (dark ? kDark : kLight)[idx % 6];
+}
+
+/* 事件文字块尺寸与时段段宽（两处共用） */
+static int TlEvBlockW(HDC hdc, const MdFonts* f, TlEv* ev) {
+    int w = TextW(hdc, f->body, ev->head);
+    if (ev->body[0]) {
+        int w2 = TextW(hdc, f->sm, ev->body);
+        if (w2 > w) w = w2;
+    }
+    return w + UI_Scale(16);
+}
+static int TlEvBlockH(HDC hdc, const MdFonts* f, TlEv* ev) {
+    int h = FontH(hdc, f->body) + UI_Scale(4);
+    if (ev->body[0]) h += FontH(hdc, f->sm) + UI_Scale(2);
+    return h;
+}
+static int TlSegW(HDC hdc, const MdFonts* f, TlSec* s) {
+    int segW = TextW(hdc, f->bold, s->title) + UI_Scale(24);
+    for (int j = 0; j < s->n; j++)
+        segW += TlEvBlockW(hdc, f, &s->ev[j]) + UI_Scale(28);
+    if (s->n == 0) segW += UI_Scale(60);
+    return segW;
+}
+
 static void TlLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     TlD* p = (TlD*)d->ext;
-    int y = UI_Scale(12);
-    if (p->title[0]) y += FontH(hdc, f->bold) + UI_Scale(10);
-    int maxW = 0;
+    int titleH  = p->title[0] ? FontH(hdc, f->bold) + UI_Scale(12) : 0;
+    int labelH  = FontH(hdc, f->bold) + UI_Scale(12);
+    int stem    = UI_Scale(12);
+    int segGap  = UI_Scale(18);
+    int margin  = UI_Scale(16);
+
+    int aboveH = 0, belowH = 0, cx = margin;
     for (int i = 0; i < p->n; i++) {
-        y += UI_Scale(8);
-        y += FontH(hdc, f->bold) + UI_Scale(6);
         for (int j = 0; j < p->secs[i].n; j++) {
-            int w = TextW(hdc, f->body, p->secs[i].ev[j].head);
-            if (p->secs[i].ev[j].body[0]) {
-                int w2 = TextW(hdc, f->sm, p->secs[i].ev[j].body);
-                if (w2 > w) w = w2;
-                y += FontH(hdc, f->sm) + UI_Scale(2);
-            }
-            if (w > maxW) maxW = w;
-            y += FontH(hdc, f->body) + UI_Scale(10);
+            int need = TlEvBlockH(hdc, f, &p->secs[i].ev[j]) + stem;
+            if (j % 2 == 0) { if (need > aboveH) aboveH = need; }
+            else            { if (need > belowH) belowH = need; }
         }
+        cx += TlSegW(hdc, f, &p->secs[i]) + segGap;
     }
-    d->sz.cx = UI_Scale(24) + UI_Scale(60) + maxW + UI_Scale(30);
-    d->sz.cy = y + UI_Scale(10);
+    if (p->n) cx -= segGap;
+    cx += margin;
+    d->sz.cx  = cx;
+    d->sz.cy  = UI_Scale(10) + titleH + labelH + aboveH + UI_Scale(4) +
+                belowH + UI_Scale(12);
 }
 
 static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f, const MdTheme* th) {
     TlD* p = (TlD*)d->ext;
     SetBkMode(hdc, TRANSPARENT);
-    int y = oy + UI_Scale(12);
+    int titleH  = p->title[0] ? FontH(hdc, f->bold) + UI_Scale(12) : 0;
+    int labelH  = FontH(hdc, f->bold) + UI_Scale(12);
+    int stem    = UI_Scale(12);
+    int evGap   = UI_Scale(28);
+    int segGap  = UI_Scale(18);
+    int margin  = UI_Scale(16);
+    int dotR    = UI_Scale(5);
+
+    int aboveH = 0, belowH = 0;
+    for (int i = 0; i < p->n; i++)
+        for (int j = 0; j < p->secs[i].n; j++) {
+            int need = TlEvBlockH(hdc, f, &p->secs[i].ev[j]) + stem;
+            if (j % 2 == 0) { if (need > aboveH) aboveH = need; }
+            else            { if (need > belowH) belowH = need; }
+        }
+
+    /* 标题居中 */
     if (p->title[0]) {
-        SetTextColor(hdc, th->fg);
         HFONT of = (HFONT)SelectObject(hdc, f->bold);
-        TextOutW(hdc, ox + UI_Scale(24), y, p->title, (int)wcslen(p->title));
+        int tw = TextW(hdc, f->bold, p->title);
+        SetTextColor(hdc, th->fg);
+        TextOutW(hdc, ox + (d->sz.cx - tw) / 2, oy + UI_Scale(6),
+                 p->title, (int)wcslen(p->title));
         SelectObject(hdc, of);
-        y += FontH(hdc, f->bold) + UI_Scale(10);
     }
-    int spineX = ox + UI_Scale(24) + UI_Scale(6);
-    int totalH = 0;
+
+    int axisY = oy + UI_Scale(10) + titleH + labelH + aboveH + UI_Scale(2);
+    int x = ox + margin;
+
     for (int i = 0; i < p->n; i++) {
-        totalH += UI_Scale(8) + FontH(hdc, f->bold) + UI_Scale(6);
-        for (int j = 0; j < p->secs[i].n; j++) {
-            totalH += FontH(hdc, f->body) + UI_Scale(10);
-            if (p->secs[i].ev[j].body[0]) totalH += FontH(hdc, f->sm) + UI_Scale(2);
+        TlSec* s = &p->secs[i];
+        int segW = TlSegW(hdc, f, s);
+        COLORREF pc = TlColor(th, i);
+
+        /* 时段轴段（着色，端点略内缩成圆头感） */
+        HPEN seg = CreatePen(PS_SOLID, UI_Scale(3), pc);
+        HPEN op = (HPEN)SelectObject(hdc, seg);
+        MoveToEx(hdc, x, axisY, NULL);
+        LineTo(hdc, x + segW, axisY);
+        SelectObject(hdc, op);
+        DeleteObject(seg);
+
+        /* 时段标签：加粗着色，段上方居中 */
+        {
+            HFONT of = (HFONT)SelectObject(hdc, f->bold);
+            int lw = TextW(hdc, f->bold, s->title);
+            SetTextColor(hdc, pc);
+            TextOutW(hdc, x + (segW - lw) / 2,
+                     axisY - aboveH - labelH + UI_Scale(2),
+                     s->title, (int)wcslen(s->title));
+            SelectObject(hdc, of);
         }
-    }
-    HPEN spine = CreatePen(PS_SOLID, UI_Scale(3), th->frame);
-    HPEN op = (HPEN)SelectObject(hdc, spine);
-    MoveToEx(hdc, spineX, y, NULL);
-    LineTo(hdc, spineX, y + totalH);
-    SelectObject(hdc, op);
-    DeleteObject(spine);
-    HBRUSH dotBr = CreateSolidBrush(th->link);
-    for (int i = 0; i < p->n; i++) {
-        y += UI_Scale(8);
-        HBRUSH ob = (HBRUSH)SelectObject(hdc, dotBr);
-        HPEN np = CreatePen(PS_SOLID, 1, th->bg);
-        HPEN op2 = (HPEN)SelectObject(hdc, np);
-        Ellipse(hdc, spineX - UI_Scale(5), y, spineX + UI_Scale(5), y + UI_Scale(10));
-        SelectObject(hdc, op2);
-        SelectObject(hdc, ob);
-        DeleteObject(np);
-        SetTextColor(hdc, th->fg);
-        HFONT of = (HFONT)SelectObject(hdc, f->bold);
-        TextOutW(hdc, spineX + UI_Scale(16), y, p->secs[i].title, (int)wcslen(p->secs[i].title));
-        SelectObject(hdc, of);
-        y += FontH(hdc, f->bold) + UI_Scale(6);
-        for (int j = 0; j < p->secs[i].n; j++) {
-            TlEv* ev = &p->secs[i].ev[j];
-            HFONT of2 = (HFONT)SelectObject(hdc, f->body);
-            SetTextColor(hdc, th->fg);
-            TextOutW(hdc, spineX + UI_Scale(30), y, ev->head, (int)wcslen(ev->head));
-            SelectObject(hdc, of2);
-            y += FontH(hdc, f->body);
-            if (ev->body[0]) {
-                SetTextColor(hdc, th->fgMuted);
-                HFONT of3 = (HFONT)SelectObject(hdc, f->sm);
-                TextOutW(hdc, spineX + UI_Scale(30), y, ev->body, (int)wcslen(ev->body));
-                SelectObject(hdc, of3);
-                y += FontH(hdc, f->sm) + UI_Scale(2);
+
+        /* 事件：圆点骑轴，竖线连文字，上/下交替 */
+        int ex = x + TextW(hdc, f->bold, s->title) / 2 + UI_Scale(12);
+        HBRUSH dotBr = CreateSolidBrush(pc);
+        for (int j = 0; j < s->n; j++) {
+            TlEv* ev = &s->ev[j];
+            int bw = TlEvBlockW(hdc, f, ev);
+            int bh = TlEvBlockH(hdc, f, ev);
+            int dotX = ex + bw / 2;
+            BOOL up = (j % 2 == 0);
+
+            /* 竖线 */
+            HPEN st = CreatePen(PS_SOLID, UI_Scale(2), pc);
+            HPEN op2 = (HPEN)SelectObject(hdc, st);
+            if (up) {
+                MoveToEx(hdc, dotX, axisY - dotR, NULL);
+                LineTo(hdc, dotX, axisY - stem);
+            } else {
+                MoveToEx(hdc, dotX, axisY + dotR, NULL);
+                LineTo(hdc, dotX, axisY + stem);
             }
-            y += UI_Scale(10);
+            SelectObject(hdc, op2);
+            DeleteObject(st);
+
+            /* 圆点（描边用底色断开轴线） */
+            HPEN np = CreatePen(PS_SOLID, 1, th->bg);
+            HPEN op3 = (HPEN)SelectObject(hdc, np);
+            HBRUSH ob = (HBRUSH)SelectObject(hdc, dotBr);
+            Ellipse(hdc, dotX - dotR, axisY - dotR, dotX + dotR, axisY + dotR);
+            SelectObject(hdc, ob);
+            SelectObject(hdc, op3);
+            DeleteObject(np);
+
+            /* 文字块（以圆点为中心水平居中） */
+            int tx = dotX - bw / 2 + UI_Scale(8) - UI_Scale(0);
+            if (up) {
+                int ty = axisY - stem - bh;
+                SetTextColor(hdc, th->fg);
+                HFONT of = (HFONT)SelectObject(hdc, f->body);
+                TextOutW(hdc, tx, ty, ev->head, (int)wcslen(ev->head));
+                SelectObject(hdc, of);
+                ty += FontH(hdc, f->body) + UI_Scale(4);
+                if (ev->body[0]) {
+                    SetTextColor(hdc, th->fgMuted);
+                    HFONT of2 = (HFONT)SelectObject(hdc, f->sm);
+                    TextOutW(hdc, tx, ty, ev->body, (int)wcslen(ev->body));
+                    SelectObject(hdc, of2);
+                }
+            } else {
+                int ty = axisY + stem;
+                SetTextColor(hdc, th->fg);
+                HFONT of = (HFONT)SelectObject(hdc, f->body);
+                TextOutW(hdc, tx, ty, ev->head, (int)wcslen(ev->head));
+                SelectObject(hdc, of);
+                ty += FontH(hdc, f->body) + UI_Scale(4);
+                if (ev->body[0]) {
+                    SetTextColor(hdc, th->fgMuted);
+                    HFONT of2 = (HFONT)SelectObject(hdc, f->sm);
+                    TextOutW(hdc, tx, ty, ev->body, (int)wcslen(ev->body));
+                    SelectObject(hdc, of2);
+                }
+            }
+            ex += bw + evGap;
         }
+        DeleteObject(dotBr);
+        x += segW + segGap;
     }
-    DeleteObject(dotBr);
 }
 
 /* ---------------- journey ---------------- */
