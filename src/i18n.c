@@ -187,6 +187,9 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Markdown 预览(&P)\tF12",
         L"Markdown",
         L"暂不支持该 Mermaid 图族的原生渲染，已回退为源码显示",
+        L"并排预览(&S)\tShift+F12",
+        L"导出 HTML(&E)...",
+        L"导出 PDF（打印）(&R)...",
     },
 
     /* ================= English ================= */
@@ -365,6 +368,9 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Markdown &Preview\tF12",
         L"Markdown",
         L"Native rendering for this Mermaid diagram type is not yet supported; showing source",
+        L"Split &Preview\tShift+F12",
+        L"Export &HTML...",
+        L"Export PDF (P&rint)...",
     },
 };
 
@@ -625,6 +631,8 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mFile, STR_ITEM_CLOSE, IDM_CLOSE);
     AddIt(mFile, STR_ITEM_CLOSE_OTHER, IDM_CLOSE_OTHER);
     AddIt(mFile, STR_ITEM_CLOSE_ALL, IDM_CLOSE_ALL);
+    AddIt(mFile, STR_ITEM_EXPHTML, IDM_EXPORT_HTML);
+    AddIt(mFile, STR_ITEM_EXPPDF, IDM_EXPORT_PDF);
     AddSep(mFile);
     /* 最近文件子菜单（条目由 RefreshRecentMenu 运行时填充）。
        指针 bit1 = 有子菜单：绘制时在右缘垫浅色底衬，让系统画的箭头可见。 */
@@ -675,6 +683,7 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mView, STR_ITEM_THEME, IDM_THEME);
     AddSep(mView);
     AddIt(mView, STR_ITEM_MDPREVIEW, IDM_VIEW_MD);
+    AddIt(mView, STR_ITEM_MDSPLIT, IDM_VIEW_MDSPLT);
     AddBar(bar, (UINT_PTR)mView, STR_MENU_VIEW);
 
     /* 编码 */

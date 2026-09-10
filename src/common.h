@@ -78,6 +78,8 @@ extern COLORREF g_clrBg, g_clrFg, g_clrSelBg, g_clrGutterBg, g_clrGutterFg,
                g_clrStatusBg, g_clrStatusFg;
 extern BOOL g_suppressDirty;
 extern BOOL g_draftsDirty;
+extern BOOL g_mdSplit;       /* 并排预览：Markdown 文档左编辑右渲染 */
+extern BOOL g_mdSyncLock;    /* 分屏双向同步滚动的重入锁 */
 
 /* editor.c */
 BOOL Editor_Init(void);
@@ -156,6 +158,8 @@ typedef struct MdFonts {
     HFONT h[6];        /* h1..h6（已含字重） */
     HFONT mono;        /* 代码块/行内代码 */
     HFONT sm;          /* 图表边标签等辅助文字（small 是 rpcndr.h 宏，不可用作成员名） */
+    /* 数学公式（Cambria Math，三级字号 × 正/斜体） */
+    HFONT mathIt, mathUp, mathItS, mathUpS, mathItSS, mathUpSS;
     int  lineH;        /* body 行高（px） */
 } MdFonts;
 
@@ -183,10 +187,22 @@ SIZE  Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f);
 void  Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
                    const MdFonts* f, const MdTheme* th);
 
+/* mdmath.c：LaTeX 数学子集（内联 $..$ / 块级 $$..$$） */
+typedef struct MathBox MathBox;
+MathBox* Math_Build(const wchar_t* latex);
+void  Math_Free(MathBox* b);
+void  Math_Measure(MathBox* b, HDC hdc, const MdFonts* f);
+void  Math_Draw(const MathBox* b, HDC hdc, int x, int yBase,
+                const MdTheme* th, const MdFonts* f);
+int   Math_Width(const MathBox* b);
+int   Math_Height(const MathBox* b);
+int   Math_Ascent(const MathBox* b);
+
 /* mdview.c */
 void MdView_Register(void);   /* 注册窗口类（Editor_Init 内调用） */
 void MdView_Create(HWND parent);
 void MdView_Toggle(void);            /* F12：切换当前文档编辑/预览 */
+void MdView_ToggleSplit(void);       /* Shift+F12：并排预览开关 */
 void MdView_OnActivate(void);        /* Editor_Activate 末尾：同步可见性+内容 */
 void MdView_OnLayout(int x, int y, int w, int h);   /* Editor_Layout 内：摆放 */
 BOOL MdView_IsVisible(void);
@@ -194,7 +210,18 @@ void MdView_OnDpiChanged(void);
 void MdView_OnThemeChange(void);
 void MdView_OnZoom(void);
 void MdView_RefreshIfActive(int index);   /* 保存/重载后刷新内容 */
+void MdView_SyncScrollFromEdit(double frac);  /* 分屏：编辑器滚动带动预览 */
+double MdView_GetScrollFraction(void);        /* 分屏：预览当前滚动比例 */
 void MdTheme_Build(MdTheme* th);          /* 按 g_dark 生成配色 */
+
+/* editor.c（分屏同步） */
+void Editor_SyncScrollFromPreview(double frac);
+
+/* mdexport.c：导出 HTML / PDF（打印） */
+void MdExport_Html(void);
+void MdExport_Pdf(void);
+/* mdview.c：打印分页渲染（mdexport 调用） */
+BOOL MdView_PrintPages(HDC hdc, int printableW, int printableH);
 
 
 /* util */

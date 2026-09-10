@@ -193,6 +193,9 @@ typedef enum {
     STR_ITEM_MDPREVIEW,             /* 视图菜单：Markdown 预览 F12 */
     STR_SYN_MARKDOWN,               /* 语言菜单：Markdown（专有名词，中英一致） */
     STR_MD_MERMAID_UNSUP,           /* mermaid 图族暂不支持原生渲染的提示 */
+    STR_ITEM_MDSPLIT,               /* 视图菜单：并排预览 Shift+F12 */
+    STR_ITEM_EXPHTML,               /* 文件菜单：导出 HTML */
+    STR_ITEM_EXPPDF,                /* 文件菜单：导出 PDF（打印） */
 
     STR_COUNT
 } StrId;

@@ -34,6 +34,8 @@ int g_recentCount = 0;
 COLORREF g_clrBg, g_clrFg, g_clrSelBg, g_clrGutterBg, g_clrGutterFg, g_clrStatusBg, g_clrStatusFg;
 BOOL g_suppressDirty = FALSE;
 BOOL g_draftsDirty = FALSE;   /* 有未命名文档内容变化，待写草稿 */
+BOOL g_mdSplit = FALSE;       /* 并排预览：Markdown 文档左编辑右渲染 */
+BOOL g_mdSyncLock = FALSE;    /* 分屏双向同步滚动的重入锁 */
 
 void ShowError(const wchar_t* msg) {
     MessageBoxW(NULL, msg, T(STR_APP_TITLE), MB_ICONERROR);
@@ -112,6 +114,13 @@ static void UpdateMenuChecks(void) {
     Check(m, IDM_VIEW_MD, isMd && g_docs[g_curDoc].previewOn);
     EnableMenuItem(m, IDM_VIEW_MD, isMd ? MF_BYCOMMAND | MF_ENABLED
                                         : MF_BYCOMMAND | MF_GRAYED);
+    Check(m, IDM_VIEW_MDSPLT, isMd && g_mdSplit);
+    EnableMenuItem(m, IDM_VIEW_MDSPLT, isMd ? MF_BYCOMMAND | MF_ENABLED
+                                            : MF_BYCOMMAND | MF_GRAYED);
+    EnableMenuItem(m, IDM_EXPORT_HTML, isMd ? MF_BYCOMMAND | MF_ENABLED
+                                            : MF_BYCOMMAND | MF_GRAYED);
+    EnableMenuItem(m, IDM_EXPORT_PDF, isMd ? MF_BYCOMMAND | MF_ENABLED
+                                           : MF_BYCOMMAND | MF_GRAYED);
     Encoding e = (g_curDoc >= 0) ? g_docs[g_curDoc].enc : ENC_UTF8;
     LangID lg = (g_curDoc >= 0) ? g_docs[g_curDoc].lang : LANG_NONE;
     int eol = (g_curDoc >= 0) ? g_docs[g_curDoc].eol : 0;
@@ -349,6 +358,15 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             if (g_curDoc >= 0) { Editor_SetLang(g_curDoc, (LangID)(id - IDM_LANG_NONE)); UpdateMenuChecks(); } break;
         case IDM_VIEW_MD:
             MdView_Toggle();
+            break;
+        case IDM_VIEW_MDSPLT:
+            MdView_ToggleSplit();
+            break;
+        case IDM_EXPORT_HTML:
+            MdExport_Html();
+            break;
+        case IDM_EXPORT_PDF:
+            MdExport_Pdf();
             break;
         case IDM_FINDNEXT: FindNextAccel(hwnd, TRUE); break;
         case IDM_FINDPREV: FindNextAccel(hwnd, FALSE); break;

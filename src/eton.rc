@@ -30,6 +30,7 @@ BEGIN
     0x71, IDM_BM_NEXT,  VIRTKEY, NOINVERT
     0x71, IDM_BM_PREV,  VIRTKEY, SHIFT, NOINVERT
     0x7B, IDM_VIEW_MD,  VIRTKEY
+    0x7B, IDM_VIEW_MDSPLT, VIRTKEY, SHIFT
 END
 
 IDD_FIND DIALOGEX 0, 0, 316, 104
@@ -114,6 +115,8 @@ BEGIN
 END
 
 IDI_APP ICON "..\\res\\app.ico"
+
+IDR_MERMAID_JS RCDATA "..\\deps\\mermaid\\mermaid.min.js"
 
 #include "version.h"
 

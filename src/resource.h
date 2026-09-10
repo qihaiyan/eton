@@ -5,6 +5,7 @@
 /* 主菜单不再使用资源（菜单文字随界面语言切换，由 i18n.c 运行时构建） */
 #define IDR_ACCEL       102
 #define IDI_APP         103
+#define IDR_MERMAID_JS  107   /* 内嵌 mermaid.min.js（HTML 导出离线渲染用） */
 
 /* File */
 #define IDM_NEW         1100
@@ -15,6 +16,8 @@
 #define IDM_OPENENC     1105   /* open with encoding... */
 #define IDM_CLOSE_OTHER 1106   /* 关闭其他标签 */
 #define IDM_CLOSE_ALL   1107   /* 关闭所有标签 */
+#define IDM_EXPORT_HTML 1108   /* 导出 HTML */
+#define IDM_EXPORT_PDF  1109   /* 导出 PDF（打印） */
 #define IDM_RECENT_FIRST 1150
 #define IDM_RECENT_LAST  1199
 #define IDM_EXIT        1190
@@ -50,6 +53,7 @@
 #define IDM_ZOOMRST     1312
 #define IDM_THEME       1320
 #define IDM_VIEW_MD     1321   /* Markdown 预览开关（F12） */
+#define IDM_VIEW_MDSPLT 1322   /* 并排预览开关（Shift+F12） */
 
 /* Encoding (save / current) */
 #define IDM_ENC_ANSI     1400

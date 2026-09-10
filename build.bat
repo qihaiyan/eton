@@ -83,10 +83,10 @@ echo [2/3] compiling + linking ...
 cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
    /I"deps\scintilla" /I"deps\lexilla" /I"deps\md4c" ^
    /Fo"build/" /Fe:eton.exe ^
-   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c src\i18n.c src\statusbar.c src\scrollbar.c src\mdview.c src\mermaid.c deps\md4c\md4c.c build\eton.res build\app.res ^
+   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c src\i18n.c src\statusbar.c src\scrollbar.c src\mdview.c src\mermaid.c src\mdmath.c src\mdexport.c deps\md4c\md4c.c deps\md4c\md4c-html.c deps\md4c\entity.c build\eton.res build\app.res ^
    /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /LIBPATH:"deps\scintilla" /LIBPATH:"deps\lexilla" ^
    libscintilla.lib liblexilla.lib ^
-   user32.lib gdi32.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib advapi32.lib
+   user32.lib gdi32.lib gdiplus.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib advapi32.lib
 if errorlevel 1 goto :fail_cl
 
 echo [3/3] done.

@@ -15,7 +15,7 @@
 | 多标签 | 自定义标签栏（含 × 关闭按钮），可同时编辑多个文件；Ctrl+Tab / Ctrl+Shift+Tab（或 Ctrl+PgDn/PgUp）循环切换；标签放不下自动出现 ◀▶ 滚动按钮并支持滚轮滚动；中键关闭、双击空白新建、悬停显示完整路径、右键菜单（关闭/关闭其他/关闭全部） |
 | 界面语言 | 简体中文 / English 双语界面，`帮助` 菜单底部直接勾选切换，运行时即时生效（菜单、对话框、消息、状态栏全部跟随）；选择保存在 session.ini，未选择过时首次启动跟随系统 UI 语言 |
 | 语法高亮 | 10 种语言：C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL / Markdown（基于 Scintilla + Lexilla 词法器）；按扩展名自动识别，也可在语言菜单手动切换；语法语言下显示代码折叠边距（点击 +/− 折叠/展开） |
-| Markdown 预览 | F12 在当前标签内切换 编辑 ↔ 渲染视图（Esc 退出）：MD4C 解析 + GDI 原生绘制（零 Web 引擎，参照 tinta 的路线）；支持标题分级、粗/斜/删除线、行内代码、链接（相对路径按文档目录解析，点击用系统默认程序打开）、任务列表 ☑/☐、有序/无序/嵌套列表、引用、表格（对齐）、代码块、分隔线；**Mermaid 流程图与原生时序图直接绘制**（节点形状、边标签、subgraph、participant/消息/Note/loop/alt 等），其余图族回退为源码显示并提示；配色跟随亮/暗主题，字号跟随编辑器缩放 |
+| Markdown 预览 | F12 在当前标签内切换 编辑 ↔ 渲染视图（Esc 退出），Shift+F12 并排分屏（左编辑右预览，双向同步滚动）：MD4C 解析 + GDI 原生绘制（零 Web 引擎，参照 tinta 的路线）；支持标题分级、粗/斜/删除线、行内代码、链接（相对路径按文档目录解析，点击用系统默认程序打开）、任务列表 ☑/☐、有序/无序/嵌套列表、引用、表格（对齐）、代码块、分隔线；**Mermaid 13 个图族原生绘制**（流程图/时序图/状态图/类图/ER 图/饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph），未识别图族回退为源码显示并提示；**数学公式**（`$..$` 行内与 `$$..$$` 块级，分式/根号/上下标/希腊字母/求和积分等 LaTeX 子集，Cambria Math 字体排版）；**图片内嵌**（PNG/JPG 等，GDI+ 解码）；导出 **HTML**（内嵌 mermaid.js + MathJax，自包含单文件）与 **PDF**（打印对话框分页渲染）；配色跟随亮/暗主题，字号跟随编辑器缩放 |
 | 多编码 | ANSI(系统代码页) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE，打开时自动探测 BOM，状态栏显示当前编码；另存 ANSI 时若内容含无法表示的字符会提示乱码风险 |
 | 行尾转换 | CRLF / LF / CR，可一键"转换为…"；新文档及探测不到行尾的文件默认 Unix (LF)，打开已有文件时按内容自动探测并保持 |
 | JSON 工具 | 编辑菜单：JSON 格式化（Ctrl+Shift+F）/ JSON 压缩（Ctrl+Shift+M）；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
@@ -51,7 +51,8 @@ eton/
 ├── deps/              # Scintilla + Lexilla + MD4C 依赖（内置，编译不再依赖外部目录）
 │   ├── scintilla/     #   libscintilla.lib + 头文件
 │   ├── lexilla/       #   liblexilla.lib + 头文件
-│   └── md4c/          #   MD4C 0.5.3（Markdown 解析器，MIT）源码 md4c.c/md4c.h
+│   ├── md4c/          #   MD4C 0.5.3（Markdown 解析器，MIT）源码 md4c.c/md4c.h 等
+│   └── mermaid/       #   mermaid.min.js（导出 HTML 时内嵌；CDN 回退）
 ├── res/
 │   ├── app.png        # 程序图标源图（1080×1080）
 │   ├── app.ico        # 程序图标（由 app.png 生成，16–256px 多尺寸）
@@ -69,8 +70,10 @@ eton/
     ├── session.c      # 会话/草稿持久化与恢复（含界面语言选择）
     ├── fileio.c       # 编码探测、读写、行尾规范化、UTF-8 转换
     ├── jsonfmt.c      # JSON 校验 + 格式化/压缩（单遍解析，RFC 8259）
-    ├── mdview.c       # Markdown 原生预览视图（MD4C 解析 → 块树 → 排版 → GDI 绘制）
-    ├── mermaid.c      # Mermaid 原生渲染（流程图/时序图：解析 + 布局 + GDI 绘制）
+    ├── mdview.c       # Markdown 原生预览视图（MD4C 解析 → 块树 → 排版 → GDI 绘制；分屏/滚动同步）
+    ├── mermaid.c      # Mermaid 原生渲染（13 图族：解析 + 布局 + GDI 绘制）
+    ├── mdmath.c       # 数学公式排版（LaTeX 子集 → MathBox 盒树 → GDI 绘制）
+    ├── mdexport.c     # 导出 HTML（内嵌 mermaid.js/MathJax）/ PDF（打印分页）
     └── dialogs.c      # 查找/替换/转到/关于/打开编码 对话框
 ```
 
@@ -174,7 +177,8 @@ powershell -File msix\pack-msix.ps1 -Sign
 - **缩放**：`Ctrl+=` 放大、`Ctrl+-` 缩小、`Ctrl+0` 复位。
 - **自动换行**：视图菜单切换。
 - **暗色主题**：在"视图 → 主题"切换（标题栏/标签栏/状态栏/语法高亮配色随之改变）。
-- **Markdown 预览**：打开 `.md` 文件后按 `F12`（或 视图 → Markdown 预览）切换到渲染视图，`Esc` 切回编辑；预览中滚轮/键盘滚动，点击链接用系统默认程序打开；保存后预览自动刷新，缩放与主题跟随编辑器。
+- **Markdown 预览**：打开 `.md` 文件后按 `F12`（或 视图 → Markdown 预览）切换到渲染视图，`Esc` 切回编辑；`Shift+F12` 并排分屏（左编辑右预览，滚动双向同步），再次按关闭分屏；预览中滚轮/键盘滚动，点击链接用系统默认程序打开；支持 `$..$` / `$$..$$` 数学公式、图片内嵌、13 个 Mermaid 图族；保存后预览自动刷新，缩放与主题跟随编辑器。
+- **导出 HTML / PDF**：文件菜单 → 导出。HTML 生成自包含单文件（内嵌 mermaid.min.js 与 MathJax CDN 回退，图表公式在浏览器中交互渲染）；PDF 走系统打印对话框分页渲染（选 Microsoft Print to PDF 存为 .pdf）。
 - **书签**：`Ctrl+F2` 切换当前行书签，`F2` / `Shift+F2` 上下跳转。
 - **代码折叠**：打开语法语言文件后，行号旁出现折叠边距，点击 +/− 折叠或展开。
 - **右键菜单**：编辑区右键=剪切/复制/粘贴/全选/打开所在文件夹；标签右键=关闭/关闭其他/关闭全部；标签中键关闭、双击空白新建。
@@ -199,13 +203,13 @@ powershell -File msix\pack-msix.ps1 -Sign
 - **JSON 工具**：`jsonfmt.c` 用单遍递归下降解析器边校验（RFC 8259 严格语法）边输出——格式化按嵌套深度缩进、压缩则剔除全部空白；字符串/数字按原文透传（保留 `\uXXXX` 等转义写法）。替换通过 Scintilla 的 target + `SCI_REPLACETARGET` 完成，单步可撤销。
 - **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
 - **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。
-- **Markdown 预览**：`mdview.c` 用 MD4C（`MD_DIALECT_GITHUB`）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式。`mermaid.c` 为 ```mermaid``` 代码块提供流程图（最长路径分层 + 层内重心排序）与时序图（生命线 + 垂直堆叠）的原生布局与 GDI 绘制，未覆盖图族回退为代码块。
+- **Markdown 预览**：`mdview.c` 用 MD4C（`MD_DIALECT_GITHUB` | `MD_FLAG_LATEXMATHSPANS`）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表/图片/公式），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式；行内公式作为原子 token 参与换行。紧凑列表（无空行条目）不发出段落块，`AddRun` 惰性挂段并入树。分屏模式编辑区占左半、预览占右半，滚动按可视比例双向同步（同步互斥锁防回环）。`mermaid.c` 为 ```mermaid``` 代码块提供 13 个图族的原生解析、布局与 GDI 绘制：流程图（最长路径分层 + 层内重心排序）、时序图（生命线 + 垂直堆叠）、状态图/类图/ER 图（复用流程图内核，三格成员框）、饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph（`mermaid_ext*.inc` 扩展），未识别图族回退为代码块。`mdmath.c` 把 LaTeX 子集解析成 MathBox 盒树（横排/分式/上下标/根式/大运算符，Cambria Math 三级字号 + 希腊字母/运算符符号表）自绘。图片经 GDI+ flat API 动态加载（LRU 缓存 16 张）。
 
 ---
 
 ## 已知限制 / 后续可扩展
 
-- Markdown 预览：Mermaid 目前原生支持流程图（flowchart/graph）与时序图（sequenceDiagram），其余图族（甘特图/饼图/类图/状态图/ER 图等）回退为源码显示，可按图族逐步补齐；数学公式、图片内嵌显示、导出 HTML/PDF 未实现。
+- Markdown 预览：Mermaid 已覆盖 13 个常用图族（flowchart/sequence/state/class/er/pie/quadrant/timeline/journey/gantt/xychart/mindmap/gitGraph），其余小众图族（C4 图、桑基图、需求图等）暂回退源码；数学公式为 LaTeX 常用子集（矩阵、cases 等复杂环境未实现）；导出 HTML 依赖内嵌 mermaid.js 3.5MB（首次构建后存在 deps\mermaid\）；PDF 导出为打印管线（矢量文本 + 图表位图化分页）。
 - 查找/替换为单文件（无跨文件/文件夹搜索）；正则语法为 Scintilla 内建（类 POSIX）。
 - 未实现：列块选择、宏、插件体系、打印。Scintilla 原生支持折叠（已启用）、打印（SCI_FORMATRANGE，可按需接入）。
 
@@ -213,4 +217,4 @@ powershell -File msix\pack-msix.ps1 -Sign
 
 ## 许可证
 
-本项目为示例代码，可自由学习、修改、再分发。Scintilla 与 Lexilla 遵循其各自的 License.txt（HPND 许可证）；MD4C（`deps/md4c/`）遵循 MIT 许可（见 `deps/md4c/LICENSE.md`）。
+本项目为示例代码，可自由学习、修改、再分发。Scintilla 与 Lexilla 遵循其各自的 License.txt（HPND 许可证）；MD4C（`deps/md4c/`）遵循 MIT 许可（见 `deps/md4c/LICENSE.md`）；内嵌的 mermaid.min.js（`deps/mermaid/`）遵循 MIT 许可（Mermaid © 2014-2024 Knut Sveidqvist，用于导出 HTML 时在浏览器端渲染图族）。

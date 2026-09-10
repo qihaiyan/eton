@@ -581,8 +581,10 @@ void Editor_Activate(int index) {
     if (index < 0 || index >= g_docCount) return;
     g_curDoc = index;
     for (int i = 0; i < g_docCount; i++) {
-        /* 预览模式下当前文档的编辑器隐藏（由 MdView 顶替显示） */
-        BOOL show = (i == index) && !g_docs[i].previewOn;
+        /* 全屏预览模式下当前文档的编辑器隐藏（由 MdView 顶替显示）；
+           并排模式两侧都显示 */
+        BOOL hideFull = g_docs[i].previewOn && g_docs[i].lang == LANG_MD && !g_mdSplit;
+        BOOL show = (i == index) && !hideFull;
         ShowWindow(g_docs[i].hwndEdit, show ? SW_SHOW : SW_HIDE);
     }
     Editor_ApplyWrap(index);
@@ -651,7 +653,24 @@ void Editor_Layout(void) {
     int bottom = cy - statusH;
     int h = bottom - top;
 
-    /* 预览模式：mdview 占据整个编辑区，编辑器滚动条全部隐藏 */
+    /* 并排模式：左编辑右预览，中间一条分隔 */
+    if (MdView_IsVisible() && g_mdSplit) {
+        int sbw = ScrollBars_Thickness();
+        int editW = cx / 2 - sbw;
+        if (editW < UI_Scale(120)) editW = UI_Scale(120);
+        BOOL showH = !g_wordWrap;
+        ScrollBars_Layout(0, top, editW, h, sbw, showH);
+        if (g_curDoc >= 0 && g_curDoc < g_docCount) {
+            Editor_ComputeGutterWidth(g_curDoc);
+            SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, 0, top,
+                         editW, h - (showH ? sbw : 0), SWP_NOZORDER | SWP_SHOWWINDOW);
+        }
+        ScrollBars_Update();
+        MdView_OnLayout(cx / 2, top, cx - cx / 2, h);
+        return;
+    }
+
+    /* 全屏预览模式：mdview 占据整个编辑区，编辑器滚动条全部隐藏 */
     if (MdView_IsVisible()) {
         ScrollBars_Layout(0, 0, 0, 0, 0, FALSE);
         MdView_OnLayout(0, top, cx, h);
@@ -714,6 +733,21 @@ void Editor_OnNotify(LPARAM lp) {
 
     if (scn->nmhdr.code == SCN_UPDATEUI) {
         Editor_UpdateStatus();
+        /* 分屏：编辑器滚动按比例带动预览（同步锁防回环） */
+        if (g_mdSplit && MdView_IsVisible() && !g_mdSyncLock &&
+            (scn->modificationType & (SC_UPDATE_V_SCROLL | SC_UPDATE_SELECTION))) {
+            int first = (int)SendMessage(hed, SCI_GETFIRSTVISIBLELINE, 0, 0);
+            int total = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
+            int page = (int)SendMessage(hed, SCI_LINESONSCREEN, 0, 0);
+            int span = total - page;
+            if (span <= 0) span = 1;
+            double frac = (double)first / span;
+            if (frac < 0) frac = 0;
+            if (frac > 1) frac = 1;
+            g_mdSyncLock = TRUE;
+            MdView_SyncScrollFromEdit(frac);
+            g_mdSyncLock = FALSE;
+        }
     } else if (scn->nmhdr.code == SCN_MARGINCLICK) {
         /* 点击折叠边距（margin 1）切换折叠 */
         if (scn->margin == 1) {
@@ -965,4 +999,19 @@ void Editor_GotoBookmark(int index, BOOL next) {
 /* main.c 外部修改检测用的磁盘时间戳封装 */
 BOOL DiskWriteTimePublic(const wchar_t* path, FILETIME* ft) {
     return DiskWriteTime(path, ft);
+}
+
+/* 分屏：预览滚动按比例带动编辑器（由 mdview 调用，重入锁在外层） */
+void Editor_SyncScrollFromPreview(double frac) {
+    if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
+    HWND hed = g_docs[g_curDoc].hwndEdit;
+    if (!hed || !IsWindowVisible(hed)) return;
+    int total = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
+    int page = (int)SendMessage(hed, SCI_LINESONSCREEN, 0, 0);
+    int span = total - page;
+    if (span <= 0) return;
+    int line = (int)(frac * span + 0.5);
+    if (line < 0) line = 0;
+    if (line > span) line = span;
+    SendMessage(hed, SCI_SETFIRSTVISIBLELINE, line, 0);
 }

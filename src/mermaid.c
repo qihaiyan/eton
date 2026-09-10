@@ -48,7 +48,12 @@ static int FontH(HDC hdc, HFONT f) {
 }
 
 /* 节点形状 */
-typedef enum { MER_RECT, MER_ROUND, MER_CIRCLE, MER_DIAMOND, MER_FLAG } MerShape;
+typedef enum { MER_RECT, MER_ROUND, MER_CIRCLE, MER_DIAMOND, MER_FLAG,
+               MER_START, MER_END, MER_STADIUM } MerShape;
+
+/* 关系线样式（class/er） */
+typedef enum { MRE_PLAIN, MRE_INHERIT, MRE_COMPOSE, MRE_AGGREG,
+               MRE_ASSOC, MRE_DEPEND } MerRel;
 
 /* ============================ 数据结构 ============================ */
 
@@ -59,12 +64,18 @@ typedef struct MerNode {
     int sub;                 /* 所属 subgraph 下标，-1 = 无 */
     int rank;
     int x, y, w, h;          /* 布局结果（左上角 + 尺寸） */
+    int wFix, hFix;          /* 预设尺寸（class/er 成员框，>0 优先） */
+    void* extra;             /* class/er：成员行数组（自有，wchar_t(*)[96]） */
+    int nExtraA, nExtraB;    /* 成员计数（属性 / 方法） */
 } MerNode;
 
 typedef struct MerEdge {
     int a, b;                /* 节点下标 */
     BOOL arrow, dash, thick;
     wchar_t label[160];
+    wchar_t cardA[16], cardB[16];   /* 两端多重性文本 */
+    MerRel rel;
+    BOOL markA;              /* 类图：标记画在 a 端（<|-- 等左标记算子） */
 } MerEdge;
 
 typedef struct MerSub {
@@ -92,8 +103,10 @@ typedef struct MerSeqItem {
 } MerSeqItem;
 
 struct MermaidDiagram {
-    int kind;                /* 0=flowchart 1=sequence */
-    /* flowchart */
+    int kind;                /* 0=flowchart 1=sequence 2=state 3=class 4=er
+                                5=pie 6=quadrant 7=timeline 8=journey
+                                9=gantt 10=xychart 11=mindmap 12=git */
+    /* flowchart（state/class/er 复用） */
     MerNode* nodes; int nNodes;
     MerEdge* edges; int nEdges;
     MerSub* subs; int nSubs;
@@ -101,6 +114,7 @@ struct MermaidDiagram {
     /* sequence */
     MerPart* parts; int nParts;
     MerSeqItem* items; int nItems;
+    void* ext;               /* 各图族私有结构（自有） */
     /* 布局缓存 */
     SIZE sz;
 };
@@ -515,6 +529,15 @@ static void SeqParseLine(SeqCtx* c, wchar_t* line) {
 
 /* ============================ 入口：解析 ============================ */
 
+/* 扩展图族（state/class/er/pie/quadrant/timeline/journey/gantt/xychart/mindmap/git，
+   实现见文件后部 */
+static BOOL ExtParse(MermaidDiagram* d, const char* src, int len, int pos);
+static void ExtFree(MermaidDiagram* d);
+static void ClassErFixSizeReal(MermaidDiagram* d, HDC hdc, const MdFonts* f);
+static void ExtLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f);
+static void ExtDraw(MermaidDiagram* d, HDC hdc, int ox, int oy,
+                    const MdFonts* f, const MdTheme* th);
+
 MermaidDiagram* Mermaid_Parse(const char* src, int len) {
     if (!src || len <= 0) return NULL;
     wchar_t line[1024];
@@ -536,6 +559,18 @@ MermaidDiagram* Mermaid_Parse(const char* src, int len) {
             break;
         }
         if (_wcsnicmp(s, L"sequenceDiagram", 15) == 0) { kind = 1; break; }
+        if (_wcsnicmp(s, L"stateDiagram-v2", 15) == 0 ||
+            _wcsnicmp(s, L"stateDiagram", 12) == 0) { kind = 2; break; }
+        if (_wcsnicmp(s, L"classDiagram", 12) == 0) { kind = 3; break; }
+        if (_wcsnicmp(s, L"erDiagram", 9) == 0) { kind = 4; break; }
+        if (_wcsnicmp(s, L"pie", 3) == 0 && (s[3] == 0 || s[3] == L' ')) { kind = 5; break; }
+        if (_wcsnicmp(s, L"quadrantChart", 13) == 0) { kind = 6; break; }
+        if (_wcsnicmp(s, L"timeline", 8) == 0) { kind = 7; break; }
+        if (_wcsnicmp(s, L"journey", 7) == 0) { kind = 8; break; }
+        if (_wcsnicmp(s, L"gantt", 5) == 0) { kind = 9; break; }
+        if (_wcsnicmp(s, L"xychart-beta", 12) == 0) { kind = 10; break; }
+        if (_wcsnicmp(s, L"mindmap", 7) == 0) { kind = 11; break; }
+        if (_wcsnicmp(s, L"gitGraph", 8) == 0) { kind = 12; break; }
         return NULL;   /* 未知图族 */
     }
     if (kind < 0) return NULL;
@@ -560,7 +595,7 @@ MermaidDiagram* Mermaid_Parse(const char* src, int len) {
         d->nodes = c.ns; d->nNodes = c.nN;
         d->edges = c.es; d->nEdges = c.nE;
         d->subs  = c.ss; d->nSubs  = c.nS;
-    } else {
+    } else if (kind == 1) {
         SeqCtx c; ZeroMemory(&c, sizeof(c));
         while (pos < len) {
             if (!LineToWide(src, len, &pos, line, 1024)) continue;
@@ -579,12 +614,19 @@ MermaidDiagram* Mermaid_Parse(const char* src, int len) {
         }
         d->parts = c.ps; d->nParts = c.nP;
         d->items = c.is; d->nItems = c.nI;
+    } else {
+        if (!ExtParse(d, src, len, pos)) {
+            Mermaid_Free(d);
+            return NULL;
+        }
     }
     return d;
 }
 
 void Mermaid_Free(MermaidDiagram* d) {
     if (!d) return;
+    for (int i = 0; i < d->nNodes; i++) free(d->nodes[i].extra);
+    ExtFree(d);
     free(d->nodes); free(d->edges); free(d->subs);
     free(d->parts); free(d->items);
     free(d);
@@ -597,9 +639,17 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     int padX = UI_Scale(14), padY = UI_Scale(7);
     int hgap = UI_Scale(44), vgap = UI_Scale(52), margin = UI_Scale(12);
 
+    if (d->kind == 3 || d->kind == 4)   /* class/er：按成员文本实测尺寸 */
+        ClassErFixSizeReal(d, hdc, f);
+
     /* 节点尺寸 */
     for (int i = 0; i < n; i++) {
         MerNode* nd = &d->nodes[i];
+        if (nd->wFix > 0 && nd->hFix > 0) {   /* class/er 预设成员框尺寸 */
+            nd->w = nd->wFix;
+            nd->h = nd->hFix;
+            continue;
+        }
         int tw = TextW(hdc, f->body, nd->label);
         int th = FontH(hdc, f->body);
         nd->w = tw + padX * 2;
@@ -958,10 +1008,75 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         } else {
             MoveToEx(hdc, x1, y1, NULL);
             LineTo(hdc, x2, y2);
-            if (ed->arrow)
-                DrawArrowHead(hdc, th->merEdge, TRUE, x2, y2, fx, fy);
+            double ux = fx, uy = fy;   /* 指向 b 的单位向量 */
+            {
+                double ln2 = sqrt(fx * fx + fy * fy);
+                if (ln2 > 0.001) { ux = fx / ln2; uy = fy / ln2; }
+            }
+            /* 标记端点：markA 时画在 a 端（方向取反） */
+            int mx = ed->markA ? x1 : x2, my = ed->markA ? y1 : y2;
+            double mdx = ed->markA ? -ux : ux, mdy = ed->markA ? -uy : uy;
+            switch (ed->rel) {
+                case MRE_INHERIT: {     /* 空心三角 */
+                    double px = -mdy, py = mdx;
+                    POINT tri[4];
+                    tri[0].x = mx; tri[0].y = my;
+                    tri[1].x = (int)(mx - UI_Scale(14) * mdx + UI_Scale(7) * px);
+                    tri[1].y = (int)(my - UI_Scale(14) * mdy + UI_Scale(7) * py);
+                    tri[2].x = (int)(mx - UI_Scale(14) * mdx - UI_Scale(7) * px);
+                    tri[2].y = (int)(my - UI_Scale(14) * mdy - UI_Scale(7) * py);
+                    tri[3] = tri[0];
+                    HBRUSH ob3 = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+                    Polygon(hdc, tri, 4);
+                    SelectObject(hdc, ob3);
+                    break;
+                }
+                case MRE_COMPOSE:
+                case MRE_AGGREG: {      /* 实心/空心菱形 */
+                    double px = -mdy, py = mdx;
+                    int L = UI_Scale(18), W2 = UI_Scale(6);
+                    POINT dm[5];
+                    dm[0].x = mx; dm[0].y = my;
+                    dm[1].x = (int)(mx - L / 2 * mdx + W2 * px);
+                    dm[1].y = (int)(my - L / 2 * mdy + W2 * py);
+                    dm[2].x = (int)(mx - L * mdx);
+                    dm[2].y = (int)(my - L * mdy);
+                    dm[3].x = (int)(mx - L / 2 * mdx - W2 * px);
+                    dm[3].y = (int)(my - L / 2 * mdy - W2 * py);
+                    dm[4] = dm[0];
+                    HBRUSH db = ed->rel == MRE_COMPOSE
+                        ? CreateSolidBrush(th->merEdge)
+                        : (HBRUSH)GetStockObject(NULL_BRUSH);
+                    HBRUSH ob3 = (HBRUSH)SelectObject(hdc, db);
+                    Polygon(hdc, dm, 5);
+                    SelectObject(hdc, ob3);
+                    if (ed->rel == MRE_COMPOSE) DeleteObject(db);
+                    break;
+                }
+                case MRE_ASSOC:
+                case MRE_DEPEND:
+                    DrawArrowHead(hdc, th->merEdge, FALSE, mx, my, mdx, mdy);
+                    break;
+                default:
+                    if (ed->arrow)
+                        DrawArrowHead(hdc, th->merEdge, TRUE, x2, y2, fx, fy);
+            }
         }
         SelectObject(hdc, op);
+
+        /* 多重性（er/类图两端） */
+        if (ed->cardA[0] || ed->cardB[0]) {
+            SetTextColor(hdc, th->fgMuted);
+            HFONT of = (HFONT)SelectObject(hdc, f->sm);
+            SetBkMode(hdc, TRANSPARENT);
+            if (ed->cardA[0])
+                TextOutW(hdc, x1 + UI_Scale(4), y1 - FontH(hdc, f->sm) - UI_Scale(2),
+                         ed->cardA, (int)wcslen(ed->cardA));
+            if (ed->cardB[0])
+                TextOutW(hdc, x2 + UI_Scale(4), y2 - FontH(hdc, f->sm) - UI_Scale(2),
+                         ed->cardB, (int)wcslen(ed->cardB));
+            SelectObject(hdc, of);
+        }
 
         if (ed->label[0]) {
             int mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
@@ -985,6 +1100,7 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     /* 节点 */
     HPEN nodePen = CreatePen(PS_SOLID, 1, th->merNodeBorder);
     HBRUSH nodeBr = CreateSolidBrush(th->merNodeFill);
+    HBRUSH fillBr = CreateSolidBrush(th->merNodeBorder);
     for (int i = 0; i < d->nNodes; i++) {
         MerNode* nd = &d->nodes[i];
         int l = ox + nd->x, t = oy + nd->y, r = l + nd->w, b = t + nd->h;
@@ -992,11 +1108,31 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         HBRUSH ob = (HBRUSH)SelectObject(hdc, nodeBr);
         switch (nd->shape) {
             case MER_ROUND:
+                RoundRect(hdc, l, t, r, b, UI_Scale(12), UI_Scale(12));
+                break;
+            case MER_STADIUM:
                 RoundRect(hdc, l, t, r, b, nd->h / 2, nd->h / 2);
                 break;
             case MER_CIRCLE:
                 Ellipse(hdc, l, t, r, b);
                 break;
+            case MER_START: {
+                /* 起始：实心圆 */
+                int m = UI_Scale(7);
+                HBRUSH ob2 = (HBRUSH)SelectObject(hdc, fillBr);
+                Ellipse(hdc, l + m, t + m, r - m, b - m);
+                SelectObject(hdc, ob2);
+                break;
+            }
+            case MER_END: {
+                /* 终止：圆环内实心圆 */
+                Ellipse(hdc, l, t, r, b);
+                HBRUSH ob2 = (HBRUSH)SelectObject(hdc, fillBr);
+                int m = (r - l) / 4;
+                Ellipse(hdc, l + m, t + m, r - m, b - m);
+                SelectObject(hdc, ob2);
+                break;
+            }
             case MER_DIAMOND: {
                 POINT pts[4] = { { (l + r) / 2, t }, { r, (t + b) / 2 },
                                  { (l + r) / 2, b }, { l, (t + b) / 2 } };
@@ -1015,14 +1151,43 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         SelectObject(hdc, ob);
         SelectObject(hdc, op);
 
-        RECT rc = { l + UI_Scale(4), t + UI_Scale(2), r - UI_Scale(4), b - UI_Scale(2) };
         SetTextColor(hdc, th->merNodeText);
-        HFONT of = (HFONT)SelectObject(hdc, f->body);
-        DrawTextW(hdc, nd->label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
-        SelectObject(hdc, of);
+        if ((d->kind == 3 || d->kind == 4) && nd->extra) {
+            /* class / er：三格框（名称 / 属性 / 方法或键） */
+            int lineH = FontH(hdc, f->sm) + UI_Scale(2);
+            int sep = UI_Scale(1);
+            RECT rc0 = { l, t, r, t + lineH + UI_Scale(8) };
+            HFONT of = (HFONT)SelectObject(hdc, f->bold);
+            DrawTextW(hdc, nd->label, -1, &rc0, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            SelectObject(hdc, of);
+            int yy = rc0.bottom;
+            HPEN op2 = (HPEN)SelectObject(hdc, nodePen);
+            MoveToEx(hdc, l, yy, NULL); LineTo(hdc, r, yy);
+            wchar_t (*mem)[96] = (wchar_t(*)[96])nd->extra;
+            HFONT of2 = (HFONT)SelectObject(hdc, f->sm);
+            int total = nd->nExtraA + nd->nExtraB;
+            for (int m2 = 0; m2 < total; m2++) {
+                if (m2 == nd->nExtraA && d->kind == 3) {   /* class：属性/方法分隔线 */
+                    yy += sep;
+                    MoveToEx(hdc, l, yy, NULL); LineTo(hdc, r, yy);
+                }
+                RECT rm = { l + UI_Scale(8), yy, r - UI_Scale(4), yy + lineH };
+                SetTextColor(hdc, th->merNodeText);
+                TextOutW(hdc, rm.left, yy + UI_Scale(1), mem[m2], (int)wcslen(mem[m2]));
+                yy += lineH;
+            }
+            SelectObject(hdc, of2);
+            SelectObject(hdc, op2);
+        } else if (nd->shape != MER_START && nd->shape != MER_END) {
+            RECT rc = { l + UI_Scale(4), t + UI_Scale(2), r - UI_Scale(4), b - UI_Scale(2) };
+            HFONT of = (HFONT)SelectObject(hdc, f->body);
+            DrawTextW(hdc, nd->label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            SelectObject(hdc, of);
+        }
     }
     DeleteObject(nodePen);
     DeleteObject(nodeBr);
+    DeleteObject(fillBr);
 }
 
 /* ============================ 绘制：时序图 ============================ */
@@ -1222,8 +1387,9 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
 
 SIZE Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     if (!d) { SIZE z = { 0, 0 }; return z; }
-    if (d->kind == 0) FlowLayout(d, hdc, f);
-    else SeqLayout(d, hdc, f);
+    if (d->kind == 0 || (d->kind >= 2 && d->kind <= 4)) FlowLayout(d, hdc, f);
+    else if (d->kind == 1) SeqLayout(d, hdc, f);
+    else ExtLayout(d, hdc, f);
     d->sz.cx += UI_Scale(4);
     d->sz.cy += UI_Scale(4);
     return d->sz;
@@ -1232,6 +1398,11 @@ SIZE Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
 void Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
                   const MdFonts* f, const MdTheme* th) {
     if (!d) return;
-    if (d->kind == 0) FlowDraw(d, hdc, x, y, f, th);
-    else SeqDraw(d, hdc, x, y, f, th);
+    if (d->kind == 0 || (d->kind >= 2 && d->kind <= 4)) FlowDraw(d, hdc, x, y, f, th);
+    else if (d->kind == 1) SeqDraw(d, hdc, x, y, f, th);
+    else ExtDraw(d, hdc, x, y, f, th);
 }
+
+#include "mermaid_ext1.inc"
+#include "mermaid_ext2.inc"
+#include "mermaid_ext3.inc"
