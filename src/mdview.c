@@ -1424,21 +1424,27 @@ void MdView_OnActivate(void) {
     BOOL show = (g_curDoc >= 0 && g_curDoc < g_docCount &&
                  g_docs[g_curDoc].previewOn && g_docs[g_curDoc].lang == LANG_MD);
     static BOOL lastShown = FALSE;
+    HWND hed = (g_curDoc >= 0 && g_curDoc < g_docCount) ? g_docs[g_curDoc].hwndEdit : NULL;
     if (show) {
         LoadContent(g_curDoc);
+        /* 必须隐藏编辑器：Scintilla 在 mdview 之后创建（Z 序更高），不隐藏会
+           盖在预览之上，直到某次重绘才被预览覆盖（表现为"滚动一下才出预览"） */
+        if (hed) ShowWindow(hed, SW_HIDE);
         ShowWindow(V.hwnd, SW_SHOW);
         SetFocus(V.hwnd);
     } else {
         ShowWindow(V.hwnd, SW_HIDE);
-        if (g_curDoc >= 0 && g_curDoc < g_docCount && g_docs[g_curDoc].hwndEdit &&
-            IsWindowVisible(g_docs[g_curDoc].hwndEdit))
-            SetFocus(g_docs[g_curDoc].hwndEdit);
+        if (hed) {
+            ShowWindow(hed, SW_SHOW);
+            SetFocus(hed);
+        }
     }
     /* 可见性翻转时让编辑区/预览区重新占位（Editor_Layout 会回调 MdView_OnLayout） */
     if (show != lastShown) {
         lastShown = show;
         Editor_Layout();
     }
+    if (show) InvalidateRect(V.hwnd, NULL, FALSE);   /* 立即整幅重绘，不等首个事件 */
 }
 
 void MdView_Toggle(void) {
