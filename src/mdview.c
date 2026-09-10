@@ -613,6 +613,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
     for (int i = 0; i <= nT; i++) {
         BOOL flush = (i == nT);
         if (!flush && (toks[i].run->style & STY_BR)) flush = TRUE;
+        BOOL overflow = FALSE;
         if (!flush) {
             Tok* tk = &toks[i];
             if (tk->space) {
@@ -629,7 +630,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
             if (fnt != curFont) { SelectObject(hdc, fnt); curFont = fnt; }
             SIZE sz;
             GetTextExtentPoint32W(hdc, tk->s, tk->len, &sz);
-            if (nF > 0 && x + sz.cx > avail) { flush = TRUE; }
+            if (nF > 0 && x + sz.cx > avail) { flush = TRUE; overflow = TRUE; }
             else {
                 TEXTMETRICW tm;
                 GetTextMetricsW(hdc, &tm);
@@ -659,7 +660,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
             fr = NULL; nF = 0;
         }
         x = 0; lineH = 0; asc = 0;
-        if (!flush) i--;   /* 刚因超宽落行：当前 token 下一轮重新处理 */
+        if (overflow) i--;   /* 超宽落行：当前 token 下一轮重放，否则该词会被整个丢掉 */
     }
     free(toks);
     if (curFont) SelectObject(hdc, GetStockObject(SYSTEM_FONT));
@@ -707,18 +708,23 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         *y += h + UI_Scale(16) + UI_Scale(12);
         return;
     }
-    /* 代码文本按行拆（合成 run 堆分配：frag 借用其指针到绘制阶段） */
+    /* 代码文本按行拆（合成 run 堆分配：frag 借用其指针到绘制阶段）。
+       每行临时写入 NUL 截断再交给 WrapRuns——否则换行符会被当成普通
+       词字符，整个后续文本并成一个超宽词元，代码块渲染成重叠乱码。 */
     MdLine* lines = NULL; int nL = 0;
     MdRun* codeRun = (MdRun*)calloc(1, sizeof(MdRun));
     codeRun->style = 0; codeRun->href = NULL; codeRun->text = NULL;
-    const wchar_t* p = b->code ? b->code : L"";
-    while (*p) {
-        const wchar_t* nl = wcschr(p, L'\n');
+    wchar_t* p = b->code;
+    while (p && *p) {
+        wchar_t* nl = wcschr(p, L'\n');
         int len = nl ? (int)(nl - p) : (int)wcslen(p);
         if (len > 0 && p[len-1] == L'\r') len--;
-        codeRun->text = (wchar_t*)p;
+        wchar_t saved = p[len];
+        p[len] = L'\0';
+        codeRun->text = p;
         MdLine* sub; int subN;
         WrapRuns(hdc, codeRun, 1, avail - UI_Scale(20), ROLE_MONO, &sub, &subN);
+        p[len] = saved;
         for (int i = 0; i < subN; i++) {
             lines = (MdLine*)realloc(lines, ((size_t)nL + 1) * sizeof(MdLine));
             lines[nL++] = sub[i];
