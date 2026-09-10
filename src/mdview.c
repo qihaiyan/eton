@@ -112,8 +112,9 @@ static BOOL s_gdipOk = FALSE;
 static void GdipInit(void) {
     HMODULE g = LoadLibraryW(L"gdiplus.dll");
     if (!g) return;
-    p_GdipStartup = (void*)GetProcAddress(g, "GdipStartup");
-    p_GdipShutdown = (void*)GetProcAddress(g, "GdipShutdown");
+    /* 注意：Startup/Shutdown 导出名是 "Gdiplus" 前缀，其余 flat API 是 "Gdip" */
+    p_GdipStartup = (void*)GetProcAddress(g, "GdiplusStartup");
+    p_GdipShutdown = (void*)GetProcAddress(g, "GdiplusShutdown");
     p_GdipCreateBitmapFromFile = (void*)GetProcAddress(g, "GdipCreateBitmapFromFile");
     p_GdipDisposeImage = (void*)GetProcAddress(g, "GdipDisposeImage");
     p_GdipGetImageWidth = (void*)GetProcAddress(g, "GdipGetImageWidth");
