@@ -1137,7 +1137,9 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                     for (int k = 0; k < ln->nF; k++) {
                         MdFrag* fr = &ln->frags[k];
                         MdRun* run = fr->run;
-                        if (!run->text || fr->len == 0) continue;
+                        /* 判空看 frag 的 s：代码块的合成 run->text 故意为 NULL
+                           （文字在块缓冲里，frag 自带指针与长度才是绘制数据） */
+                        if (!fr->s || fr->len == 0) continue;
                         int fx = it->rc.left + fr->x;
                         HFONT f = FontFor(run->style, it->role);
                         HFONT of = (HFONT)SelectObject(hdc, f);
