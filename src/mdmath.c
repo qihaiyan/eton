@@ -92,20 +92,28 @@ static const struct { const wchar_t* cmd; wchar_t ch; } kSym[] = {
     { L"oplus", 0x2295 }, { L"otimes", 0x2297 },
 };
 
-/* 双线字母（\mathbb）常用映射 */
-static wchar_t BbChar(wchar_t c) {
+/* 双线字母（\mathbb）常用映射；BMP 外码位（E/F）拆代理对写入，返回写入数 */
+static int BbAppend(wchar_t* out, wchar_t c) {
+    unsigned int cp;
     switch (c) {
-        case L'R': return 0x211D;
-        case L'N': return 0x2115;
-        case L'Z': return 0x2124;
-        case L'Q': return 0x211A;
-        case L'C': return 0x2102;
-        case L'E': return 0x1D53C;
-        case L'P': return 0x2119;
-        case L'H': return 0x210D;
-        case L'F': return 0x1D53D;
-        default: return c;
+        case L'R': cp = 0x211D; break;
+        case L'N': cp = 0x2115; break;
+        case L'Z': cp = 0x2124; break;
+        case L'Q': cp = 0x211A; break;
+        case L'C': cp = 0x2102; break;
+        case L'E': cp = 0x1D53C; break;
+        case L'P': cp = 0x2119; break;
+        case L'H': cp = 0x210D; break;
+        case L'F': cp = 0x1D53D; break;
+        default: out[0] = c; return 1;
     }
+    if (cp > 0xFFFF) {
+        out[0] = (wchar_t)(0xD800 + ((cp - 0x10000) >> 10));
+        out[1] = (wchar_t)(0xDC00 + ((cp - 0x10000) & 0x3FF));
+        return 2;
+    }
+    out[0] = (wchar_t)cp;
+    return 1;
 }
 
 static MathBox* MbGlyphs(const wchar_t* s, int len, int level, BOOL italic) {
@@ -318,13 +326,14 @@ static MathBox* MathParseRow(MScan* s, int level) {
                     s->p++;
                     wchar_t tbuf[64];
                     int nt = 0;
-                    while (s->p < s->end && *s->p != L'}' && nt < 63)
-                        tbuf[nt++] = BbChar(*s->p++);
+                    while (s->p < s->end && *s->p != L'}' && nt < 62)
+                        nt += BbAppend(tbuf + nt, *s->p++);
                     if (s->p < s->end) s->p++;
                     if (nt > 0) MbAdd(row, MbGlyphs(tbuf, nt, level, FALSE));
                 } else if (s->p < s->end) {
-                    wchar_t one[2] = { BbChar(*s->p++), 0 };
-                    MbAdd(row, MbGlyphs(one, 1, level, FALSE));
+                    wchar_t one[3] = { 0, 0, 0 };
+                    int n = BbAppend(one, *s->p++);
+                    MbAdd(row, MbGlyphs(one, n, level, FALSE));
                 }
                 continue;
             }
