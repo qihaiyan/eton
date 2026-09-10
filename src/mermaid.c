@@ -796,7 +796,8 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
             int loop = (ed->side > 0) ? rightN++ : leftN++;
             int lw = ed->label[0]
                 ? TextW(hdc, f->sm, ed->label) / 2 + UI_Scale(8) : UI_Scale(6);
-            int need = UI_Scale(20) + loop * UI_Scale(14) + lw;
+            /* 走廊要足够宽：mermaid 的回环甩得很开，窄走廊在高图里会退化成贴图的竖线 */
+            int need = UI_Scale(72) + loop * UI_Scale(26) + lw;
             ed->corrX = (ed->side > 0) ? maxX2 + need : minX2 - need;
         }
         /* 左侧走廊不能越出画布：整体右移补齐 */

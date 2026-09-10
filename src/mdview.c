@@ -1365,9 +1365,17 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                 break;
             }
             case ITM_DIAGRAM:
-                if (it->diag)
+                if (it->diag) {
+                    /* 裁剪到画布：图表元素绝不越界串到相邻块 */
+                    RECT drc = it->rc;
+                    InflateRect(&drc, UI_Scale(16), UI_Scale(16));
+                    OffsetRect(&drc, 0, -V.scrollY);
+                    SaveDC(hdc);
+                    IntersectClipRect(hdc, drc.left, drc.top, drc.right, drc.bottom);
                     Mermaid_Draw(it->diag, hdc, it->rc.left, it->rc.top - V.scrollY,
                                  &V.fonts, th);
+                    RestoreDC(hdc, -1);
+                }
                 break;
             case ITM_IMAGE: {
                 if (!s_gdipOk || !it->image) break;
