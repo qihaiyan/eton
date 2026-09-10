@@ -988,6 +988,12 @@ static void LayoutBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y, int quot
 }
 
 static void LayoutAll(void) {
+    if (V.clientW <= 0 || V.clientH <= 0) {
+        /* 窗口尚未获得尺寸（创建/首次显示前）：跳过本次，
+           等 WM_SIZE 到来后再真正排版，避免按 0 宽排出废布局 */
+        V.lastLayoutW = -1;
+        return;
+    }
     ItemResetAll();
 
     HDC hdc = GetDC(V.hwnd);
