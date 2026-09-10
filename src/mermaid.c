@@ -76,6 +76,8 @@ typedef struct MerEdge {
     wchar_t cardA[16], cardB[16];   /* 两端多重性文本 */
     MerRel rel;
     BOOL markA;              /* 类图：标记画在 a 端（<|-- 等左标记算子） */
+    int side;               /* TB 回边绕行侧：+1 右 / -1 左 / 0 非回边 */
+    int corrX;              /* 回边走廊 x（布局坐标，Draw 直接用） */
 } MerEdge;
 
 typedef struct MerSub {
@@ -776,6 +778,40 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         for (int i = 0; i < n; i++) d->nodes[i].x = maxX2 - d->nodes[i].x - d->nodes[i].w;
     }
 
+    /* TB 回边走廊：绕行回环（mermaid 风格）左右交替，为侧向贝塞尔预留空间 */
+    if (!d->dirLR) {
+        int minX2 = 0x7FFFFFFF, maxX2 = 0;
+        for (int i = 0; i < n; i++) {
+            if (d->nodes[i].x < minX2) minX2 = d->nodes[i].x;
+            if (d->nodes[i].x + d->nodes[i].w > maxX2) maxX2 = d->nodes[i].x + d->nodes[i].w;
+        }
+        if (minX2 == 0x7FFFFFFF) minX2 = margin;
+        int leftN = 0, rightN = 0;
+        for (int e = 0; e < d->nEdges; e++) {
+            MerEdge* ed = &d->edges[e];
+            MerNode* ea = &d->nodes[ed->a];
+            MerNode* eb = &d->nodes[ed->b];
+            if (eb->rank >= ea->rank) { ed->side = 0; continue; }
+            ed->side = ((leftN + rightN) & 1) ? -1 : +1;   /* 左右轮流 */
+            int loop = (ed->side > 0) ? rightN++ : leftN++;
+            int lw = ed->label[0]
+                ? TextW(hdc, f->sm, ed->label) / 2 + UI_Scale(8) : UI_Scale(6);
+            int need = UI_Scale(20) + loop * UI_Scale(14) + lw;
+            ed->corrX = (ed->side > 0) ? maxX2 + need : minX2 - need;
+        }
+        /* 左侧走廊不能越出画布：整体右移补齐 */
+        int shift = 0;
+        for (int e = 0; e < d->nEdges; e++) {
+            if (d->edges[e].side < 0 && margin - d->edges[e].corrX > shift)
+                shift = margin - d->edges[e].corrX;
+        }
+        if (shift > 0) {
+            for (int i = 0; i < n; i++) d->nodes[i].x += shift;
+            for (int e = 0; e < d->nEdges; e++)
+                if (d->edges[e].side) d->edges[e].corrX += shift;
+        }
+    }
+
     /* subgraph 边界 */
     for (int s = 0; s < d->nSubs; s++) {
         MerSub* sub = &d->subs[s];
@@ -802,6 +838,9 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         if (d->nodes[i].x + d->nodes[i].w > maxX) maxX = d->nodes[i].x + d->nodes[i].w;
         if (d->nodes[i].y + d->nodes[i].h > maxY) maxY = d->nodes[i].y + d->nodes[i].h;
     }
+    for (int e = 0; e < d->nEdges; e++)   /* 右侧回边走廊计入宽度 */
+        if (d->edges[e].side > 0 && d->edges[e].corrX + UI_Scale(10) > maxX)
+            maxX = d->edges[e].corrX + UI_Scale(10);
     for (int s = 0; s < d->nSubs; s++) {
         if (!d->subs[s].w) continue;
         if (d->subs[s].x + d->subs[s].w > maxX) maxX = d->subs[s].x + d->subs[s].w;
@@ -980,6 +1019,8 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         double fx = (double)(bx - ax), fy = (double)(by - ay);
 
         int x1 = ax, y1 = ay, x2 = bx, y2 = by;
+        double adx = 0, ady = 0;          /* 进入 b 端方向（标记/箭头用） */
+        int lbx = -1, lby = -1;           /* 标签锚点（-1 = 用线段中点） */
         double shrinkA = 1.0, shrinkB = 1.0;
         if (a->shape == MER_DIAMOND) shrinkA = 0.5;
         if (b->shape == MER_DIAMOND) shrinkB = 0.5;
@@ -1005,17 +1046,61 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             Polyline(hdc, pts, 4);
             if (ed->arrow)
                 DrawArrowHead(hdc, th->merEdge, TRUE, cx + UI_Scale(8), top, 0, 1);
+            lbx = cx; lby = top - UI_Scale(18);
+        } else if (!d->dirLR) {
+            /* TB 端口化路由（mermaid 风格） */
+            if (ed->side) {
+                /* 回边：绕侧贝塞尔回环 */
+                int ex = (ed->side > 0) ? a->x + a->w : a->x;
+                int ey = a->y + a->h / 2;
+                int nx2 = (ed->side > 0) ? b->x + b->w : b->x;
+                int ny2 = b->y + b->h / 2;
+                POINT bz[4] = { {ex, ey}, {ed->corrX, ey}, {ed->corrX, ny2}, {nx2, ny2} };
+                PolyBezier(hdc, bz, 4);
+                x1 = ex; y1 = ey; x2 = nx2; y2 = ny2;
+                adx = (ed->side > 0) ? -1.0 : 1.0; ady = 0;
+                lbx = ed->corrX; lby = (ey + ny2) / 2;
+            } else if (b->rank == a->rank) {
+                /* 同层：水平连接 */
+                MerNode* Ln = a; MerNode* Rn = b;
+                if (Ln->x > Rn->x) { Ln = b; Rn = a; }
+                x1 = Ln->x + Ln->w; y1 = Ln->y + Ln->h / 2;
+                x2 = Rn->x;        y2 = Rn->y + Rn->h / 2;
+                MoveToEx(hdc, x1, y1, NULL);
+                LineTo(hdc, x2, y2);
+                adx = (Rn == b) ? 1.0 : -1.0; ady = 0;
+                lbx = (x1 + x2) / 2; lby = y1;
+            } else {
+                /* 前向：A 底边中点 → B 顶边中点（直/肘） */
+                x1 = a->x + a->w / 2; y1 = a->y + a->h;
+                x2 = b->x + b->w / 2; y2 = b->y;
+                if (y2 < y1 + UI_Scale(4)) y2 = y1 + UI_Scale(4);
+                MoveToEx(hdc, x1, y1, NULL);
+                if (abs(x1 - x2) <= UI_Scale(8)) {
+                    LineTo(hdc, x2, y2);
+                    lbx = x1; lby = (y1 + y2) / 2;
+                } else {
+                    int ym = y1 + (y2 - y1) / 2;
+                    LineTo(hdc, x1, ym);
+                    LineTo(hdc, x2, ym);
+                    LineTo(hdc, x2, y2);
+                    lbx = (x1 + x2) / 2; lby = ym;
+                }
+                adx = 0; ady = 1;
+            }
         } else {
+            /* LR：中心到中心连线（原路径） */
             MoveToEx(hdc, x1, y1, NULL);
             LineTo(hdc, x2, y2);
-            double ux = fx, uy = fy;   /* 指向 b 的单位向量 */
             {
                 double ln2 = sqrt(fx * fx + fy * fy);
-                if (ln2 > 0.001) { ux = fx / ln2; uy = fy / ln2; }
+                if (ln2 > 0.001) { adx = fx / ln2; ady = fy / ln2; }
             }
-            /* 标记端点：markA 时画在 a 端（方向取反） */
+            lbx = (x1 + x2) / 2; lby = (y1 + y2) / 2;
+        }
+        {
             int mx = ed->markA ? x1 : x2, my = ed->markA ? y1 : y2;
-            double mdx = ed->markA ? -ux : ux, mdy = ed->markA ? -uy : uy;
+            double mdx = ed->markA ? -adx : adx, mdy = ed->markA ? -ady : ady;
             switch (ed->rel) {
                 case MRE_INHERIT: {     /* 空心三角 */
                     double px = -mdy, py = mdx;
@@ -1059,7 +1144,7 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
                     break;
                 default:
                     if (ed->arrow)
-                        DrawArrowHead(hdc, th->merEdge, TRUE, x2, y2, fx, fy);
+                        DrawArrowHead(hdc, th->merEdge, TRUE, x2, y2, adx, ady);
             }
         }
         SelectObject(hdc, op);
@@ -1079,7 +1164,8 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         }
 
         if (ed->label[0]) {
-            int mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+            int mx = (lbx >= 0) ? lbx : (x1 + x2) / 2;
+            int my = (lby >= 0) ? lby : (y1 + y2) / 2;
             SIZE sz;
             HFONT of = (HFONT)SelectObject(hdc, f->sm);
             GetTextExtentPoint32W(hdc, ed->label, (int)wcslen(ed->label), &sz);
