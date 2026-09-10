@@ -150,7 +150,17 @@ typedef struct {
 static MdParseCtx* P;                   /* 回调用户数据（单线程同步解析） */
 
 static void AddRun(const wchar_t* s, int len, unsigned style) {
-    if (!P->textBlk) return;
+    if (!P->textBlk) {
+        /* 紧凑列表（条目间无空行）不发出 MD_BLOCK_P，内联文本直接挂在 LI 下：
+           惰性建段落并入树，否则整段文字会被静默丢弃 */
+        MdBlock* top = P->stack[P->depth];
+        if (top && top->type == MDB_LI) {
+            P->textBlk = BlkNew(MDB_P);
+            BlkAppend(top, P->textBlk);
+        } else {
+            return;
+        }
+    }
     MdRun* nr = (MdRun*)realloc(P->textBlk->runs,
         ((size_t)P->textBlk->nRuns + 1) * sizeof(MdRun));
     if (!nr) return;
@@ -305,6 +315,8 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             break;
         case MD_BLOCK_UL: case MD_BLOCK_OL: case MD_BLOCK_LI:
         case MD_BLOCK_TABLE:
+            /* 紧凑列表的惰性段落已在 AddRun 时挂入 LI，这里只需复位 */
+            P->textBlk = NULL;
             if (P->depth > 0) P->depth--;
             if (type == MD_BLOCK_TABLE) P->table = NULL;
             break;
