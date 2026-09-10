@@ -5,6 +5,8 @@
    字体：Cambria Math（Windows 自带），三级字号（正文/脚本/脚本的脚本）。 */
 
 #include "common.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 static int MbFontH(HDC hdc, HFONT f) {
     HFONT of = (HFONT)SelectObject(hdc, f);
@@ -52,7 +54,7 @@ void Math_Free(MathBox* b) {
 }
 
 static void MbAdd(MathBox* row, MathBox* kid) {
-    if (!row || !kid) return;
+    if (!row) return;   /* kid 允许为 NULL：SCRIPT 盒的 base/上下标占位靠它 */
     MathBox** nk = (MathBox**)realloc(row->kids,
         ((size_t)row->nKids + 1) * sizeof(MathBox*));
     if (!nk) return;
@@ -129,7 +131,8 @@ static MathBox* MbGlyphs(const wchar_t* s, int len, int level, BOOL italic) {
 
 static MathBox* MathParseRow(MScan* s, int level);
 
-/* 读取一个 {...} 组（跳过开 {，读到配对 }） */
+/* 读取一个 {...} 组（跳过开 {，读到配对 }）；无组时只取单个 token
+   （一个普通字符或一条 \cmd），不得吞掉后续内容 */
 static MathBox* MathParseGroup(MScan* s, int level) {
     if (s->p < s->end && *s->p == L'{') {
         s->p++;
@@ -137,8 +140,18 @@ static MathBox* MathParseGroup(MScan* s, int level) {
         if (s->p < s->end && *s->p == L'}') s->p++;
         return row;
     }
-    /* 单字符参数 */
-    return MathParseRow(s, level);
+    const wchar_t* q = s->p;
+    if (q < s->end && *q == L'\\' && q + 1 < s->end && iswalpha(q[1])) {
+        q++;
+        while (q < s->end && iswalpha(*q)) q++;
+    } else if (q < s->end) {
+        q++;
+    }
+    if (q == s->p) return NULL;
+    MScan sub = { s->p, q };
+    MathBox* b = MathParseRow(&sub, level);
+    s->p = q;
+    return b;
 }
 
 static MathBox* MathParseRow(MScan* s, int level) {
@@ -155,6 +168,7 @@ static MathBox* MathParseRow(MScan* s, int level) {
 
     while (s->p < s->end) {
         wchar_t c = *s->p;
+        if (getenv("MDTRACE")) fprintf(stderr, "[PR] lvl=%d c='%lc' nb=%d nKids=%d\n", level, c, nb, row->nKids);
         if (c == L'}') break;
         if (c == L'{') {
             FLUSH();
@@ -165,6 +179,7 @@ static MathBox* MathParseRow(MScan* s, int level) {
         if (c == L'^' || c == L'_') {
             FLUSH();
             s->p++;
+            if (getenv("MDTRACE")) fprintf(stderr, "[PR] script enter\n");
             MathBox* sc = MathParseGroup(s, level < 2 ? level + 1 : 2);
             /* 若 row 末尾已有脚本盒则合并，否则新建 */
             MathBox* target = NULL;
