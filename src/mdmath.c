@@ -37,6 +37,7 @@ struct MathBox {
     int level;              /* 字号级 0/1/2 */
     BOOL italic;
     int spaceAfter;         /* 附加间距（px，布局时定） */
+    int raiseY;             /* SCRIPT：上标基线相对整盒基线的抬升量 */
 };
 
 static MathBox* MbNew(MbKind k) {
@@ -425,6 +426,16 @@ static HFONT MathFont(const MdFonts* f, int level, BOOL italic) {
     }
 }
 
+/* Cambria Math 的 GDI 行度量异常臃肿（usWinAsc+usWinDesc≈5.6em：26px 字体
+   tmHeight=145、tmAscent=81），拿 tmAscent/tmHeight 当盒子度量会把分母、
+   上标甩出老远。改用字体的请求高度近似 em 盒：asc≈0.75em。 */
+static int MathFontEm(HFONT fo) {
+    LOGFONTW lf;
+    if (GetObjectW(fo, sizeof(lf), &lf) && lf.lfHeight < 0)
+        return -lf.lfHeight;
+    return 16;
+}
+
 static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f);
 
 static void MbMeasureKids(MathBox* b, HDC hdc, const MdFonts* f) {
@@ -439,12 +450,11 @@ static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f) {
             HFONT of = (HFONT)SelectObject(hdc, fo);
             SIZE sz;
             GetTextExtentPoint32W(hdc, b->text, (int)wcslen(b->text), &sz);
-            TEXTMETRICW tm;
-            GetTextMetricsW(hdc, &tm);
             SelectObject(hdc, of);
             b->w = sz.cx + b->spaceAfter;
-            b->h = tm.tmHeight;
-            b->asc = tm.tmAscent;
+            int em = MathFontEm(fo);   /* 度量见 MathFontEm 注释 */
+            b->h = em;
+            b->asc = em * 3 / 4;
             break;
         }
         case MB_ROW: {
@@ -469,15 +479,17 @@ static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f) {
             MathBox* den = b->nKids > 1 ? b->kids[1] : NULL;
             int nw = num ? num->w : 0, dw = den ? den->w : 0;
             int w = (nw > dw ? nw : dw) + UI_Scale(8);
-            int axis = FontH(hdc, MathFont(f, b->level, TRUE)) / 2;
-            int nu = num ? num->asc + (num->h - num->asc) : 0;
+            int em = MathFontEm(MathFont(f, b->level, TRUE));
+            int axis = em / 4;              /* 数学轴：基线上 0.25em（与 Draw 一致） */
+            int gap = UI_Scale(2);
+            int nu = num ? num->asc : 0;
             int du = den ? den->asc : 0;
             b->w = w;
-            b->h = axis + UI_Scale(3) + du + (num ? num->h - num->asc : 0) + UI_Scale(2) + axis;
-            if (b->h < FontH(hdc, MathFont(f, b->level, TRUE))) b->h = FontH(hdc, MathFont(f, b->level, TRUE));
-            b->asc = (num ? num->asc : 0) + UI_Scale(3) + axis;
-            if (b->asc < axis + UI_Scale(2)) b->asc = axis + UI_Scale(2);
-            (void)nu;
+            b->asc = nu + gap + axis;
+            if (b->asc < em * 3 / 4) b->asc = em * 3 / 4;
+            b->h = b->asc + axis + gap + du;
+            if (b->h < em) b->h = em;
+            (void)0;
             break;
         }
         case MB_SCRIPT: {
@@ -486,16 +498,16 @@ static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f) {
             MathBox* sup = b->nKids > 1 ? b->kids[1] : NULL;
             MathBox* sub = b->nKids > 2 ? b->kids[2] : NULL;
             int w = base ? base->w : 0;
-            int asc = base ? base->asc : 0;
-            int desc = base ? base->h - base->asc : 0;
+            int baseAsc = base ? base->asc
+                               : MathFontEm(MathFont(f, b->level, FALSE)) * 3 / 4;
+            int asc = baseAsc, desc = base ? base->h - base->asc : 0;
+            /* 上标基线抬升：底字 ascent 的 60%（存下供 Draw 直接用，
+               避免再用膨胀后的整盒 asc 二次放大） */
+            b->raiseY = baseAsc * 3 / 5;
             if (sup) {
                 if (base && base->w + sup->w > w) w = base->w + sup->w;
                 else if (!base) w = sup->w;
-                if (asc + sup->h - sup->asc * 0 / 1 > asc + (sup->h - sup->asc)) { }
-                if (asc < sup->h + UI_Scale(1)) { }   /* 顶到基线 */
-                int need = (int)(asc * 0.55) + sup->h;
-                if (need > asc + sup->h) { }
-                if (asc + 0 < need) asc = need;   /* 抬高基线上方 */
+                if (b->raiseY + sup->asc > asc) asc = b->raiseY + sup->asc;
             }
             if (sub) {
                 if (base && base->w + sub->w > w) w = base->w + sub->w;
@@ -572,9 +584,10 @@ static void MbDraw(const MathBox* b, HDC hdc, int x, int yBase,
         case MB_FRAC: {
             const MathBox* num = b->nKids > 0 ? b->kids[0] : NULL;
             const MathBox* den = b->nKids > 1 ? b->kids[1] : NULL;
-            int axis = yBase - FontH(hdc, MathFont(f, b->level, TRUE)) / 4;
+            int em = MathFontEm(MathFont(f, b->level, TRUE));
+            int axis = yBase - em / 4;   /* 与 MbMeasure 的 axis 同源 */
             if (num)
-                MbDraw(num, hdc, x + (b->w - num->w) / 2, axis - UI_Scale(3), f, th);
+                MbDraw(num, hdc, x + (b->w - num->w) / 2, axis - UI_Scale(2), f, th);
             HPEN pen = CreatePen(PS_SOLID, 1, th->fg);
             HPEN op = (HPEN)SelectObject(hdc, pen);
             MoveToEx(hdc, x + UI_Scale(2), axis, NULL);
@@ -582,7 +595,7 @@ static void MbDraw(const MathBox* b, HDC hdc, int x, int yBase,
             SelectObject(hdc, op);
             DeleteObject(pen);
             if (den)
-                MbDraw(den, hdc, x + (b->w - den->w) / 2, axis + UI_Scale(3) + den->asc, f, th);
+                MbDraw(den, hdc, x + (b->w - den->w) / 2, axis + UI_Scale(2) + den->asc, f, th);
             break;
         }
         case MB_SCRIPT: {
@@ -595,7 +608,7 @@ static void MbDraw(const MathBox* b, HDC hdc, int x, int yBase,
                 bx += base->w;
             }
             if (sup)
-                MbDraw(sup, hdc, bx, yBase - (int)(b->asc * 0.55) - (sup->h - sup->asc), f, th);
+                MbDraw(sup, hdc, bx, yBase - b->raiseY, f, th);
             if (sub)
                 MbDraw(sub, hdc, bx, yBase + sub->h - sub->asc + (int)(sub->h * 0.1), f, th);
             break;

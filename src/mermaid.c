@@ -78,6 +78,7 @@ typedef struct MerEdge {
     BOOL markA;              /* 类图：标记画在 a 端（<|-- 等左标记算子） */
     int side;               /* TB 回边绕行侧：+1 右 / -1 左 / 0 非回边 */
     int corrX;              /* 回边走廊 x（布局坐标，Draw 直接用） */
+    BOOL back;              /* 回边（环闭合边，分层时跳过） */
 } MerEdge;
 
 typedef struct MerSub {
@@ -167,6 +168,7 @@ static int FlowAdd(FlowCtx* c, const wchar_t* id, const wchar_t* label, int shap
 static void FlowAddEdge(FlowCtx* c, int a, int b, BOOL arrow, BOOL dash, BOOL thick, const wchar_t* label) {
     c->es = (MerEdge*)MerGrow(c->es, &c->capE, c->nE + 1, sizeof(MerEdge));
     MerEdge* e = &c->es[c->nE++];
+    ZeroMemory(e, sizeof(*e));
     e->a = a; e->b = b;
     e->arrow = arrow; e->dash = dash; e->thick = thick;
     wcscpy_s(e->label, 160, label ? label : L"");
@@ -334,6 +336,7 @@ static void FlowParseLine(FlowCtx* c, wchar_t* line) {
         break;
     }
     while (s[pos] == L' ' || s[pos] == L'\t') pos++;
+    BOOL hadEdge = FALSE;
     while (s[pos]) {
         BOOL arrow, dash, thick; wchar_t elabel[160];
         if (!FlowParseOp(s, &pos, &arrow, &dash, &thick, elabel)) break;
@@ -349,9 +352,22 @@ static void FlowParseLine(FlowCtx* c, wchar_t* line) {
         for (int i = 0; i < nLhs; i++)
             for (int j = 0; j < nRhs; j++)
                 FlowAddEdge(c, lhs[i], rhs[j], arrow, dash, thick, elabel);
+        hadEdge = TRUE;
         /* 链式：A --> B --> C */
         nLhs = 1; lhs[0] = rhs[nRhs - 1];
         while (s[pos] == L' ' || s[pos] == L'\t') pos++;
+    }
+    /* 冒号标签（状态图标准语法）：A --> B : 文本 → 附到本行最后的边上 */
+    while (s[pos] == L' ' || s[pos] == L'\t') pos++;
+    if (hadEdge && s[pos] == L':' && c->nE > 0) {
+        wchar_t* lab = TrimW(s + pos + 1);
+        if (lab[0] == L'"') {                    /* 去可选引号 */
+            wchar_t* q = wcschr(lab + 1, L'"');
+            if (q) *q = 0;
+            lab++;
+        }
+        wcsncpy(c->es[c->nE - 1].label, lab, 159);
+        c->es[c->nE - 1].label[159] = 0;
     }
 }
 
@@ -636,10 +652,31 @@ void Mermaid_Free(MermaidDiagram* d) {
 
 /* ============================ 布局：流程图 ============================ */
 
+/* MerPal 定义在 mermaid_ext1.inc（文件后部），此处先声明供布局/绘制使用 */
+static COLORREF MerPal(const MdTheme* th, int i);
+
+/* 状态图专用调色板顺序：蓝、橙、紫、青…（对齐 mermaid v10 cScale 的观感） */
+static COLORREF StatePal(const MdTheme* th, int i) {
+    static const int map[8] = { 0, 2, 3, 1, 4, 5, 6, 7 };
+    return MerPal(th, map[i & 7]);
+}
+
+static COLORREF MixClr(COLORREF a, COLORREF b, double t) {
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    int r = (int)(GetRValue(a) + (GetRValue(b) - GetRValue(a)) * t + 0.5);
+    int g = (int)(GetGValue(a) + (GetGValue(b) - GetGValue(a)) * t + 0.5);
+    int bl = (int)(GetBValue(a) + (GetBValue(b) - GetBValue(a)) * t + 0.5);
+    return RGB(r, g, bl);
+}
+
 static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     int n = d->nNodes;
-    int padX = UI_Scale(14), padY = UI_Scale(7);
-    int hgap = UI_Scale(44), vgap = UI_Scale(52), margin = UI_Scale(12);
+    BOOL isState = (d->kind == 2);
+    int padX = isState ? UI_Scale(13) : UI_Scale(14);
+    int padY = isState ? UI_Scale(4)  : UI_Scale(7);
+    int hgap = isState ? UI_Scale(40) : UI_Scale(44);
+    int vgap = isState ? UI_Scale(60) : UI_Scale(52);
+    int margin = UI_Scale(12);
 
     if (d->kind == 3 || d->kind == 4)   /* class/er：按成员文本实测尺寸 */
         ClassErFixSizeReal(d, hdc, f);
@@ -650,6 +687,11 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         if (nd->wFix > 0 && nd->hFix > 0) {   /* class/er 预设成员框尺寸 */
             nd->w = nd->wFix;
             nd->h = nd->hFix;
+            continue;
+        }
+        if (isState && (nd->shape == MER_START || nd->shape == MER_END)) {
+            /* 起止小圆点（mermaid 风格小尺寸，不再随字号膨胀） */
+            nd->w = nd->h = (nd->shape == MER_START) ? UI_Scale(12) : UI_Scale(17);
             continue;
         }
         int tw = TextW(hdc, f->body, nd->label);
@@ -666,15 +708,70 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         }
     }
 
-    /* 分层：最长路径松弛（有环时经 n 次迭代截断） */
+    /* 回边标记（DFS 找环闭合边）：分层只在非回边上做最长路径松弛，
+       否则带环图（如 状态A→B→A）每轮迭代都会把环上节点层级抬高，图被拉长且乱序 */
+    {
+        int* head = (int*)malloc((size_t)(n > 0 ? n : 1) * sizeof(int));
+        int* eit  = (int*)malloc((size_t)(n > 0 ? n : 1) * sizeof(int));  /* 按节点索引，按边数分配会在 节点数>边数 时写越界 */
+        int* nxt  = (int*)malloc((size_t)(d->nEdges > 0 ? d->nEdges : 1) * sizeof(int));
+        int* mark = (int*)calloc((size_t)(n > 0 ? n : 1), sizeof(int));
+        int* stack = (int*)malloc((size_t)(n > 0 ? n : 1) * sizeof(int));
+        if (head && eit && nxt && mark && stack) {
+            for (int i = 0; i < n; i++) head[i] = -1;
+            for (int e = 0; e < d->nEdges; e++) {
+                nxt[e] = head[d->edges[e].a];
+                head[d->edges[e].a] = e;
+            }
+            int top = 0;
+            for (int s = 0; s < n; s++) {
+                if (mark[s]) continue;
+                mark[s] = 1; stack[top++] = s; eit[s] = head[s];
+                while (top > 0) {
+                    int u = stack[top - 1];
+                    int e = eit[u];
+                    if (e < 0) { mark[u] = 2; top--; continue; }
+                    eit[u] = nxt[e];
+                    int v = d->edges[e].b;
+                    if (mark[v] == 1) d->edges[e].back = TRUE;      /* 环闭合边 */
+                    else if (mark[v] == 0) { mark[v] = 1; stack[top++] = v; eit[v] = head[v]; }
+                }
+            }
+        }
+        free(head); free(eit); free(nxt); free(mark); free(stack);
+    }
+
+    /* 分层：最长路径松弛（去回边后为 DAG，n 次迭代内收敛） */
     for (int pass = 0; pass < n; pass++) {
         BOOL changed = FALSE;
         for (int i = 0; i < d->nEdges; i++) {
+            if (d->edges[i].back) continue;
             MerNode* a = &d->nodes[d->edges[i].a];
             MerNode* b = &d->nodes[d->edges[i].b];
             if (b->rank < a->rank + 1) { b->rank = a->rank + 1; changed = TRUE; }
         }
         if (!changed) break;
+    }
+
+    /* 状态图：[*] 终点若与前驱的某个正常后继同处一层（前驱下一层），
+       就并排放到该层（mermaid 把终点画在末状态旁，而不是多占一层） */
+    if (isState) {
+        for (int i = 0; i < n; i++) {
+            MerNode* nd = &d->nodes[i];
+            if (nd->shape != MER_END) continue;
+            int pred = -1, nIn = 0;
+            for (int e = 0; e < d->nEdges; e++)
+                if (d->edges[e].b == i && !d->edges[e].back) { pred = d->edges[e].a; nIn++; }
+            if (nIn != 1 || pred < 0) continue;
+            int pr = d->nodes[pred].rank;
+            for (int e = 0; e < d->nEdges; e++) {
+                if (d->edges[e].a != pred || d->edges[e].b == i) continue;
+                MerNode* s = &d->nodes[d->edges[e].b];
+                if (s->shape != MER_END && !d->edges[e].back && s->rank == pr + 1) {
+                    nd->rank = s->rank;
+                    break;
+                }
+            }
+        }
     }
 
     /* 分组 */
@@ -710,6 +807,8 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
                     }
                 }
                 d->nodes[i].x = (c > 0) ? (int)(sum / c * 1000) : k * 1000 + k;
+                /* 状态图终点固定排同行末尾（画在末状态右侧） */
+                if (isState && d->nodes[i].shape == MER_END) d->nodes[i].x = 0x40000000;
             }
             /* 按重心稳定排序（插入排序，保持相对次序） */
             for (int k2 = 1; k2 < fill[r]; k2++) {
@@ -789,9 +888,7 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         int leftN = 0, rightN = 0;
         for (int e = 0; e < d->nEdges; e++) {
             MerEdge* ed = &d->edges[e];
-            MerNode* ea = &d->nodes[ed->a];
-            MerNode* eb = &d->nodes[ed->b];
-            if (eb->rank >= ea->rank) { ed->side = 0; continue; }
+            if (!ed->back) { ed->side = 0; continue; }
             ed->side = ((leftN + rightN) & 1) ? -1 : +1;   /* 左右轮流 */
             int loop = (ed->side > 0) ? rightN++ : leftN++;
             int lw = ed->label[0]
@@ -800,11 +897,16 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
             int need = UI_Scale(72) + loop * UI_Scale(26) + lw;
             ed->corrX = (ed->side > 0) ? maxX2 + need : minX2 - need;
         }
-        /* 左侧走廊不能越出画布：整体右移补齐 */
+        /* 左侧走廊不能越出画布：整体右移补齐（走廊标签也计入） */
         int shift = 0;
         for (int e = 0; e < d->nEdges; e++) {
-            if (d->edges[e].side < 0 && margin - d->edges[e].corrX > shift)
-                shift = margin - d->edges[e].corrX;
+            if (d->edges[e].side < 0) {
+                int minXe = margin;
+                if (d->edges[e].label[0])
+                    minXe += TextW(hdc, f->sm, d->edges[e].label) / 2 + UI_Scale(4);
+                if (minXe - d->edges[e].corrX > shift)
+                    shift = minXe - d->edges[e].corrX;
+            }
         }
         if (shift > 0) {
             for (int i = 0; i < n; i++) d->nodes[i].x += shift;
@@ -839,9 +941,15 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         if (d->nodes[i].x + d->nodes[i].w > maxX) maxX = d->nodes[i].x + d->nodes[i].w;
         if (d->nodes[i].y + d->nodes[i].h > maxY) maxY = d->nodes[i].y + d->nodes[i].h;
     }
-    for (int e = 0; e < d->nEdges; e++)   /* 右侧回边走廊计入宽度 */
-        if (d->edges[e].side > 0 && d->edges[e].corrX + UI_Scale(10) > maxX)
-            maxX = d->edges[e].corrX + UI_Scale(10);
+    for (int e = 0; e < d->nEdges; e++) {  /* 右侧回边走廊 + 走廊上标签计入宽度 */
+        if (d->edges[e].side <= 0) continue;
+        int right2 = d->edges[e].corrX + UI_Scale(10);
+        if (d->edges[e].label[0]) {
+            int lw2 = TextW(hdc, f->sm, d->edges[e].label) / 2 + UI_Scale(6);
+            if (lw2 > UI_Scale(10)) right2 = d->edges[e].corrX + lw2;
+        }
+        if (right2 > maxX) maxX = right2;
+    }
     for (int s = 0; s < d->nSubs; s++) {
         if (!d->subs[s].w) continue;
         if (d->subs[s].x + d->subs[s].w > maxX) maxX = d->subs[s].x + d->subs[s].w;
@@ -1008,6 +1116,10 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     HPEN penSolid = CreatePen(PS_SOLID, 1, th->merEdge);
     HPEN penDash  = CreatePen(PS_DASH, 1, th->merEdge);
     HPEN penThick = CreatePen(PS_SOLID, 2, th->merEdge);
+    /* 边的路径/箭头/标签/回边走廊均按布局坐标计算（未含 ox/oy），
+       统一用视口原点平移到 (ox,oy)，与节点/subgraph 的显式偏移对齐 */
+    POINT voOld;
+    SetViewportOrgEx(hdc, ox, oy, &voOld);
     for (int e = 0; e < d->nEdges; e++) {
         MerEdge* ed = &d->edges[e];
         MerNode* a = &d->nodes[ed->a];
@@ -1072,22 +1184,50 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
                 adx = (Rn == b) ? 1.0 : -1.0; ady = 0;
                 lbx = (x1 + x2) / 2; lby = y1;
             } else {
-                /* 前向：A 底边中点 → B 顶边中点（直/肘） */
+                /* 前向：A 底边中点 → B 顶边中点 */
                 x1 = a->x + a->w / 2; y1 = a->y + a->h;
                 x2 = b->x + b->w / 2; y2 = b->y;
-                if (y2 < y1 + UI_Scale(4)) y2 = y1 + UI_Scale(4);
-                MoveToEx(hdc, x1, y1, NULL);
-                if (abs(x1 - x2) <= UI_Scale(8)) {
-                    LineTo(hdc, x2, y2);
-                    lbx = x1; lby = (y1 + y2) / 2;
+                if (d->kind == 2) {
+                    /* 状态图：平滑贝塞尔（mermaid 曲线观感）；
+                       并排的 [*] 终点从左侧水平进入 */
+                    BOOL endSide = (b->shape == MER_END &&
+                                    abs((b->x + b->w / 2) - x1) > UI_Scale(24));
+                    if (endSide) {
+                        BOOL toRight = (b->x + b->w / 2) > x1;
+                        x2 = toRight ? b->x : b->x + b->w;
+                        y2 = b->y + b->h / 2;
+                        int dd = y2 - y1;
+                        if (dd > UI_Scale(36)) dd = UI_Scale(36);
+                        if (dd < UI_Scale(24)) dd = UI_Scale(24);
+                        POINT bz[4] = { {x1, y1}, {x1, y1 + dd},
+                                        {x2 + (toRight ? -dd : dd), y2}, {x2, y2} };
+                        PolyBezier(hdc, bz, 4);
+                        adx = toRight ? 1.0 : -1.0; ady = 0;
+                        lbx = (x1 + x2) / 2; lby = y2 - dd / 2;
+                    } else {
+                        if (y2 < y1 + UI_Scale(4)) y2 = y1 + UI_Scale(4);
+                        int ym = (y1 + y2) / 2;
+                        POINT bz[4] = { {x1, y1}, {x1, ym}, {x2, ym}, {x2, y2} };
+                        PolyBezier(hdc, bz, 4);
+                        adx = 0; ady = 1;
+                        lbx = (x1 + x2) / 2; lby = ym;
+                    }
                 } else {
-                    int ym = y1 + (y2 - y1) / 2;
-                    LineTo(hdc, x1, ym);
-                    LineTo(hdc, x2, ym);
-                    LineTo(hdc, x2, y2);
-                    lbx = (x1 + x2) / 2; lby = ym;
+                    /* 流程图：直/肘（mermaid TB 端口路由） */
+                    if (y2 < y1 + UI_Scale(4)) y2 = y1 + UI_Scale(4);
+                    MoveToEx(hdc, x1, y1, NULL);
+                    if (abs(x1 - x2) <= UI_Scale(8)) {
+                        LineTo(hdc, x2, y2);
+                        lbx = x1; lby = (y1 + y2) / 2;
+                    } else {
+                        int ym = y1 + (y2 - y1) / 2;
+                        LineTo(hdc, x1, ym);
+                        LineTo(hdc, x2, ym);
+                        LineTo(hdc, x2, y2);
+                        lbx = (x1 + x2) / 2; lby = ym;
+                    }
+                    adx = 0; ady = 1;
                 }
-                adx = 0; ady = 1;
             }
         } else {
             /* LR：中心到中心连线（原路径） */
@@ -1170,9 +1310,11 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             SIZE sz;
             HFONT of = (HFONT)SelectObject(hdc, f->sm);
             GetTextExtentPoint32W(hdc, ed->label, (int)wcslen(ed->label), &sz);
-            RECT chip = { mx - sz.cx / 2 - 3, my - sz.cy / 2 - 1,
-                          mx + sz.cx / 2 + 3, my + sz.cy / 2 + 1 };
-            HBRUSH lb = CreateSolidBrush(th->merLabelBg);
+            int px2 = (d->kind == 2) ? 5 : 3, py2 = (d->kind == 2) ? 3 : 1;
+            RECT chip = { mx - sz.cx / 2 - px2, my - sz.cy / 2 - py2,
+                          mx + sz.cx / 2 + px2, my + sz.cy / 2 + py2 };
+            /* 状态图标签底用画布色（与 Zed/mermaid 一致，视觉上“嵌在线上”） */
+            HBRUSH lb = CreateSolidBrush((d->kind == 2) ? th->selBg : th->merLabelBg);
             FillRect(hdc, &chip, lb);
             DeleteObject(lb);
             SetTextColor(hdc, th->merLabelFg);
@@ -1182,20 +1324,32 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             SelectObject(hdc, of);
         }
     }
+    SetViewportOrgEx(hdc, voOld.x, voOld.y, NULL);
     DeleteObject(penSolid); DeleteObject(penDash); DeleteObject(penThick);
 
     /* 节点 */
     HPEN nodePen = CreatePen(PS_SOLID, 1, th->merNodeBorder);
     HBRUSH nodeBr = CreateSolidBrush(th->merNodeFill);
-    HBRUSH fillBr = CreateSolidBrush(th->merNodeBorder);
+    int stateColorIdx = 0;               /* 状态图配色轮转（跳过起止点） */
     for (int i = 0; i < d->nNodes; i++) {
         MerNode* nd = &d->nodes[i];
         int l = ox + nd->x, t = oy + nd->y, r = l + nd->w, b = t + nd->h;
         HPEN op = (HPEN)SelectObject(hdc, nodePen);
         HBRUSH ob = (HBRUSH)SelectObject(hdc, nodeBr);
+        HPEN penOwn = NULL; HBRUSH brOwn = NULL;
+        int rr = UI_Scale(12);
+        if (d->kind == 2 && nd->shape == MER_ROUND) {
+            /* 状态：每态一色（描边 2px + 深色同系填充，对齐 mermaid v10 观感） */
+            COLORREF pc = StatePal(th, stateColorIdx++);
+            penOwn = CreatePen(PS_SOLID, 2, pc);
+            brOwn = CreateSolidBrush(MixClr(th->selBg, pc, 0.15));
+            SelectObject(hdc, penOwn);
+            SelectObject(hdc, brOwn);
+            rr = UI_Scale(5);
+        }
         switch (nd->shape) {
             case MER_ROUND:
-                RoundRect(hdc, l, t, r, b, UI_Scale(12), UI_Scale(12));
+                RoundRect(hdc, l, t, r, b, rr, rr);
                 break;
             case MER_STADIUM:
                 RoundRect(hdc, l, t, r, b, nd->h / 2, nd->h / 2);
@@ -1204,20 +1358,31 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
                 Ellipse(hdc, l, t, r, b);
                 break;
             case MER_START: {
-                /* 起始：实心圆 */
-                int m = UI_Scale(7);
-                HBRUSH ob2 = (HBRUSH)SelectObject(hdc, fillBr);
-                Ellipse(hdc, l + m, t + m, r - m, b - m);
+                /* 起始：空心小圆点（蓝环，底色透出） */
+                HPEN sp = CreatePen(PS_SOLID, 2, th->link);
+                HPEN op2 = (HPEN)SelectObject(hdc, sp);
+                HBRUSH ob2 = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
+                Ellipse(hdc, l, t, r, b);
                 SelectObject(hdc, ob2);
+                SelectObject(hdc, op2);
+                DeleteObject(sp);
                 break;
             }
             case MER_END: {
-                /* 终止：圆环内实心圆 */
+                /* 终止：同心圆（红环 + 红心） */
+                COLORREF rc = MerPal(th, 5);
+                HPEN sp = CreatePen(PS_SOLID, 2, rc);
+                HBRUSH sb = CreateSolidBrush(rc);
+                HPEN op2 = (HPEN)SelectObject(hdc, sp);
+                HBRUSH ob2 = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
                 Ellipse(hdc, l, t, r, b);
-                HBRUSH ob2 = (HBRUSH)SelectObject(hdc, fillBr);
-                int m = (r - l) / 4;
+                SelectObject(hdc, sb);
+                int m = (r - l) * 3 / 10;
                 Ellipse(hdc, l + m, t + m, r - m, b - m);
                 SelectObject(hdc, ob2);
+                SelectObject(hdc, op2);
+                DeleteObject(sp);
+                DeleteObject(sb);
                 break;
             }
             case MER_DIAMOND: {
@@ -1235,8 +1400,11 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             default:
                 Rectangle(hdc, l, t, r, b);
         }
+        /* 恢复循环默认画笔/画刷（状态色描边时换回） */
         SelectObject(hdc, ob);
         SelectObject(hdc, op);
+        if (penOwn) DeleteObject(penOwn);
+        if (brOwn)  DeleteObject(brOwn);
 
         SetTextColor(hdc, th->merNodeText);
         if ((d->kind == 3 || d->kind == 4) && nd->extra) {
@@ -1274,7 +1442,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     }
     DeleteObject(nodePen);
     DeleteObject(nodeBr);
-    DeleteObject(fillBr);
 }
 
 /* ============================ 绘制：时序图 ============================ */
@@ -1485,6 +1652,9 @@ SIZE Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
 void Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
                   const MdFonts* f, const MdTheme* th) {
     if (!d) return;
+    /* mdview 正文路径遗留 TA_BASELINE 对齐会破坏 DrawTextW 的 DT_VCENTER
+       光栅化（内存 DC + CJK 字体链接下文字只剩顶部细条）——统一复位 */
+    SetTextAlign(hdc, TA_LEFT | TA_TOP);
     if (d->kind == 0 || (d->kind >= 2 && d->kind <= 4)) FlowDraw(d, hdc, x, y, f, th);
     else if (d->kind == 1) SeqDraw(d, hdc, x, y, f, th);
     else ExtDraw(d, hdc, x, y, f, th);

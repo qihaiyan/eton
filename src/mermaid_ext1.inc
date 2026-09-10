@@ -492,15 +492,23 @@ static BOOL MnParse(MnD* p, const char* src, int len, int pos) {
         int shape = MER_RECT;
         wchar_t text[128];
         wcsncpy(text, s, 127); text[127] = 0;
-        if (s[0] == L'(' && s[1] == L'(') {
-            wchar_t* e3 = wcsstr(s + 2, L"))");
-            if (e3) { shape = MER_CIRCLE; int n2 = (int)(e3 - (s + 2)); wcsncpy(text, s + 2, n2 < 127 ? n2 : 127); text[n2 < 127 ? n2 : 127] = 0; }
-        } else if (s[0] == L'(') {
-            wchar_t* e3 = wcschr(s + 1, L')');
-            if (e3) { shape = MER_STADIUM; int n2 = (int)(e3 - (s + 1)); wcsncpy(text, s + 1, n2 < 127 ? n2 : 127); text[n2 < 127 ? n2 : 127] = 0; }
-        } else if (s[0] == L'[') {
-            wchar_t* e3 = wcschr(s + 1, L']');
-            if (e3) { shape = MER_RECT; int n2 = (int)(e3 - (s + 1)); wcsncpy(text, s + 1, n2 < 127 ? n2 : 127); text[n2 < 127 ? n2 : 127] = 0; }
+        /* 形状记号可带 id 前缀（root((文本)) 等）：取行内第一个括号组 */
+        static const struct { const wchar_t* open; const wchar_t* close; int sh; } mk[] = {
+            { L"((", L"))", MER_CIRCLE },
+            { L"(",  L")",  MER_STADIUM },
+            { L"[",  L"]",  MER_RECT },
+        };
+        for (int k = 0; k < 3; k++) {
+            const wchar_t* o = wcsstr(s, mk[k].open);
+            if (!o) continue;
+            const wchar_t* cl = wcsstr(o + wcslen(mk[k].open), mk[k].close);
+            if (!cl) continue;
+            int n2 = (int)(cl - (o + wcslen(mk[k].open)));
+            if (n2 > 127) n2 = 127;
+            wcsncpy(text, o + wcslen(mk[k].open), n2);
+            text[n2] = 0;
+            shape = mk[k].sh;
+            break;
         }
         MnNode* nn = (MnNode*)realloc(p->ns, ((size_t)p->n + 1) * sizeof(MnNode));
         if (!nn) continue;

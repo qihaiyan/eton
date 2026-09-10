@@ -259,12 +259,12 @@ static void JrnDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
             SetTextColor(hdc, th->fg);
             RECT trc = RectMake4(cx + UI_Scale(28), cy - FontH(hdc, f->sm) / 2,
                                   cx + colW, cy + FontH(hdc, f->sm));
-            DrawTextW(hdc, t->task, -1, &trc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+            DrawTextW(hdc, t->task, -1, &trc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
             y += UI_Scale(24) + UI_Scale(4);
             if (t->actors[0]) {
                 SetTextColor(hdc, th->fgMuted);
                 RECT arc = RectMake4(cx + UI_Scale(28), y, cx + colW, y + FontH(hdc, f->sm) + 2);
-                DrawTextW(hdc, t->actors, -1, &arc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+                DrawTextW(hdc, t->actors, -1, &arc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
                 y += FontH(hdc, f->sm) + UI_Scale(2);
             }
             y += UI_Scale(6);
@@ -356,7 +356,7 @@ static void GanDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
         SetTextColor(hdc, th->fg);
         HFONT bf = (HFONT)SelectObject(hdc, f->sm);
         RECT nrc = RectMake4(ox + UI_Scale(12), ry, L - UI_Scale(6), ry + rowH);
-        DrawTextW(hdc, t->name, -1, &nrc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        DrawTextW(hdc, t->name, -1, &nrc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(hdc, bf);
         int x1 = L + (int)((t->s - p->minD) * pxPerDay);
         int x2 = L + (int)((t->e - p->minD) * pxPerDay);
@@ -534,8 +534,9 @@ static void MnLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     int padX = UI_Scale(12), padY = UI_Scale(6);
     for (int i = 0; i < p->n; i++) {
         MnNode* n = &p->ns[i];
-        n->w = TextW(hdc, f->body, n->text) + padX * 2;
-        n->h = FontH(hdc, f->body) + padY * 2;
+        HFONT mf = i == 0 ? f->bold : f->body;   /* 根节点加粗绘制，测量须同字体 */
+        n->w = TextW(hdc, mf, n->text) + padX * 2;
+        n->h = FontH(hdc, mf) + padY * 2;
         if (n->shape == MER_CIRCLE) {
             int m = n->w > n->h ? n->w : n->h;
             n->w = n->h = m;
@@ -549,6 +550,17 @@ static void MnLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     for (int i = 0; i < p->n; i++)
         p->ns[i].x = UI_Scale(12) + p->ns[i].depth * levelW;
     MnPlace(p, 0, UI_Scale(12));
+    /* 子树围绕根居中时顶层节点可能拿到负 y（画到画布上方被裁）：
+       整体下移补齐到上边距 */
+    {
+        int minY = 0x7FFFFFFF;
+        for (int i = 0; i < p->n; i++)
+            if (p->ns[i].y < minY) minY = p->ns[i].y;
+        if (minY < UI_Scale(12)) {
+            int dy = UI_Scale(12) - minY;
+            for (int i = 0; i < p->n; i++) p->ns[i].y += dy;
+        }
+    }
     int maxX = 0, maxY = 0;
     for (int i = 0; i < p->n; i++) {
         if (p->ns[i].x + p->ns[i].w > maxX) maxX = p->ns[i].x + p->ns[i].w;
@@ -592,7 +604,10 @@ static void MnDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
         RECT rc = RectMake4(l + UI_Scale(4), t + UI_Scale(2), r - UI_Scale(4), b - UI_Scale(2));
         SetTextColor(hdc, th->merNodeText);
         HFONT of = (HFONT)SelectObject(hdc, i == 0 ? f->bold : f->body);
-        DrawTextW(hdc, n->text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        /* DT_NOPREFIX：标签里的 & 按字面渲染，且避开助记符处理路径。
+           注意文字变"条带"的根因在 Mermaid_Draw 入口统一复位了
+           SetTextAlign —— 上游 TA_BASELINE 残留会破坏 DT_VCENTER 光栅化 */
+        DrawTextW(hdc, n->text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(hdc, of);
     }
     DeleteObject(np);
@@ -684,7 +699,7 @@ static void GitDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
         InflateRect(&trc, -UI_Scale(2), 0);
         SetTextColor(hdc, RGB(255, 255, 255));
         HFONT of = (HFONT)SelectObject(hdc, f->sm);
-        DrawTextW(hdc, g->bs[b2].name, -1, &trc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        DrawTextW(hdc, g->bs[b2].name, -1, &trc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(hdc, of);
     }
 }

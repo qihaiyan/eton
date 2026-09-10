@@ -245,18 +245,7 @@ static BOOL ErParse(FlowCtx* c, const char* src, int len, int pos) {
             nMem++;
             continue;
         }
-        if (wcschr(s, L'{')) {
-            wchar_t name[64];
-            wchar_t* br = wcschr(s, L'{');
-            int nl = (int)(br - s);
-            wcsncpy(name, s, nl < 63 ? nl : 63);
-            name[nl < 63 ? nl : 63] = 0;
-            int idx = StateAdd(c, TrimW(name), TrimW(name), MER_RECT);
-            inEnt = 1; curIdx = idx;
-            mem = NULL; nMem = 0;
-            continue;
-        }
-        /* 关系：A ||--o{ B : label */
+        /* 关系行优先（A ||--o{ B : label 的 o{/|{ 含 '{'，不能当实体块头） */
         wchar_t a[64] = L"", b[64] = L"", card[24] = L"";
         if (swscanf(s, L"%63s %23s %63s", a, card, b) == 3 && wcsstr(card, L"--")) {
             wchar_t label[96] = L"";
@@ -279,6 +268,18 @@ static BOOL ErParse(FlowCtx* c, const char* src, int len, int pos) {
             wcscpy_s(e->cardA, 16, ca);
             wcscpy_s(e->cardB, 16, cb);
             wcsncpy(e->label, label, 95);
+            continue;
+        }
+        /* 实体块头：行尾是 '{' */
+        if (s[wcslen(s) - 1] == L'{') {
+            wchar_t name[64];
+            int nl = (int)(wcslen(s) - 1);
+            wcsncpy(name, s, nl < 63 ? nl : 63);
+            name[nl < 63 ? nl : 63] = 0;
+            int idx = StateAdd(c, TrimW(name), TrimW(name), MER_RECT);
+            inEnt = 1; curIdx = idx;
+            mem = NULL; nMem = 0;
+            continue;
         }
     }
     return c->nN > 0;
@@ -440,10 +441,10 @@ static void QuadDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     HFONT of = (HFONT)SelectObject(hdc, f->sm);
     int qw = S / 2;
     RECT qrc;
-    qrc = RectMake4(L + qw, T, R2, T + qw);          DrawTextW(hdc, p->q[0], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-    qrc = RectMake4(L, T, L + qw, T + qw);           DrawTextW(hdc, p->q[1], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-    qrc = RectMake4(L, T + qw, L + qw, B2);          DrawTextW(hdc, p->q[2], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
-    qrc = RectMake4(L + qw, T + qw, R2, B2);         DrawTextW(hdc, p->q[3], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    qrc = RectMake4(L + qw, T, R2, T + qw);          DrawTextW(hdc, p->q[0], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    qrc = RectMake4(L, T, L + qw, T + qw);           DrawTextW(hdc, p->q[1], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    qrc = RectMake4(L, T + qw, L + qw, B2);          DrawTextW(hdc, p->q[2], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    qrc = RectMake4(L + qw, T + qw, R2, B2);         DrawTextW(hdc, p->q[3], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
     /* 轴标签 */
     TextOutW(hdc, L, T - FontH(hdc, f->sm) - 2, p->yhi, (int)wcslen(p->yhi));
     TextOutW(hdc, L, B2 + 4, p->ylo, (int)wcslen(p->ylo));

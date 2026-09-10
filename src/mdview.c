@@ -1125,10 +1125,10 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
     ImgEnt* e = ImgGet(full);
     if (!e) return FALSE;                    /* 加载失败 → 占位文本 */
 
-    /* 显示宽度：自然宽度按 DPI 折算，超过可用宽度则收缩 */
-    double scale = g_dpi / 96.0;
-    UINT w = (UINT)(e->w * scale + 0.5);
-    UINT h = (UINT)(e->h * scale + 0.5);
+    /* 显示尺寸：1:1 物理像素、不放大（DPI 放大会把 1080px 的图拉到近 1900px，
+       图标/截图都显得巨大）；仅超宽时等比收缩到可用宽度 */
+    UINT w = e->w;
+    UINT h = e->h;
     if (w > (UINT)avail) { h = (UINT)((double)h * avail / w); w = (UINT)avail; }
     if (!w || !h) return FALSE;
 
@@ -1276,6 +1276,7 @@ void MdTheme_Build(MdTheme* th) {
         th->bg        = RGB(30,30,30);
         th->fg        = RGB(212,216,221);
         th->fgMuted   = RGB(139,148,158);
+        th->head      = RGB(230,237,243);   /* 标题提亮一档（GitHub Dark 同款 #E6EDF3） */
         th->link      = RGB(88,166,255);
         th->quoteBar  = RGB(77,87,98);
         th->codeBg    = RGB(40,42,46);
@@ -1299,6 +1300,7 @@ void MdTheme_Build(MdTheme* th) {
         th->bg        = RGB(255,255,255);
         th->fg        = RGB(31,35,40);
         th->fgMuted   = RGB(110,119,129);
+        th->head      = RGB(31,35,40);      /* 浅色：标题与正文同色即可 */
         th->link      = RGB(9,105,218);
         th->quoteBar  = RGB(208,215,222);
         th->codeBg    = RGB(246,248,250);
@@ -1329,6 +1331,10 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
     RECT rcClient;
     GetClientRect(V.hwnd, &rcClient);
     int top = V.scrollY, bot = V.scrollY + V.clientH;
+
+    /* 内存 DC 默认 OPAQUE+白底：不设透明，文档开头（首段公式/图表之前的）
+       文字会带白色背景块，深色主题下尤其刺眼 */
+    SetBkMode(hdc, TRANSPARENT);
 
     HPEN ulPen = CreatePen(PS_SOLID, 1, th->link);
     HPEN strikePen = CreatePen(PS_SOLID, 1, th->fgMuted);
@@ -1436,7 +1442,7 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                         } else if (run->style & STY_IMG) {
                             SetTextColor(hdc, th->link);
                         } else if (it->role >= ROLE_H1 && it->role <= ROLE_H1 + 5) {
-                            SetTextColor(hdc, th->fg);
+                            SetTextColor(hdc, th->head);
                         } else if (it->role == ROLE_MONO) {
                             SetTextColor(hdc, th->codeFg);
                         } else {
@@ -1460,6 +1466,9 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                         SelectObject(hdc, of);
                     }
                 }
+                /* TextOutW 用的是 TA_BASELINE，画完复位，避免污染后续
+                   DrawTextW（其 DT_VCENTER 光栅化会被基线对齐状态破坏） */
+                SetTextAlign(hdc, TA_LEFT | TA_TOP);
                 break;
             }
         }

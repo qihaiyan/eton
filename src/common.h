@@ -166,6 +166,7 @@ typedef struct MdFonts {
 /* 预览配色（随 g_dark 计算，绘制时现算现用） */
 typedef struct MdTheme {
     COLORREF bg, fg, fgMuted;
+    COLORREF head;           /* 标题：深色下比正文亮一档，拉开层级 */
     COLORREF link;
     COLORREF quoteBar;
     COLORREF codeBg, codeBorder, codeFg;
