@@ -1,11 +1,3 @@
-/* mathprobe.c — 本地验证工具：渲染 mdmath 公式到 PNG。
-   用法：mathprobe out.png zoom ["formula"]（默认渲染分式/积分/上标套件）
-   构建（x64 Native Tools 下，在仓库根）：
-     cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
-        /Isrc /Ideps\scintilla /Ideps\lexilla /Ideps\md4c ^
-        /Febuild\mathprobe.exe mathprobe.c ^
-        /link /SUBSYSTEM:CONSOLE user32.lib gdi32.lib kernel32.lib
-   （mathprobe.c 直接 #include ../src/mdmath.c 以访问内部结构） */
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -103,7 +95,6 @@ int main(int argc, char** argv) {
     FillRect(hdc, &all, bgb);
     DeleteObject(bgb);
 
-    /* 复刻 mdview：先画正文（TextOutW 用 TA_BASELINE 并遗留） */
     {
         HFONT b = Mk(px, FW_NORMAL, FALSE, L"Segoe UI");
         HFONT ob2 = (HFONT)SelectObject(hdc, b);

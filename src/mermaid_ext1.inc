@@ -1,13 +1,6 @@
-/* ================================================================
-   mermaid 扩展图族 · 一：数据结构与解析
-   pie / quadrant / timeline / journey / gantt / xychart /
-   mindmap / gitGraph + state / class / er（复用流程图内核）
-   由 mermaid.c 末尾 include，仅在该编译单元可见。
-   ================================================================ */
 
 static void ClassErFixSizeReal(MermaidDiagram* d, HDC hdc, const MdFonts* f);
 
-/* 亮暗自适应调色板 */
 static COLORREF MerPal(const MdTheme* th, int i) {
     static const COLORREF kL[8] = {
         RGB(86,156,214), RGB(78,201,176), RGB(220,152,95), RGB(196,121,221),
@@ -19,7 +12,6 @@ static COLORREF MerPal(const MdTheme* th, int i) {
     return (dark ? kD : kL)[i & 7];
 }
 
-/* ---------------- pie ---------------- */
 typedef struct { wchar_t label[128]; double val; } MerPieSlice;
 typedef struct { wchar_t title[160]; MerPieSlice* s; int n; double total; } PieD;
 
@@ -56,7 +48,6 @@ static BOOL PieParse(PieD* p, const char* src, int len, int pos) {
     return p->n > 0 && p->total > 0;
 }
 
-/* ---------------- quadrant ---------------- */
 typedef struct { wchar_t name[64]; double x, y; } QuadPt;
 typedef struct {
     wchar_t title[160];
@@ -87,7 +78,6 @@ static BOOL QuadParse(QuadD* p, const char* src, int len, int pos) {
                 wchar_t* hi = TrimW(arrow + 3);
                 wchar_t* dash2 = wcsrchr(hi, L'-');
                 if (dash2 && wcsstr(hi, L"- ")) { }
-                /* "Low --> High"：arrow 前是 low，后是 high */
                 wchar_t* sp = wcschr(hi, L' ');
                 if (sp) *sp = 0;
                 wcsncpy(p->xlo, TrimW(rest), 63);
@@ -135,7 +125,6 @@ static BOOL QuadParse(QuadD* p, const char* src, int len, int pos) {
     return p->n > 0;
 }
 
-/* ---------------- timeline ---------------- */
 typedef struct { wchar_t head[96]; wchar_t body[128]; } TlEv;
 typedef struct { wchar_t title[96]; TlEv* ev; int n; } TlSec;
 typedef struct { wchar_t title[160]; TlSec* secs; int n; } TlD;
@@ -165,7 +154,6 @@ static BOOL TlParse(TlD* p, const char* src, int len, int pos) {
         if (!ne) continue;
         sec->ev = ne;
         ZeroMemory(&sec->ev[sec->n], sizeof(TlEv));
-        /* 同一节内多个 "：" 串联的行：首段为事件头，其余为正文 */
         wchar_t* head = TrimW(s);
         wchar_t* body = TrimW(colon + 1);
         wchar_t* colon2 = wcschr(body, L':');
@@ -177,7 +165,6 @@ static BOOL TlParse(TlD* p, const char* src, int len, int pos) {
     return p->n > 0;
 }
 
-/* ---------------- journey ---------------- */
 typedef struct { wchar_t task[128]; int score; wchar_t actors[256]; } JTask;
 typedef struct { wchar_t name[96]; JTask* t; int n; } JSec;
 typedef struct { wchar_t title[160]; JSec* secs; int n; } JrnD;
@@ -218,7 +205,6 @@ static BOOL JrnParse(JrnD* p, const char* src, int len, int pos) {
     return p->n > 0;
 }
 
-/* ---------------- gantt ---------------- */
 typedef struct { wchar_t name[96]; int done, active, crit;
                  long s, e; wchar_t id[32]; int afterIdx; wchar_t after[32]; } GanTask;
 typedef struct { wchar_t name[96]; } GanSec;
@@ -288,7 +274,6 @@ static BOOL GanParse(GanD* p, const char* src, int len, int pos) {
         wchar_t* colon = wcschr(s, L':');
         if (!colon) continue;
         *colon = 0;
-        /* 逗号分词：flags..., id, start, end|dur */
         wchar_t toks[6][64];
         int nT = 0;
         wchar_t* q = TrimW(colon + 1);
@@ -308,7 +293,6 @@ static BOOL GanParse(GanD* p, const char* src, int len, int pos) {
         GanTask t;
         ZeroMemory(&t, sizeof(t));
         wcsncpy(t.name, TrimW(s), 95);
-        /* 跳过标志词 */
         while (ti < nT && (_wcsicmp(toks[ti], L"done") == 0 || _wcsicmp(toks[ti], L"active") == 0 ||
                            _wcsicmp(toks[ti], L"crit") == 0 || _wcsicmp(toks[ti], L"milestone") == 0)) {
             if (_wcsicmp(toks[ti], L"done") == 0) t.done = 1;
@@ -320,7 +304,6 @@ static BOOL GanParse(GanD* p, const char* src, int len, int pos) {
         long v1 = 0, v2 = 0;
         BOOL ok = FALSE;
         if (ti < nT && _wcsnicmp(toks[ti], L"after", 5) == 0 && ti + 1 < nT) {
-            /* after id [dur] */
             wcsncpy(t.after, TrimW(toks[ti] + 5), 31);
             while (*t.after == L' ') memmove(t.after, t.after + 1, wcslen(t.after) * 2);
             ti++;
@@ -343,7 +326,6 @@ static BOOL GanParse(GanD* p, const char* src, int len, int pos) {
         t.afterIdx = t.after[0] ? -2 : -1;
         p->t[p->n++] = t;
     }
-    /* after 依赖二次解析 */
     for (int i = 0; i < p->n; i++) {
         if (p->t[i].after[0]) {
             for (int j = 0; j < p->n; j++) {
@@ -364,7 +346,6 @@ static BOOL GanParse(GanD* p, const char* src, int len, int pos) {
     return p->n > 0 && p->minD <= p->maxD;
 }
 
-/* ---------------- xychart ---------------- */
 typedef struct { double* vals; int n; int isBar; } XYSeries;
 typedef struct { wchar_t title[160];
                  wchar_t (*cats)[64]; int nCats;
@@ -469,7 +450,6 @@ static BOOL XyParse(XyD* p, const char* src, int len, int pos) {
     return p->nSer > 0;
 }
 
-/* ---------------- mindmap ---------------- */
 typedef struct { int depth; wchar_t text[128]; int shape; int parent;
                  int x, y, w, h; } MnNode;
 typedef struct { MnNode* ns; int n; } MnD;
@@ -479,7 +459,6 @@ static BOOL MnParse(MnD* p, const char* src, int len, int pos) {
     wchar_t line[1024];
     while (pos < len) {
         if (!LineToWide(src, len, &pos, line, 1024)) continue;
-        /* 缩进深度：空格计数 /2（制表符按 2） */
         int sp = 0;
         while (line[sp] == L' ') sp++;
         int tabs = 0;
@@ -492,7 +471,6 @@ static BOOL MnParse(MnD* p, const char* src, int len, int pos) {
         int shape = MER_RECT;
         wchar_t text[128];
         wcsncpy(text, s, 127); text[127] = 0;
-        /* 形状记号可带 id 前缀（root((文本)) 等）：取行内第一个括号组 */
         static const struct { const wchar_t* open; const wchar_t* close; int sh; } mk[] = {
             { L"((", L"))", MER_CIRCLE },
             { L"(",  L")",  MER_STADIUM },
@@ -522,7 +500,6 @@ static BOOL MnParse(MnD* p, const char* src, int len, int pos) {
         p->n++;
     }
     if (p->n == 0) return FALSE;
-    /* 父节点：向前找 depth-1 */
     for (int i = 1; i < p->n; i++) {
         for (int j = i - 1; j >= 0; j--) {
             if (p->ns[j].depth < p->ns[i].depth) { p->ns[i].parent = j; break; }
@@ -531,7 +508,6 @@ static BOOL MnParse(MnD* p, const char* src, int len, int pos) {
     return p->n > 1 || p->n == 1;
 }
 
-/* ---------------- gitGraph ---------------- */
 typedef struct { int lane; int seq; wchar_t id[48]; int mergeFrom; } GitCommit;
 typedef struct { wchar_t name[48]; int lane; int firstSeq; } GitBranch;
 typedef struct { GitCommit* cs; int n; GitBranch* bs; int nb;
@@ -558,7 +534,6 @@ static void GitAddCommit(GitD* g, const wchar_t* id, int mergeFrom) {
 
 static BOOL GitParse(GitD* g, const char* src, int len, int pos) {
     ZeroMemory(g, sizeof(*g));
-    /* 隐含 main 分支（lane 0） */
     g->bs = (GitBranch*)malloc(sizeof(GitBranch));
     if (!g->bs) return FALSE;
     wcscpy(g->bs[0].name, L"main");

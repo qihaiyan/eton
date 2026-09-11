@@ -1,23 +1,15 @@
 #include "common.h"
 
-/* ---------------- session：会话与草稿 ----------------
-   会话 = 上次的完整标签序列（文件路径 / "*draft*" 草稿占位）+ 激活位置。
-   存于 %APPDATA%\eton\session.ini（UTF-16，BOM 起 Unicode 读写作用）。
-   草稿 = 未命名文档的内容，存于 %APPDATA%\eton\drafts\ 下各自稳定的文件：
-   定时（10s）/ 关闭标签 / 退出时落盘；关闭标签即弃稿；清空或"另存为"后移除。 */
-
 static BOOL Session_GetDir(wchar_t* out, DWORD cch) {
     wchar_t appdata[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
     if (n == 0 || n >= MAX_PATH) return FALSE;
     _snwprintf(out, cch, L"%s\\eton", appdata);
     if (cch) out[cch - 1] = L'\0';
-    CreateDirectoryW(out, NULL);   /* 已存在时失败，忽略 */
+    CreateDirectoryW(out, NULL);
     return TRUE;
 }
 
-/* session.ini 完整路径；首次创建时写入 UTF-16 BOM，让 ini API 按 Unicode 读写。
-   非静态导出：i18n.c 也用它读写 [settings] uilang。 */
 BOOL Session_IniPath(wchar_t* out, DWORD cch) {
     wchar_t dir[MAX_PATH];
     if (!Session_GetDir(dir, MAX_PATH)) return FALSE;
@@ -43,9 +35,6 @@ static BOOL Session_GetDraftDir(wchar_t* out, DWORD cch) {
     return TRUE;
 }
 
-/* 保存当前会话：按完整标签顺序记录（fileN = 文件路径或 "*draft*" 占位），
-   activetab 为激活标签的位置序号。空的未命名文档不占位。
-   在每次标签集/激活变化时调用，异常退出（崩溃/被杀）也不丢会话。 */
 void Session_Save(void) {
     wchar_t ini[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
@@ -56,7 +45,6 @@ void Session_Save(void) {
         if (!d->isNew && d->path[0] != L'\0') {
             val = d->path;
         } else if (d->isNew && d->path[0] == L'\0') {
-            /* 未命名文档：有内容（或已分配草稿文件）记为草稿占位，保持标签顺序 */
             if (d->draft[0] || SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) > 0)
                 val = L"*draft*";
         }
@@ -75,9 +63,6 @@ void Session_Save(void) {
     WritePrivateProfileStringW(L"session", L"activetab", at, ini);
 }
 
-/* 保存所有未命名文档（草稿）的内容到 drafts\ 下各自稳定的文件（UTF-8）。
-   草稿文件与标签同生命周期保留：关闭标签即弃稿（见 Session_DiscardDraft），
-   清空内容或"另存为"后才移除。空文档跳过。 */
 void Session_SaveDrafts(void) {
     wchar_t ini[MAX_PATH], dir[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
@@ -87,7 +72,7 @@ void Session_SaveDrafts(void) {
         Doc* d = &g_docs[i];
         if (!d->isNew || d->path[0] != L'\0') continue;
         if (SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) == 0) {
-            if (d->draft[0]) {   /* 清空内容即弃稿 */
+            if (d->draft[0]) {
                 wchar_t p[MAX_PATH];
                 wsprintf(p, L"%s\\%s", dir, d->draft);
                 DeleteFileW(p);
@@ -95,7 +80,7 @@ void Session_SaveDrafts(void) {
             }
             continue;
         }
-        if (!d->draft[0]) {   /* 首次落盘时分配一个未被占用的草稿文件名 */
+        if (!d->draft[0]) {
             for (int k = 1; k < 1000; k++) {
                 wchar_t nm[32], p[MAX_PATH];
                 wsprintf(nm, L"draft%d.txt", k);
@@ -130,7 +115,6 @@ void Session_SaveDrafts(void) {
     g_draftsDirty = FALSE;
 }
 
-/* 删除指定文档的草稿文件（关闭草稿标签即弃稿；另存为后移除草稿） */
 void Session_DiscardDraft(int index) {
     if (index < 0 || index >= g_docCount) return;
     Doc* d = &g_docs[index];
@@ -143,7 +127,6 @@ void Session_DiscardDraft(int index) {
     d->draft[0] = L'\0';
 }
 
-/* 打开一个草稿为未命名文档，返回文档索引（失败 -1） */
 static int Session_OpenDraft(const wchar_t* draftdir, const wchar_t* name, int seq) {
     wchar_t dp[MAX_PATH], title[32];
     wsprintf(dp, L"%s\\%s", draftdir, name);
@@ -170,8 +153,6 @@ static int Session_OpenDraft(const wchar_t* draftdir, const wchar_t* name, int s
     return ni;
 }
 
-/* 恢复上次会话：按保存的完整标签顺序还原（文件按路径、草稿按 *draft* 占位），
-   返回成功恢复的文档数 */
 int Session_Restore(void) {
     wchar_t ini[MAX_PATH], draftdir[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return 0;
@@ -179,7 +160,6 @@ int Session_Restore(void) {
     int count = (int)GetPrivateProfileIntW(L"session", L"count", 0, ini);
     if (count > MAX_DOCS) count = MAX_DOCS;
 
-    /* 先读入完整标签列表（路径或 *draft* 占位），保证顺序一致 */
     static wchar_t tabs[MAX_DOCS][MAX_PATH];
     BOOL isDraft[MAX_DOCS];
     int nTabs = 0;
@@ -195,7 +175,6 @@ int Session_Restore(void) {
         nTabs++;
     }
 
-    /* 草稿文件名列表（draft1..draftN，按保存时的文档顺序编号） */
     int drafts = (int)GetPrivateProfileIntW(L"session", L"drafts", 0, ini);
     if (drafts > MAX_DOCS) drafts = MAX_DOCS;
     static wchar_t dnames[MAX_DOCS][64];
@@ -203,10 +182,9 @@ int Session_Restore(void) {
         wchar_t key[16];
         wsprintf(key, L"draft%d", k);
         GetPrivateProfileStringW(L"session", key, L"", dnames[k - 1], 64, ini);
-        if (!dnames[k - 1][0]) wsprintf(dnames[k - 1], L"draft%d.txt", k);   /* 兼容旧版按位置命名 */
+        if (!dnames[k - 1][0]) wsprintf(dnames[k - 1], L"draft%d.txt", k);
     }
 
-    /* 激活信息必须在打开任何标签之前读入：打开过程会触发 Session_Save 重写 ini */
     int savedActiveTab = (int)GetPrivateProfileIntW(L"session", L"activetab", 0, ini);
     wchar_t savedActiveFile[MAX_PATH] = L"";
     GetPrivateProfileStringW(L"session", L"activefile", L"", savedActiveFile, MAX_PATH, ini);
@@ -229,7 +207,6 @@ int Session_Restore(void) {
         docIdx[total++] = di;
         if (di >= 0) opened++;
     }
-    /* 旧版格式（无 *draft* 占位）兼容：草稿追加在所有文件之后 */
     if (!hasMarker) {
         for (int k = nextDraft; k <= drafts; k++) {
             int di = Session_OpenDraft(draftdir, dnames[k - 1], k);
@@ -238,7 +215,6 @@ int Session_Restore(void) {
         }
     }
 
-    /* 清理未被任何标签引用的草稿文件（异常退出残留等） */
     {
         wchar_t find[MAX_PATH];
         wsprintf(find, L"%s\\*.txt", draftdir);
@@ -261,25 +237,20 @@ int Session_Restore(void) {
 
     if (opened == 0) return 0;
 
-    /* 回到上次激活的标签：优先 activetab（位置序号），旧格式回退 activefile/activedraft */
     if (savedActiveTab >= 1 && savedActiveTab <= total && docIdx[savedActiveTab - 1] >= 0) {
         Editor_Activate(docIdx[savedActiveTab - 1]);
     } else if (savedActiveFile[0]) {
         int ai = Editor_FindDocByPath(savedActiveFile);
         if (ai >= 0) Editor_Activate(ai);
     } else if (!hasMarker) {
-        int idx = nTabs + savedActiveDraft - 1;   /* 旧版草稿追加在文件之后 */
+        int idx = nTabs + savedActiveDraft - 1;
         if (savedActiveDraft >= 1 && idx >= 0 && idx < total && docIdx[idx] >= 0)
             Editor_Activate(docIdx[idx]);
     }
     return opened;
 }
 
-/* ---------------- 窗口位置记忆 ----------------
-   退出时把恢复态矩形与最大化状态写入 [window];启动时恢复,并把矩形拉回
-   最近显示器的工作区内(防更换/拔掉显示器后窗口落到屏幕外);
-   无有效记录(首次运行/记录损坏)时在所在显示器工作区居中。 */
-#define WIN_MINVIS 60   /* 恢复后标题栏至少留 60px 可见,保证还能拖回来 */
+#define WIN_MINVIS 60
 
 static void Session_CenterOnMonitor(HWND hwnd) {
     RECT rc;
@@ -320,7 +291,7 @@ int Session_RestoreWindow(HWND hwnd, int nShowCmd) {
     LONG w = GetPrivateProfileIntW(L"window", L"width",  0, ini);
     LONG h = GetPrivateProfileIntW(L"window", L"height", 0, ini);
     BOOL max = GetPrivateProfileIntW(L"window", L"max",  0, ini) != 0;
-    if (w < 200 || h < 120) {   /* 尺寸记录异常,回退默认位置 */
+    if (w < 200 || h < 120) {
         Session_CenterOnMonitor(hwnd);
         return nShowCmd;
     }
@@ -339,12 +310,10 @@ int Session_RestoreWindow(HWND hwnd, int nShowCmd) {
     return max ? SW_SHOWMAXIMIZED : nShowCmd;
 }
 
-/* ---------------- 设置持久化（session.ini [settings]） ----------------
-   主题/换行/行号/字号随退出保存、启动恢复；界面语言(uilang)由 i18n.c 读写。 */
 void Settings_Load(void) {
     wchar_t ini[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
-    g_dark      = GetPrivateProfileIntW(L"settings", L"dark",    0, ini) != 0;
+    g_dark      = GetPrivateProfileIntW(L"settings", L"dark",    1, ini) != 0;
     g_wordWrap  = GetPrivateProfileIntW(L"settings", L"wrap",    0, ini) != 0;
     g_showGutter= GetPrivateProfileIntW(L"settings", L"gutter",  1, ini) != 0;
     int fs = (int)GetPrivateProfileIntW(L"settings", L"fontsize", 11, ini);
@@ -361,10 +330,7 @@ void Settings_Save(void) {
     WritePrivateProfileStringW(L"settings", L"fontsize", v, ini);
 }
 
-/* ---------------- 正式文件自动备份 ----------------
-   已保存的文件若有未保存修改，定时(10s)把内容备份到 autoback\<路径哈希>.txt，
-   程序崩溃后再次打开该文件时可选择恢复；正常保存/关闭后备份即删除。 */
-#define AUTOBACK_MAX (4 * 1024 * 1024)   /* 超大文件不做备份，避免定时拷贝开销 */
+#define AUTOBACK_MAX (4 * 1024 * 1024)
 
 static BOOL Session_AutoBackupPath(const wchar_t* path, wchar_t* out, DWORD cch) {
     if (!path || !path[0]) return FALSE;
@@ -374,7 +340,6 @@ static BOOL Session_AutoBackupPath(const wchar_t* path, wchar_t* out, DWORD cch)
     _snwprintf(sub, MAX_PATH, L"%s\\autoback", dir);
     sub[MAX_PATH - 1] = L'\0';
     CreateDirectoryW(sub, NULL);
-    /* FNV-1a 哈希路径 → 稳定文件名 */
     unsigned long long h = 1469598103934665603ULL;
     for (const wchar_t* p = path; *p; p++) { h ^= (unsigned)*p; h *= 1099511628211ULL; }
     _snwprintf(out, cch, L"%s\\%016I64x.txt", sub, h);
@@ -386,8 +351,6 @@ void Session_AutoBackupWrite(int index) {
     if (index < 0 || index >= g_docCount) return;
     Doc* d = &g_docs[index];
     if (d->isNew || !d->dirty || d->path[0] == L'\0') return;
-    /* 先用零开销的长度查询过滤超大文档：SCI_GETTEXT 是整篇拷贝，
-       放在 10 秒定时器里对大文件会造成周期性卡顿 */
     if (!d->hwndEdit ||
         SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) > (LRESULT)AUTOBACK_MAX) return;
     wchar_t p[MAX_PATH];

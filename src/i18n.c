@@ -1,19 +1,12 @@
 #include "common.h"
 #include "version.h"
 
-/* ---------- 界面多语言 ----------
-   kStr[语言][STR_xxx] 两张字符串表；表行顺序必须与 i18n.h 的 StrId 枚举一致。
-   新增文字：在枚举末尾（STR_COUNT 前）加 ID，并在两张表同一位置加译文。
-   菜单不再使用 .rc 资源，全部由此处按当前语言构建，切换语言时重建。 */
-
 static int g_lang = UI_LANG_ZH;
 HMENU g_hMenuRecent = NULL;
 
 static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
 
-    /* ================= 简体中文 ================= */
     {
-        /* 通用 */
         L"ETON",
         L"未命名",
         L"未命名 %d",
@@ -22,7 +15,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"关闭",
         L"错误",
 
-        /* 文件菜单 */
         L"文件(&F)",
         L"新建(&N)\tCtrl+N",
         L"打开(&O)...\tCtrl+O",
@@ -34,7 +26,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"(空)",
         L"退出(&X)",
 
-        /* 编辑菜单 */
         L"编辑(&E)",
         L"撤销(&U)\tCtrl+Z",
         L"重做(&R)\tCtrl+Y",
@@ -50,7 +41,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"JSON 格式化(&J)\tCtrl+Shift+F",
         L"JSON 压缩(&M)\tCtrl+Shift+M",
 
-        /* 视图菜单 */
         L"视图(&V)",
         L"自动换行(&W)",
         L"显示行号(&L)",
@@ -59,7 +49,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"重置缩放(&0)\tCtrl+0",
         L"深色主题(&D)",
 
-        /* 编码菜单 */
         L"编码(&N)",
         L"ANSI",
         L"UTF-8",
@@ -68,23 +57,19 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"UTF-16 BE",
         L"以 %s 重新打开",
 
-        /* 行尾菜单 */
         L"行尾(&E)",
         L"Windows (CRLF)",
         L"Unix (LF)",
         L"Mac (CR)",
         L"转换行尾为当前格式",
 
-        /* （语法）语言菜单 */
         L"语言(&L)",
         L"纯文本",
 
-        /* 帮助菜单 */
         L"帮助(&H)",
         L"关于(&A)",
         L"界面语言(&U)",
 
-        /* 过滤器 */
         L"所有文件 (*.*)",
         L"*.*",
         L"文本文件 (*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md)",
@@ -92,7 +77,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"文本文件 (*.txt)",
         L"*.txt",
 
-        /* 查找 / 替换 */
         L"查找",
         L"替换",
         L"查找内容:",
@@ -110,25 +94,21 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"已替换",
         L"已替换 %d 处",
 
-        /* 跳转到行 */
         L"跳转到行",
         L"行号:",
         L"行号 (1 - %d):",
 
-        /* 关于 */
         L"关于 ETON",
         L"ETON — 轻量级文本编辑器",
         L"基于原生 Win32 API (C) 实现，零第三方依赖。",
         L"支持多标签、语法高亮、编码转换、查找替换等。",
         L"版本 %hs  |  基于 Visual Studio 生成工具构建",
 
-        /* 以指定编码打开 */
         L"以指定编码打开",
         L"选择编码:",
 
         L"未命名.txt",
 
-        /* 消息 */
         L"未找到匹配项。",
         L"文件 \"%s\" 尚未保存，是否保存？",
         L"文件 \"%s\" 已修改，是否保存后再关闭？",
@@ -139,11 +119,9 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"第 %d 行 / 共 %d 行",
         L"列 %d",
 
-        /* fileio */
         L"无法打开文件。",
         L"无法写入文件。",
 
-        /* JSON */
         L"JSON 格式化",
         L"JSON 压缩",
         L"当前内容为空，没有可处理的 JSON。",
@@ -192,9 +170,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"导出 PDF（打印）(&R)...",
     },
 
-    /* ================= English ================= */
     {
-        /* generic */
         L"ETON",
         L"Untitled",
         L"Untitled %d",
@@ -203,7 +179,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Close",
         L"Error",
 
-        /* File menu */
         L"&File",
         L"&New\tCtrl+N",
         L"&Open...\tCtrl+O",
@@ -215,7 +190,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"(Empty)",
         L"E&xit",
 
-        /* Edit menu */
         L"&Edit",
         L"&Undo\tCtrl+Z",
         L"&Redo\tCtrl+Y",
@@ -231,7 +205,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Format &JSON\tCtrl+Shift+F",
         L"Mini&fy JSON\tCtrl+Shift+M",
 
-        /* View menu */
         L"&View",
         L"&Word Wrap",
         L"Show &Line Numbers",
@@ -240,7 +213,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"&Reset Zoom\tCtrl+0",
         L"&Dark Theme",
 
-        /* Encoding menu */
         L"En&coding",
         L"ANSI",
         L"UTF-8",
@@ -249,23 +221,19 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"UTF-16 BE",
         L"Reopen as %s",
 
-        /* Line endings menu */
         L"&Line Endings",
         L"Windows (CRLF)",
         L"Unix (LF)",
         L"Mac (CR)",
         L"Convert All to Current",
 
-        /* (syntax) Language menu */
         L"&Language",
         L"Plain Text",
 
-        /* Help menu */
         L"&Help",
         L"&About ETON",
         L"&UI Language",
 
-        /* Filters */
         L"All files (*.*)",
         L"*.*",
         L"Text files (*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md)",
@@ -273,7 +241,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Text files (*.txt)",
         L"*.txt",
 
-        /* Find / Replace */
         L"Find",
         L"Replace",
         L"Fi&nd what:",
@@ -291,25 +258,21 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Replaced",
         L"Replaced %d occurrence(s)",
 
-        /* Go to line */
         L"Go to Line",
         L"Line &number:",
         L"Line (1 - %d):",
 
-        /* About */
         L"About ETON",
         L"ETON — a lightweight text editor",
         L"Built with the native Win32 API in C, no third-party runtime.",
         L"Multi-tab editing, syntax highlighting, encoding conversion, find && replace, and more.",
         L"Version %hs  |  Built with the Visual Studio Build Tools",
 
-        /* Open with encoding */
         L"Open with Encoding",
         L"Choose &encoding:",
 
         L"Untitled.txt",
 
-        /* Messages */
         L"No matches found.",
         L"File \"%s\" has not been saved. Save it now?",
         L"File \"%s\" has been modified. Save before closing?",
@@ -320,11 +283,9 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Line %d / %d",
         L"Col %d",
 
-        /* fileio */
         L"Cannot open the file.",
         L"Cannot write the file.",
 
-        /* JSON */
         L"Format JSON",
         L"Minify JSON",
         L"The document is empty — nothing to process.",
@@ -379,10 +340,6 @@ const wchar_t* T(StrId id) {
     return kStr[g_lang][id];
 }
 
-/* ---------- 系统绘制部件的明暗跟随 ----------
-   uxtheme 序号 135 = SetPreferredAppMode（Win10 1809+）：让系统绘制的
-   菜单箭头/弹窗边框/消息框跟随应用主题（ForceDark/ForceLight），
-   失败（老系统）时静默保持系统默认。 */
 void I18n_ApplySystemThemeMode(void) {
     typedef int (WINAPI *SetPreferredAppModeFn)(int);
     static SetPreferredAppModeFn fn;
@@ -392,23 +349,17 @@ void I18n_ApplySystemThemeMode(void) {
         if (ux) fn = (SetPreferredAppModeFn)(void*)GetProcAddress(ux, (LPCSTR)135);
         tried = TRUE;
     }
-    if (fn) fn(g_dark ? 2 /*ForceDark*/ : 3 /*ForceLight*/);
+    if (fn) fn(g_dark ? 2  : 3 );
 }
 
-/* 弹出菜单窗口（#32768）应用暗色主题：让系统在自绘条目之上画的
-   子菜单箭头变成浅色（WM_INITMENUPOPUP 时调用，每个弹窗各一次）。 */
-
-/* ---------- 语言选择与持久化 ---------- */
 void I18n_Init(void) {
     wchar_t ini[MAX_PATH];
     if (Session_IniPath(ini, MAX_PATH)) {
         int v = (int)GetPrivateProfileIntW(L"settings", L"uilang", 0xFFFF, ini);
         if (v == UI_LANG_ZH || v == UI_LANG_EN) { g_lang = v; return; }
     }
-    /* 未设置过：跟随系统 UI 语言（中文系统用中文，其余用英文） */
     g_lang = (PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE)
            ? UI_LANG_ZH : UI_LANG_EN;
-    /* 注意：I18n_ApplySystemThemeMode 需在 Settings_Load 置好 g_dark 后调用（WinMain） */
 }
 
 int I18n_Lang(void) {
@@ -426,20 +377,17 @@ void I18n_SetLang(int lang) {
     }
 }
 
-/* ---------- 主菜单（代码构建，替代 .rc 菜单资源） ---------- */
 static void AddIt(HMENU m, StrId s, UINT cmd) {
     I18n_OwnerAppend(m, MF_STRING, cmd, T(s));
 }
 static void AddSep(HMENU m) {
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
 }
-/* 菜单栏条目：指针打 bit0 标记，测量/绘制按紧凑样式处理 */
 static void AddBar(HMENU bar, UINT_PTR sub, StrId s) {
     I18n_OwnerAppend(bar, MF_POPUP, sub,
                      (const wchar_t*)(uintptr_t)((uintptr_t)T(s) | 1));
 }
 
-/* 菜单自绘：底色刷按主题重建 */
 static HBRUSH s_menuBrush = NULL;
 static int s_menuBrushDark = -1;
 
@@ -452,7 +400,6 @@ void I18n_RefreshMenuColors(void) {
 
 void I18n_ApplyMenuTheme(HMENU root) {
     I18n_RefreshMenuColors();
-    /* 底色刷同时应用到所有子菜单（项间空隙也用主题底色） */
     MENUINFO mi; memset(&mi, 0, sizeof(mi));
     mi.cbSize = sizeof(mi);
     mi.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
@@ -475,9 +422,6 @@ void I18n_OwnerAppend(HMENU m, UINT flags, UINT_PTR cmd, const wchar_t* text) {
     AppendMenuW(m, (flags & ~MF_OWNERDRAW) | MF_OWNERDRAW, cmd, (LPCVOID)text);
 }
 
-/* 拆分 "文本\t加速键" 两段。
-   注意：_snwprintf 在输出恰好等于 count 时不写 NUL，必须用 "%.*s" 保证终止，
-   否则标签后带栈垃圾，菜单项重绘（滚轮移动高亮）时会画出乱字符。 */
 static void SplitAccel(const wchar_t* text, wchar_t* label, int lcch, wchar_t* accel, int acch) {
     label[0] = accel[0] = L'\0';
     if (!text) return;
@@ -494,7 +438,6 @@ static void SplitAccel(const wchar_t* text, wchar_t* label, int lcch, wchar_t* a
 
 BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     if (mis->CtlType != ODT_MENU) return FALSE;
-    /* 指针 bit0 = 菜单栏条目标记（无勾选槽、更紧凑） */
     uintptr_t raw = (uintptr_t)mis->itemData;
     int isBar = (int)(raw & 1);
     const wchar_t* text = (const wchar_t*)(raw & ~(uintptr_t)1);
@@ -502,8 +445,6 @@ BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     SplitAccel(text, label, 200, accel, 64);
     HDC hdc = GetDC(hwnd);
     HFONT old = (HFONT)SelectObject(hdc, MenuFont());
-    /* 用 DT_CALCRECT 量宽：与绘制一致地吃掉 & 助记符前缀，
-       GetTextExtentPoint32W 会把 & 本身也计入导致条目偏宽 */
     RECT rl = {0, 0, 0, 0}, ra = {0, 0, 0, 0};
     DrawTextW(hdc, label, -1, &rl, DT_CALCRECT | DT_SINGLELINE);
     if (accel[0]) DrawTextW(hdc, accel, -1, &ra, DT_CALCRECT | DT_SINGLELINE);
@@ -512,16 +453,15 @@ BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     SelectObject(hdc, old); ReleaseDC(hwnd, hdc);
     if (isBar) {
         mis->itemHeight = lh + 7;
-        mis->itemWidth  = 2 * UI_Scale(4) + lw;   /* 两侧各 4px，紧凑 */
+        mis->itemWidth  = 2 * UI_Scale(4) + lw;
         return TRUE;
     }
-    int gutter = lh + 6;   /* 勾选标记区 */
+    int gutter = lh + 6;
     mis->itemHeight = lh + 9;
     mis->itemWidth  = 10 + gutter + lw + (accel[0] ? aw + 20 : 0) + 14;
-    /* bit1 = 有子菜单：为系统绘制的子菜单箭头预留宽度 */
     if (mis->itemData && ((uintptr_t)mis->itemData & 2))
         mis->itemWidth += UI_Scale(14);
-    UINT maxw = (UINT)UI_Scale(560);   /* 超长路径（最近文件）限制菜单宽度，绘制时省略号截断 */
+    UINT maxw = (UINT)UI_Scale(560);
     if (mis->itemWidth > maxw) mis->itemWidth = maxw;
     return TRUE;
 }
@@ -556,15 +496,14 @@ BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
     SIZE ls; GetTextExtentPoint32W(hdc, label, (int)wcslen(label), &ls);
     int gutter = isBar ? 0 : ls.cy + 6;
     if ((raw & 2) && g_dark) {
-        /* 有子菜单：右缘垫一块稍亮的底衬，系统绘制的黑色箭头落在其上才可见 */
         RECT chip = { dis->rcItem.right - UI_Scale(20), dis->rcItem.top + 1,
                       dis->rcItem.right - 2, dis->rcItem.bottom - 1 };
         HBRUSH cb = CreateSolidBrush(RGB(96, 96, 96));
         FillRect(hdc, &chip, cb);
         DeleteObject(cb);
     }
-    if (checked) {   /* 勾选符号：细线小号 ✓，紧贴文字（参考 Notepad++ 样式） */
-        int tx = dis->rcItem.left + 6 + gutter;              /* 文字起点 */
+    if (checked) {
+        int tx = dis->rcItem.left + 6 + gutter;
         int gh = ls.cy + 6;
         int cy = (dis->rcItem.top + dis->rcItem.bottom) / 2;
         POINT pts[3] = {
@@ -595,7 +534,6 @@ BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
     return TRUE;
 }
 
-/* WM_MENUCHAR：owner-draw 菜单的助记符（Alt+F 等）由这里定位到项 */
 int I18n_FindMnemonic(HMENU menu, wchar_t ch) {
     int n = GetMenuItemCount(menu);
     wchar_t up = (wchar_t)towupper(ch);
@@ -610,7 +548,7 @@ int I18n_FindMnemonic(HMENU menu, wchar_t ch) {
         for (const wchar_t* p = text; *p; p++) {
             if (*p == L'&' && p[1] && p[1] != L'&') {
                 if (towupper(p[1]) == up) return i;
-                break;   /* 只认第一个助记符 */
+                break;
             }
         }
     }
@@ -621,7 +559,6 @@ HMENU I18n_BuildMainMenu(void) {
     HMENU bar = CreateMenu();
     if (!bar) return NULL;
 
-    /* 文件 */
     HMENU mFile = CreatePopupMenu();
     AddIt(mFile, STR_ITEM_NEW, IDM_NEW);
     AddIt(mFile, STR_ITEM_OPEN, IDM_OPEN);
@@ -634,8 +571,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mFile, STR_ITEM_EXPHTML, IDM_EXPORT_HTML);
     AddIt(mFile, STR_ITEM_EXPPDF, IDM_EXPORT_PDF);
     AddSep(mFile);
-    /* 最近文件子菜单（条目由 RefreshRecentMenu 运行时填充）。
-       指针 bit1 = 有子菜单：绘制时在右缘垫浅色底衬，让系统画的箭头可见。 */
     g_hMenuRecent = CreatePopupMenu();
     I18n_ApplyMenuTheme(g_hMenuRecent);
     I18n_OwnerAppend(g_hMenuRecent, MF_STRING | MF_GRAYED, IDM_RECENT_FIRST, T(STR_RECENT_EMPTY));
@@ -645,7 +580,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mFile, STR_ITEM_EXIT, IDM_EXIT);
     AddBar(bar, (UINT_PTR)mFile, STR_MENU_FILE);
 
-    /* 编辑 */
     HMENU mEdit = CreatePopupMenu();
     AddIt(mEdit, STR_ITEM_UNDO, IDM_UNDO);
     AddIt(mEdit, STR_ITEM_REDO, IDM_REDO);
@@ -671,7 +605,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mEdit, STR_ITEM_JSONMIN, IDM_JSON_MIN);
     AddBar(bar, (UINT_PTR)mEdit, STR_MENU_EDIT);
 
-    /* 视图 */
     HMENU mView = CreatePopupMenu();
     AddIt(mView, STR_ITEM_WRAP, IDM_WRAP);
     AddIt(mView, STR_ITEM_GUTTER, IDM_GUTTER);
@@ -686,13 +619,11 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mView, STR_ITEM_MDSPLIT, IDM_VIEW_MDSPLT);
     AddBar(bar, (UINT_PTR)mView, STR_MENU_VIEW);
 
-    /* 编码 */
     HMENU mEnc = CreatePopupMenu();
     for (int i = 0; i <= ENC_UTF16BE; i++)
         I18n_OwnerAppend(mEnc, MF_STRING, IDM_ENC_ANSI + i, EncodingName((Encoding)i));
     AddSep(mEnc);
     {
-        /* owner-draw 不复制文本：存进静态缓冲，指向的内容在菜单存续期内有效 */
         static wchar_t s_reopen[5][80];
         for (int i = 0; i <= ENC_UTF16BE; i++) {
             wsprintf(s_reopen[i], T(STR_REOPEN_FMT), EncodingName((Encoding)i));
@@ -701,7 +632,6 @@ HMENU I18n_BuildMainMenu(void) {
     }
     AddBar(bar, (UINT_PTR)mEnc, STR_MENU_ENC);
 
-    /* 行尾 */
     HMENU mEol = CreatePopupMenu();
     AddIt(mEol, STR_EOLNAME_CRLF, IDM_EOL_CRLF);
     AddIt(mEol, STR_EOLNAME_LF, IDM_EOL_LF);
@@ -710,7 +640,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mEol, STR_ITEM_EOLCONVERT, IDM_EOL_CONVERT);
     AddBar(bar, (UINT_PTR)mEol, STR_MENU_EOL);
 
-    /* （语法）语言：各语言名称为专有名词，中英文一致 */
     HMENU mLang = CreatePopupMenu();
     AddIt(mLang, STR_SYN_NONE, IDM_LANG_NONE);
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_C, L"C");
@@ -725,11 +654,9 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mLang, STR_SYN_MARKDOWN, IDM_LANG_MD);
     AddBar(bar, (UINT_PTR)mLang, STR_MENU_SYNTAX);
 
-    /* 帮助 */
     HMENU mHelp = CreatePopupMenu();
     AddIt(mHelp, STR_ITEM_ABOUT, IDM_ABOUT);
     AddSep(mHelp);
-    /* 界面语言直接放入帮助菜单（避免子菜单箭头） */
     I18n_OwnerAppend(mHelp, MF_STRING, IDM_UI_LANG_ZH, L"简体中文");
     I18n_OwnerAppend(mHelp, MF_STRING, IDM_UI_LANG_EN, L"English");
     AddBar(bar, (UINT_PTR)mHelp, STR_MENU_HELP);
@@ -738,7 +665,6 @@ HMENU I18n_BuildMainMenu(void) {
     return bar;
 }
 
-/* ---------- 对话框文字覆盖 ---------- */
 typedef struct { int ctl; StrId str; } DlgEnt;
 
 static const DlgEnt kDlgFind[] = {
@@ -775,7 +701,7 @@ static const DlgEnt kDlgAbout[] = {
     { IDC_ABOUT_LINE1, STR_ABOUT_L1 },
     { IDC_ABOUT_LINE2, STR_ABOUT_L2 },
     { IDC_ABOUT_LINE3, STR_ABOUT_L3 },
-    { IDC_ABOUT_LINE4, STR_ABOUT_VERSION },   /* 版本号在下方特例填入 */
+    { IDC_ABOUT_LINE4, STR_ABOUT_VERSION },
     { IDC_GOTO_OK,     STR_OK },
     { 0, (StrId)0 }
 };
@@ -786,7 +712,7 @@ static const DlgEnt kDlgOpenEnc[] = {
     { 0, (StrId)0 }
 };
 
-static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp);   /* 见下：按钮暗色主题 */
+static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp);
 
 void I18n_ApplyDialog(HWND hdlg, int dlgId) {
     const DlgEnt* e = NULL;
@@ -800,7 +726,7 @@ void I18n_ApplyDialog(HWND hdlg, int dlgId) {
         default: return;
     }
     SetWindowTextW(hdlg, T(cap));
-    ApplyTitleBarTheme(hdlg);   /* 对话框标题栏跟随主题（DWM 暗色属性） */
+    ApplyTitleBarTheme(hdlg);
     for (; e->ctl; e++) {
         if (dlgId == IDD_ABOUT && e->ctl == IDC_ABOUT_LINE4) continue;
         SetDlgItemTextW(hdlg, e->ctl, T(e->str));
@@ -811,13 +737,11 @@ void I18n_ApplyDialog(HWND hdlg, int dlgId) {
         SetDlgItemTextW(hdlg, IDC_ABOUT_LINE4, buf);
     }
     if (dlgId == IDD_GOTO) {
-        /* 行号范围带文档行数，由 GotoProc 在其后自行覆盖 */
     }
     if (g_dark)
         EnumChildWindows(hdlg, DarkBtnProc, 0);
 }
 
-/* 按钮类控件（含复选框）换用系统暗色主题类，浅色模式保持默认 */
 static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp) {
     typedef BOOL (WINAPI *SetThemeFn)(HWND, LPCWSTR, LPCWSTR);
     static SetThemeFn st;
@@ -831,13 +755,12 @@ static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp) {
     return TRUE;
 }
 
-/* ---------- 对话框底色/文字颜色（暗色主题） ---------- */
 static HBRUSH s_dlgBrush = NULL;
 static int s_dlgBrushDark = -1;
 
 HBRUSH I18n_DlgCtlColor(HWND hdlg, HDC hdc, UINT msg) {
     (void)hdlg;
-    if (!g_dark) return NULL;   /* 浅色模式交回系统默认 */
+    if (!g_dark) return NULL;
     SetTextColor(hdc, RGB(238, 238, 238));
     SetBkColor(hdc, RGB(32, 32, 32));
     SetBkMode(hdc, TRANSPARENT);
@@ -849,7 +772,6 @@ HBRUSH I18n_DlgCtlColor(HWND hdlg, HDC hdc, UINT msg) {
     return s_dlgBrush;
 }
 
-/* ---------- 过滤器拼接 ---------- */
 void I18n_JoinFilter(wchar_t* out, int cch,
                      StrId n1, StrId p1, StrId n2, StrId p2) {
     const wchar_t* parts[4] = { T(n1), T(p1), T(n2), T(p2) };
@@ -860,5 +782,5 @@ void I18n_JoinFilter(wchar_t* out, int cch,
         memcpy(out + pos, parts[i], (size_t)l * sizeof(wchar_t));
         pos += l;
     }
-    out[pos] = L'\0';   /* 与末串的 '\0' 组成双 0 结尾 */
+    out[pos] = L'\0';
 }

@@ -1,8 +1,3 @@
-/* ================================================================
-   mermaid 扩展图族 · 二：state / class / er 解析（复用流程图内核）
-   与全部扩展图族的布局、绘制及 Ext* 分发。
-   由 mermaid.c 末尾 include。
-   ================================================================ */
 
 static int StateAdd(FlowCtx* c, const wchar_t* id, const wchar_t* label, MerShape shape) {
     int ex = FlowFind(c, id);
@@ -47,7 +42,7 @@ static void StateParseLine(FlowCtx* c, wchar_t* line) {
 
     if (StartsWithWord(s, L"state")) {
         wchar_t* rest = TrimW(s + 5);
-        if (rest[0] == L'"') {                       /* state "长描述" as id */
+        if (rest[0] == L'"') {
             wchar_t* q = wcschr(rest + 1, L'"');
             if (q) {
                 *q = 0;
@@ -58,7 +53,7 @@ static void StateParseLine(FlowCtx* c, wchar_t* line) {
                 }
             }
         }
-        wchar_t* br = wcschr(rest, L'{');            /* 复合状态 */
+        wchar_t* br = wcschr(rest, L'{');
         if (br) {
             *br = 0;
             wchar_t* name = TrimW(rest);
@@ -73,7 +68,6 @@ static void StateParseLine(FlowCtx* c, wchar_t* line) {
         return;
     }
 
-    /* [*] → 内部 id：行首为 __start，其后为唯一 __endN */
     wchar_t buf[512];
     int bi = 0, nEnd = 0, firstTok = 1;
     for (int i = 0; s[i] && bi < 500; i++) {
@@ -90,7 +84,6 @@ static void StateParseLine(FlowCtx* c, wchar_t* line) {
     FlowParseLine(c, buf);
 }
 
-/* ---------------- class ---------------- */
 static const struct { const wchar_t* op; MerRel rel; BOOL markA; BOOL dash; } kClsOps[] = {
     { L"<|--", MRE_INHERIT, TRUE,  FALSE },
     { L"--|>", MRE_INHERIT, FALSE, FALSE },
@@ -218,7 +211,6 @@ static BOOL ClassParse(FlowCtx* c, const char* src, int len, int pos) {
     return c->nN > 0;
 }
 
-/* ---------------- er ---------------- */
 static BOOL ErParse(FlowCtx* c, const char* src, int len, int pos) {
     wchar_t line[1024];
     int inEnt = 0, curIdx = -1;
@@ -245,7 +237,6 @@ static BOOL ErParse(FlowCtx* c, const char* src, int len, int pos) {
             nMem++;
             continue;
         }
-        /* 关系行优先（A ||--o{ B : label 的 o{/|{ 含 '{'，不能当实体块头） */
         wchar_t a[64] = L"", b[64] = L"", card[24] = L"";
         if (swscanf(s, L"%63s %23s %63s", a, card, b) == 3 && wcsstr(card, L"--")) {
             wchar_t label[96] = L"";
@@ -270,7 +261,6 @@ static BOOL ErParse(FlowCtx* c, const char* src, int len, int pos) {
             wcsncpy(e->label, label, 95);
             continue;
         }
-        /* 实体块头：行尾是 '{' */
         if (s[wcslen(s) - 1] == L'{') {
             wchar_t name[64];
             int nl = (int)(wcslen(s) - 1);
@@ -285,7 +275,6 @@ static BOOL ErParse(FlowCtx* c, const char* src, int len, int pos) {
     return c->nN > 0;
 }
 
-/* class/er 三格框尺寸（在流程图布局前算好 wFix/hFix） */
 static void ClassErFixSizeReal(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     int lineH = FontH(hdc, f->sm) + UI_Scale(2);
     for (int i = 0; i < d->nNodes; i++) {
@@ -305,11 +294,6 @@ static void ClassErFixSizeReal(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     }
 }
 
-/* ================================================================ */
-/*                          布局与绘制                              */
-/* ================================================================ */
-
-/* ---------------- pie ---------------- */
 static void PieLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     PieD* p = (PieD*)d->ext;
     int titleH = p->title[0] ? FontH(hdc, f->bold) + UI_Scale(10) : 0;
@@ -356,7 +340,6 @@ static void PieDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
             (int)(cy + R * 100 * sin(a1 * 3.14159265 / 180.0)));
         SelectObject(hdc, ob);
         DeleteObject(br);
-        /* 百分比 */
         if (frac2 > 0.04) {
             double mid = (a0 + a1) / 2 * 3.14159265 / 180.0;
             wchar_t txt[16];
@@ -373,7 +356,6 @@ static void PieDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     }
     SelectObject(hdc, op);
     DeleteObject(sep);
-    /* 图例 */
     int lx = cx + R + UI_Scale(30);
     int ly = cy - (p->n * (FontH(hdc, f->sm) + UI_Scale(8))) / 2;
     for (int i = 0; i < p->n; i++) {
@@ -391,7 +373,6 @@ static void PieDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     }
 }
 
-/* ---------------- quadrant ---------------- */
 static RECT RectMake4(int l, int t, int r, int b) {
     RECT rc = { l, t, r, b };
     return rc;
@@ -422,7 +403,6 @@ static void QuadDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         top += FontH(hdc, f->bold) + UI_Scale(10);
     }
     int L = ox + UI_Scale(40), T = top, R2 = L + S, B2 = T + S;
-    /* 象限底色 */
     HBRUSH q1 = CreateSolidBrush(th->tableHeadBg);
     RECT rq = { L, T, R2, B2 };
     FillRect(hdc, &rq, q1);
@@ -436,7 +416,6 @@ static void QuadDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     SelectObject(hdc, ob);
     SelectObject(hdc, op);
     DeleteObject(grid);
-    /* 象限标签（右上=1，左上=2，左下=3，右下=4） */
     SetTextColor(hdc, th->fgMuted);
     HFONT of = (HFONT)SelectObject(hdc, f->sm);
     int qw = S / 2;
@@ -445,7 +424,6 @@ static void QuadDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     qrc = RectMake4(L, T, L + qw, T + qw);           DrawTextW(hdc, p->q[1], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
     qrc = RectMake4(L, T + qw, L + qw, B2);          DrawTextW(hdc, p->q[2], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
     qrc = RectMake4(L + qw, T + qw, R2, B2);         DrawTextW(hdc, p->q[3], -1, &qrc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
-    /* 轴标签 */
     TextOutW(hdc, L, T - FontH(hdc, f->sm) - 2, p->yhi, (int)wcslen(p->yhi));
     TextOutW(hdc, L, B2 + 4, p->ylo, (int)wcslen(p->ylo));
     TextOutW(hdc, L, B2 + UI_Scale(18), p->xlo, (int)wcslen(p->xlo));
@@ -453,7 +431,6 @@ static void QuadDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         int w2 = TextW(hdc, f->sm, p->xhi);
         TextOutW(hdc, R2 - w2, B2 + UI_Scale(18), p->xhi, (int)wcslen(p->xhi));
     }
-    /* 数据点 */
     HBRUSH ptBr = CreateSolidBrush(th->link);
     for (int i = 0; i < p->n; i++) {
         double x = p->pts[i].x, y = p->pts[i].y;

@@ -1,8 +1,3 @@
-/* mdmath.c — LaTeX 数学公式子集的排版与绘制（GDI）
-   支持：内联 $...$ 与块级 $$...$$（MD4C 的 LaTeX math span），
-   覆盖 \frac \sqrt \sum \int \prod \lim、上下标（嵌套）、希腊字母与
-   常用符号、\text/\mathrm/\mathbf/\mathbb、\left(\right 忽略、间距命令。
-   字体：Cambria Math（Windows 自带），三级字号（正文/脚本/脚本的脚本）。 */
 
 #include "common.h"
 #include <stdio.h>
@@ -17,27 +12,24 @@ static int MbFontH(HDC hdc, HFONT f) {
 }
 #define FontH(hdc, f) MbFontH(hdc, f)
 
-/* ============================ 盒子模型 ============================ */
-
 typedef enum {
-    MB_ROW,        /* 横排子盒 */
-    MB_GLYPHS,     /* 一段文字 + 字体级/斜体 */
-    MB_FRAC,       /* 分数：num / den */
-    MB_SCRIPT,     /* 上下标 */
-    MB_RADICAL,    /* 根式 */
-    MB_BIGOP       /* 大运算符 + 上下限 */
+    MB_ROW,
+    MB_GLYPHS,
+    MB_FRAC,
+    MB_SCRIPT,
+    MB_RADICAL,
+    MB_BIGOP
 } MbKind;
 
 struct MathBox {
     MbKind kind;
-    int w, h, asc;          /* asc = 基线到盒顶 */
-    MathBox** kids; int nKids;   /* ROW: 横排；SCRIPT: base,sup,sub(可空)；
-                                    FRAC: num,den；RADICAL: body；BIGOP: 上下限 */
-    wchar_t* text;          /* GLYPHS */
-    int level;              /* 字号级 0/1/2 */
+    int w, h, asc;
+    MathBox** kids; int nKids;
+    wchar_t* text;
+    int level;
     BOOL italic;
-    int spaceAfter;         /* 附加间距（px，布局时定） */
-    int raiseY;             /* SCRIPT：上标基线相对整盒基线的抬升量 */
+    int spaceAfter;
+    int raiseY;
 };
 
 static MathBox* MbNew(MbKind k) {
@@ -55,15 +47,13 @@ void Math_Free(MathBox* b) {
 }
 
 static void MbAdd(MathBox* row, MathBox* kid) {
-    if (!row) return;   /* kid 允许为 NULL：SCRIPT 盒的 base/上下标占位靠它 */
+    if (!row) return;
     MathBox** nk = (MathBox**)realloc(row->kids,
         ((size_t)row->nKids + 1) * sizeof(MathBox*));
     if (!nk) return;
     row->kids = nk;
     row->kids[row->nKids++] = kid;
 }
-
-/* ============================ LaTeX 解析 ============================ */
 
 typedef struct { const wchar_t* p; const wchar_t* end; } MScan;
 
@@ -95,7 +85,6 @@ static const struct { const wchar_t* cmd; wchar_t ch; } kSym[] = {
     { L"oplus", 0x2295 }, { L"otimes", 0x2297 },
 };
 
-/* 双线字母（\mathbb）常用映射；BMP 外码位（E/F）拆代理对写入，返回写入数 */
 static int BbAppend(wchar_t* out, wchar_t c) {
     unsigned int cp;
     switch (c) {
@@ -132,8 +121,6 @@ static MathBox* MbGlyphs(const wchar_t* s, int len, int level, BOOL italic) {
 
 static MathBox* MathParseRow(MScan* s, int level);
 
-/* 读取一个 {...} 组（跳过开 {，读到配对 }）；无组时只取单个 token
-   （一个普通字符或一条 \cmd），不得吞掉后续内容 */
 static MathBox* MathParseGroup(MScan* s, int level) {
     if (s->p < s->end && *s->p == L'{') {
         s->p++;
@@ -182,7 +169,6 @@ static MathBox* MathParseRow(MScan* s, int level) {
             s->p++;
             if (getenv("MDTRACE")) fprintf(stderr, "[PR] script enter\n");
             MathBox* sc = MathParseGroup(s, level < 2 ? level + 1 : 2);
-            /* 若 row 末尾已有脚本盒则合并，否则新建 */
             MathBox* target = NULL;
             if (row->nKids > 0 && row->kids[row->nKids - 1]->kind == MB_SCRIPT)
                 target = row->kids[row->nKids - 1];
@@ -192,16 +178,15 @@ static MathBox* MathParseRow(MScan* s, int level) {
                 MbAdd(row, target);
             }
             if (c == L'^') {
-                if (target->nKids >= 2 && target->kids[1]) { /* 覆盖 */ Math_Free(target->kids[1]); target->kids[1] = sc; }
+                if (target->nKids >= 2 && target->kids[1]) {  Math_Free(target->kids[1]); target->kids[1] = sc; }
                 else { while (target->nKids < 2) MbAdd(target, NULL); target->kids[1] = sc; }
             } else {
                 if (target->nKids >= 1 && target->kids[0] && target->kids[0]->kind != MB_GLYPHS) {
-                    /* base 占用则作 sub 存 kids[2] */
                     while (target->nKids < 3) MbAdd(target, NULL);
                     if (target->kids[2]) Math_Free(target->kids[2]);
                     target->kids[2] = sc;
                 } else if (target->nKids == 0) {
-                    MbAdd(target, NULL);          /* kids[0] = base 占位 */
+                    MbAdd(target, NULL);
                     while (target->nKids < 3) MbAdd(target, NULL);
                     target->kids[2] = sc;
                 } else {
@@ -218,7 +203,6 @@ static MathBox* MathParseRow(MScan* s, int level) {
             wchar_t c2 = *s->p;
             if (c2 == L'\\' || c2 == L';' || c2 == L',' || c2 == L' ' ||
                 c2 == L'!' || c2 == L':') {
-                /* 换行 / 间距 */
                 if (c2 == L'\\') { FLUSH(); MathBox* sp = MbGlyphs(L"  ", 2, level, FALSE); sp->spaceAfter = UI_Scale(8); MbAdd(row, sp); }
                 else if (c2 == L',' || c2 == L';') { FLUSH(); MathBox* sp = MbGlyphs(L" ", 1, level, FALSE); MbAdd(row, sp); }
                 else if (c2 == L' ') { FLUSH(); MathBox* sp = MbGlyphs(L" ", 1, level, FALSE); MbAdd(row, sp); }
@@ -231,7 +215,6 @@ static MathBox* MathParseRow(MScan* s, int level) {
                 s->p++;
                 continue;
             }
-            /* 读命令名 */
             wchar_t cmd[24];
             int nc = 0;
             while (s->p < s->end && ((iswalpha(*s->p) && nc < 22) || nc == 0)) {
@@ -254,7 +237,6 @@ static MathBox* MathParseRow(MScan* s, int level) {
             }
             if (wcscmp(cmd, L"sqrt") == 0) {
                 FLUSH();
-                /* 跳过可选 [n] */
                 if (s->p < s->end && *s->p == L'[') {
                     while (s->p < s->end && *s->p != L']') s->p++;
                     if (s->p < s->end) s->p++;
@@ -277,14 +259,14 @@ static MathBox* MathParseRow(MScan* s, int level) {
                 FLUSH();
                 const wchar_t* glyph;
                 switch (cmd[0]) {
-                    case L's': glyph = L"\x2211"; break;         /* ∑ */
-                    case L'p': glyph = L"\x220F"; break;         /* ∏ */
+                    case L's': glyph = L"\x2211"; break;
+                    case L'p': glyph = L"\x220F"; break;
                     case L'i':
                         if (cmd[1] == L'i') glyph = L"\x222C";
                         else glyph = L"\x222B";
                         break;
                     case L'b': glyph = (cmd[3] == L'u') ? L"\x22C3" : L"\x22C2"; break;
-                    default: glyph = cmd; break;                 /* lim/log/sin… 文字型 */
+                    default: glyph = cmd; break;
                 }
                 MathBox* op = MbNew(MB_BIGOP);
                 op->level = level;
@@ -293,7 +275,6 @@ static MathBox* MathParseRow(MScan* s, int level) {
                 if (gl > 7) gl = 7;
                 memcpy(tmp, glyph, (size_t)gl * sizeof(wchar_t));
                 tmp[gl] = 0;
-                /* 文字型（lim/log 等）按正体普通字号；算符型用大字形 */
                 BOOL textOp = (gl > 1 && glyph[0] >= 0x80 ? FALSE : gl > 1);
                 if (cmd[0] == L'l' && wcscmp(cmd, L"lim") == 0) textOp = TRUE;
                 if (wcschr(L"lms", cmd[0]) && wcscmp(cmd, L"ln") != 0 && gl == wcslen(cmd) &&
@@ -310,14 +291,11 @@ static MathBox* MathParseRow(MScan* s, int level) {
                     if (g) MbAdd(op, g);
                 }
                 MbAdd(row, op);
-                /* 大运算符的上下限由随后的 ^/_ 挂到 op —— 下一轮 ^_ 检测末尾为
-                   BIGOP 时直接作为其 kids[1]/[2] */
                 continue;
             }
             if (wcscmp(cmd, L"text") == 0 || wcscmp(cmd, L"mathrm") == 0 ||
                 wcscmp(cmd, L"mbox") == 0) {
                 FLUSH();
-                /* 原样取组内文字（正体） */
                 if (s->p < s->end && *s->p == L'{') {
                     s->p++;
                     wchar_t tbuf[128];
@@ -332,7 +310,6 @@ static MathBox* MathParseRow(MScan* s, int level) {
             if (wcscmp(cmd, L"mathbf") == 0) {
                 FLUSH();
                 MathBox* g = MathParseGroup(s, level);
-                /* 组内全大写处理从简：直接按正体加粗显示 */
                 if (g) MbAdd(row, g);
                 continue;
             }
@@ -354,19 +331,16 @@ static MathBox* MathParseRow(MScan* s, int level) {
                 continue;
             }
             if (wcscmp(cmd, L"left") == 0 || wcscmp(cmd, L"right") == 0) {
-                /* 忽略 \left \right，其后的括号原样输出 */
-                if (s->p < s->end && *s->p == L'.') s->p++;   /* \right. 无括号 */
+                if (s->p < s->end && *s->p == L'.') s->p++;
                 continue;
             }
             if (wcscmp(cmd, L"begin") == 0 || wcscmp(cmd, L"end") == 0) {
-                /* 跳过 {env} */
                 if (s->p < s->end && *s->p == L'{') {
                     while (s->p < s->end && *s->p != L'}') s->p++;
                     if (s->p < s->end) s->p++;
                 }
                 continue;
             }
-            /* 符号表 */
             int found = -1;
             for (int k = 0; k < (int)(sizeof(kSym) / sizeof(kSym[0])); k++) {
                 if (wcscmp(cmd, kSym[k].cmd) == 0) { found = k; break; }
@@ -378,7 +352,6 @@ static MathBox* MathParseRow(MScan* s, int level) {
                 if (g) { g->spaceAfter = UI_Scale(2); MbAdd(row, g); }
                 continue;
             }
-            /* 未知命令：原样显示 \cmd */
             FLUSH();
             wchar_t ub[24];
             ub[0] = L'\\';
@@ -387,7 +360,6 @@ static MathBox* MathParseRow(MScan* s, int level) {
             MbAdd(row, MbGlyphs(ub, u2, level, FALSE));
             continue;
         }
-        /* 普通字符：字母斜体连排，数字/标点正体 */
         BOOL it = iswalpha(c) != 0;
         if (nb > 0 && (it != lastItalic || lastLevel != level)) FLUSH();
         lastItalic = it;
@@ -416,8 +388,6 @@ MathBox* Math_Build(const wchar_t* latex) {
     return MathParseRow(&s, 0);
 }
 
-/* ============================ 度量与绘制 ============================ */
-
 static HFONT MathFont(const MdFonts* f, int level, BOOL italic) {
     switch (level) {
         case 1:  return italic ? f->mathItS : f->mathUpS;
@@ -426,9 +396,6 @@ static HFONT MathFont(const MdFonts* f, int level, BOOL italic) {
     }
 }
 
-/* Cambria Math 的 GDI 行度量异常臃肿（usWinAsc+usWinDesc≈5.6em：26px 字体
-   tmHeight=145、tmAscent=81），拿 tmAscent/tmHeight 当盒子度量会把分母、
-   上标甩出老远。改用字体的请求高度近似 em 盒：asc≈0.75em。 */
 static int MathFontEm(HFONT fo) {
     LOGFONTW lf;
     if (GetObjectW(fo, sizeof(lf), &lf) && lf.lfHeight < 0)
@@ -452,7 +419,7 @@ static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f) {
             GetTextExtentPoint32W(hdc, b->text, (int)wcslen(b->text), &sz);
             SelectObject(hdc, of);
             b->w = sz.cx + b->spaceAfter;
-            int em = MathFontEm(fo);   /* 度量见 MathFontEm 注释 */
+            int em = MathFontEm(fo);
             b->h = em;
             b->asc = em * 3 / 4;
             break;
@@ -480,7 +447,7 @@ static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f) {
             int nw = num ? num->w : 0, dw = den ? den->w : 0;
             int w = (nw > dw ? nw : dw) + UI_Scale(8);
             int em = MathFontEm(MathFont(f, b->level, TRUE));
-            int axis = em / 4;              /* 数学轴：基线上 0.25em（与 Draw 一致） */
+            int axis = em / 4;
             int gap = UI_Scale(2);
             int nu = num ? num->asc : 0;
             int du = den ? den->asc : 0;
@@ -501,8 +468,6 @@ static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f) {
             int baseAsc = base ? base->asc
                                : MathFontEm(MathFont(f, b->level, FALSE)) * 3 / 4;
             int asc = baseAsc, desc = base ? base->h - base->asc : 0;
-            /* 上标基线抬升：底字 ascent 的 60%（存下供 Draw 直接用，
-               避免再用膨胀后的整盒 asc 二次放大） */
             b->raiseY = baseAsc * 3 / 5;
             if (sup) {
                 if (base && base->w + sup->w > w) w = base->w + sup->w;
@@ -585,7 +550,7 @@ static void MbDraw(const MathBox* b, HDC hdc, int x, int yBase,
             const MathBox* num = b->nKids > 0 ? b->kids[0] : NULL;
             const MathBox* den = b->nKids > 1 ? b->kids[1] : NULL;
             int em = MathFontEm(MathFont(f, b->level, TRUE));
-            int axis = yBase - em / 4;   /* 与 MbMeasure 的 axis 同源 */
+            int axis = yBase - em / 4;
             if (num)
                 MbDraw(num, hdc, x + (b->w - num->w) / 2, axis - UI_Scale(2), f, th);
             HPEN pen = CreatePen(PS_SOLID, 1, th->fg);
@@ -619,7 +584,6 @@ static void MbDraw(const MathBox* b, HDC hdc, int x, int yBase,
             int top = yBase - b->asc;
             HPEN pen = CreatePen(PS_SOLID, (1 + b->level == 0 ? 1 : 1), th->fg);
             HPEN op = (HPEN)SelectObject(hdc, pen);
-            /* 根号：折线 */
             MoveToEx(hdc, x, yBase - (b->h - b->asc) / 2 - (b->asc - (body ? body->asc : 0)) / 2, NULL);
             LineTo(hdc, x + glyphW / 3, yBase + UI_Scale(2));
             LineTo(hdc, x + glyphW, top + UI_Scale(1));
@@ -639,7 +603,6 @@ static void MbDraw(const MathBox* b, HDC hdc, int x, int yBase,
             const MathBox* g = b->nKids > 0 ? b->kids[0] : NULL;
             if (g) {
                 MbDraw(g, hdc, x, yBase, f, th);
-                /* 上下限由 SCRIPT 挂接（BIGOP 后随 ^/_ 会转成脚本盒挂前一个） */
             }
             break;
         }
@@ -653,7 +616,6 @@ void Math_Draw(const MathBox* b, HDC hdc, int x, int yBase,
     MbDraw(b, hdc, x, yBase, f, th);
 }
 
-/* 不透明访问器（mdview 布局用） */
 int Math_Width(const MathBox* b)  { return b ? b->w : 0; }
 int Math_Height(const MathBox* b) { return b ? b->h : 0; }
 int Math_Ascent(const MathBox* b) { return b ? b->asc : 0; }

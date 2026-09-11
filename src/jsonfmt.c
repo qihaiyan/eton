@@ -1,44 +1,37 @@
 #include "common.h"
 
-/* ---------- JSON 单遍校验 + 格式化/压缩 ----------
-   按 RFC 8259 逐字符解析，边解析边输出：
-   - 格式化：按嵌套深度缩进，键后补一个空格，"," 与 "}" 前换行；
-   - 压缩：只输出 token 本身，不含任何空白。
-   字符串与数字按原文透传（保留 \uXXXX 等转义写法），不重排内容。
-   所有解析均以长度为界，不依赖 NUL 结尾，故可直接处理选区/含 NUL 的字节。 */
-
 enum {
     JOK = 0,
-    JERR_EMPTY,        /* 无 JSON 内容 */
-    JERR_EOF,          /* 意外结束 */
-    JERR_CHAR,         /* 无效字符，应为 JSON 值 */
-    JERR_STRING_CTRL,  /* 字符串含未转义控制字符 */
-    JERR_ESCAPE,       /* 非法转义 */
-    JERR_UNICODE,      /* \u 后非 4 位十六进制 */
-    JERR_NUMBER,       /* 数字格式错误 */
-    JERR_LITERAL,      /* true/false/null 拼写错误 */
-    JERR_KEY,          /* 对象键不是字符串 */
-    JERR_COLON,        /* 键后缺 ':' */
-    JERR_COMMA_OBJ,    /* 期望 ',' 或 '}' */
-    JERR_COMMA_ARR,    /* 期望 ',' 或 ']' */
-    JERR_TRAILING,     /* 值结束后有多余内容 */
-    JERR_DEPTH,        /* 嵌套过深 */
-    JERR_MEM           /* 内存不足 */
+    JERR_EMPTY,
+    JERR_EOF,
+    JERR_CHAR,
+    JERR_STRING_CTRL,
+    JERR_ESCAPE,
+    JERR_UNICODE,
+    JERR_NUMBER,
+    JERR_LITERAL,
+    JERR_KEY,
+    JERR_COLON,
+    JERR_COMMA_OBJ,
+    JERR_COMMA_ARR,
+    JERR_TRAILING,
+    JERR_DEPTH,
+    JERR_MEM
 };
 
 #define JMAX_DEPTH 500
 
 typedef struct {
-    const char* s;     /* 输入（UTF-8 字节流） */
-    size_t n;          /* 输入长度 */
-    size_t i;          /* 读位置 */
-    char* o;           /* 输出缓冲（可增长） */
-    size_t ol, oc;     /* 已用 / 容量 */
+    const char* s;
+    size_t n;
+    size_t i;
+    char* o;
+    size_t ol, oc;
     BOOL minify;
-    const char* nl;    /* 换行串 */
-    const char* ind;   /* 一级缩进串 */
+    const char* nl;
+    const char* ind;
     int depth;
-    size_t errPos;     /* 出错字节偏移（相对输入起点） */
+    size_t errPos;
     int errCode;
 } J;
 
@@ -80,7 +73,6 @@ static int jhex(char c) {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
 
-/* 解析并原样输出一个字符串（当前字符为 '"'） */
 static int jstr(J* j) {
     size_t start = j->i;
     j->i++;
@@ -105,13 +97,12 @@ static int jstr(J* j) {
         } else if (c < 0x20) {
             jfail(j, j->i, JERR_STRING_CTRL); return 0;
         } else {
-            j->i++;   /* 含 UTF-8 多字节序列，原样透传 */
+            j->i++;
         }
     }
     return jout(j, j->s + start, j->i - start);
 }
 
-/* 解析并原样输出一个数字（严格 RFC 8259 语法） */
 static int jnum(J* j) {
     size_t start = j->i;
     if (j->i < j->n && j->s[j->i] == '-') j->i++;
@@ -119,7 +110,7 @@ static int jnum(J* j) {
     if (j->s[j->i] == '0') {
         j->i++;
         if (j->i < j->n && j->s[j->i] >= '0' && j->s[j->i] <= '9') {
-            jfail(j, j->i, JERR_NUMBER); return 0;   /* 不允许前导零 */
+            jfail(j, j->i, JERR_NUMBER); return 0;
         }
     } else if (j->s[j->i] >= '1' && j->s[j->i] <= '9') {
         while (j->i < j->n && j->s[j->i] >= '0' && j->s[j->i] <= '9') j->i++;
@@ -157,7 +148,7 @@ static int jval(J* j);
 
 static int jobj(J* j) {
     if (j->depth >= JMAX_DEPTH) { jfail(j, j->i, JERR_DEPTH); return 0; }
-    j->i++;   /* '{' */
+    j->i++;
     if (!jout(j, "{", 1)) return 0;
     j->depth++;
     jws(j);
@@ -194,7 +185,7 @@ static int jobj(J* j) {
 
 static int jarr(J* j) {
     if (j->depth >= JMAX_DEPTH) { jfail(j, j->i, JERR_DEPTH); return 0; }
-    j->i++;   /* '[' */
+    j->i++;
     if (!jout(j, "[", 1)) return 0;
     j->depth++;
     jws(j);
@@ -239,9 +230,6 @@ static int jval(J* j) {
     }
 }
 
-/* 对 [src, src+len) 做 JSON 校验并重新输出。
-   成功返回 1，*out/*outLen 为新缓冲（调用方 free）；
-   失败返回 0，*errPos 为出错字节偏移，*errCode 为错误码。 */
 static int Json_Reprint(const char* src, size_t len, int minify,
                         const char* nl, const char* ind,
                         char** out, size_t* outLen,
@@ -253,7 +241,6 @@ static int Json_Reprint(const char* src, size_t len, int minify,
     if (!jval(&j)) { *errPos = j.errPos; *errCode = j.errCode; return 0; }
     jws(&j);
     if (j.i < j.n) { *errPos = j.i; *errCode = JERR_TRAILING; return 0; }
-    /* 输入末尾若有换行（可带尾随空白），输出同样保留一行 */
     for (size_t k = len; k > 0; k--) {
         char c = src[k - 1];
         if (c == ' ' || c == '\t') continue;
@@ -267,15 +254,11 @@ static int Json_Reprint(const char* src, size_t len, int minify,
 }
 
 static const wchar_t* JsonErrText(int code) {
-    /* 错误码与 i18n.h 的 STR_JERR_* 顺序一一对应（JERR_EMPTY 起） */
     if (code >= JERR_EMPTY && code <= JERR_MEM)
         return T((StrId)(STR_JERR_EMPTY + (code - JERR_EMPTY)));
     return T(STR_JERR_UNKNOWN);
 }
 
-/* ---------- 对当前文档执行 JSON 格式化 / 压缩 ----------
-   有选区时只处理选区，否则处理整个文档；
-   解析失败时提示行列并选中出错字符，成功则整块替换（可撤销）。 */
 void Json_FormatActiveDoc(BOOL minify) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     Doc* d = &g_docs[g_curDoc];
@@ -292,7 +275,6 @@ void Json_FormatActiveDoc(BOOL minify) {
         return;
     }
 
-    /* 大文档门槛：格式化在内存构建整份输出，超大内容会拖垮内存与耗时 */
     if (end - start > (Sci_Position)(100 * 1024 * 1024)) {
         wchar_t msg[128];
         wsprintf(msg, T(STR_MSG_JSON_BIG), 100);
@@ -310,7 +292,6 @@ void Json_FormatActiveDoc(BOOL minify) {
     tr.lpstrText = src;
     SendMessage(hed, SCI_GETTEXTRANGE, 0, (LPARAM)&tr);
 
-    /* 缩进跟随文档的 Tab 设置；换行跟随文档的行尾格式 */
     char ind[16];
     int useTabs = (int)SendMessage(hed, SCI_GETUSETABS, 0, 0);
     int tabW = (int)SendMessage(hed, SCI_GETTABWIDTH, 0, 0);
@@ -337,7 +318,6 @@ void Json_FormatActiveDoc(BOOL minify) {
                    line + 1, col, JsonErrText(errCode));
         msg[255] = L'\0';
         MessageBoxW(g_hwndMain, msg, minify ? T(STR_JSON_TITLE_MIN) : T(STR_JSON_TITLE_FMT), MB_ICONERROR);
-        /* 选中出错处的字符并滚动到可见位置 */
         SendMessage(hed, SCI_GOTOPOS, abs, 0);
         SendMessage(hed, SCI_SETSEL, abs, (abs < docLen) ? abs + 1 : abs);
         SendMessage(hed, SCI_SCROLLCARET, 0, 0);

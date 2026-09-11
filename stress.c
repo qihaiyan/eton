@@ -1,11 +1,3 @@
-/* stress.c — mermaid 解析/布局/释放 压力探针：定位堆损坏。
-   用法：stress [--chk] file1.mmd [file2.mmd ...]（每文件 3000 次解析-测量-释放）
-     --chk：CRT 调试堆全量校验（需把构建中 /MT /O2 换成 /MTd /Od /Zi 才生效）
-   构建（x64 Native Tools 下，在仓库根）：
-     cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
-        /Isrc /Ideps\scintilla /Ideps\lexilla /Ideps\md4c ^
-        /Febuild\stress.exe stress.c src\mermaid.c ^
-        /link /SUBSYSTEM:CONSOLE user32.lib gdi32.lib kernel32.lib */
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +16,7 @@ static HFONT Mk(int px, int weight, BOOL it, const wchar_t* face) {
 int main(int argc, char** argv) {
     if (argc < 2) { printf("usage: stress [--chk] in.mmd ...\n"); return 1; }
     BOOL chk = argc > 1 && strcmp(argv[1], "--chk") == 0;
-    if (chk) {   /* --chk：CRT 调试堆全量校验（需 /MTd 构建方有效） */
+    if (chk) {
         argv++; argc--;
         _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
         _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);

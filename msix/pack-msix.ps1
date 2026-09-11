@@ -1,19 +1,4 @@
-﻿# ============================================================================
-#  eton MSIX 打包脚本
-#
-#  用法:
-#    pack-msix.ps1                        本地测试包(默认标识 + 自签名开关见下)
-#    pack-msix.ps1 -Sign                  本地测试包并用自签名证书签名(用于本机安装测试)
-#    pack-msix.ps1 -Name <保留名> -Publisher "CN=..." -Version 0.0.1.0
-#                                         商店提交包(使用 Partner Center 的
-#                                         Package/Identity 值,提交时包保持未签名,
-#                                         商店会在上架时统一签名)
-#
-#  前置条件:
-#    - eton.exe 已由 build.bat 构建在仓库根目录
-#    - Windows SDK(makeappx.exe / signtool.exe)
-# ============================================================================
-param(
+﻿param(
     [string]$Name = "ETON",
     [string]$Publisher = "CN=ETON Local Test",
     [string]$Version = "0.0.1.0",
@@ -25,13 +10,11 @@ $root = Split-Path -Parent $PSScriptRoot
 $exe  = Join-Path $root "eton.exe"
 if (-not (Test-Path $exe)) { throw "未找到 eton.exe,请先运行 build.bat" }
 
-# 商店规则:版本第 4 段(修订号)必须为 0,形如 0.0.2.1 会被上传校验拒绝
 $rev = ($Version -split '\.')[3]
 if ($null -ne $rev -and $rev -ne '0') {
     Write-Warning "版本 $Version 的第 4 段(修订号)非 0:微软商店会拒绝此包(包接受验证错误);本机侧载不受影响。"
 }
 
-# ---------- 定位 SDK 工具 ----------
 $sdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
 $makeappx = Get-ChildItem $sdkRoot -Recurse -Filter makeappx.exe -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -match "\\x64\\" } |
@@ -41,7 +24,6 @@ $signtool = Get-ChildItem $sdkRoot -Recurse -Filter signtool.exe -ErrorAction Si
             Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
 if (-not $makeappx) { throw "未找到 makeappx.exe,请安装 Windows SDK" }
 
-# ---------- 布局目录 ----------
 $layout = Join-Path $root "build\msix\layout"
 if (Test-Path $layout) { Remove-Item $layout -Recurse -Force }
 New-Item $layout -ItemType Directory -Force | Out-Null
@@ -49,7 +31,6 @@ New-Item (Join-Path $layout "Assets") -ItemType Directory -Force | Out-Null
 
 Copy-Item $exe $layout
 
-# ---------- 从 res\app.png 生成图标资产 ----------
 Add-Type -AssemblyName System.Drawing
 $srcImg = [System.Drawing.Image]::FromFile((Join-Path $root "res\app.png"))
 function Save-Scaled([int]$px, [string]$file) {
@@ -72,18 +53,15 @@ Save-Scaled 50  "StoreLogo.scale-100.png"
 Save-Scaled 50  "StoreLogo.png"
 $srcImg.Dispose()
 
-# ---------- 生成 AppxManifest.xml ----------
 $manifest = Get-Content (Join-Path $PSScriptRoot "AppxManifest.template.xml") -Raw -Encoding UTF8
 $manifest = $manifest.Replace("__NAME__", $Name).Replace("__PUBLISHER__", $Publisher).Replace("__VERSION__", $Version)
 [System.IO.File]::WriteAllText((Join-Path $layout "AppxManifest.xml"), $manifest, (New-Object System.Text.UTF8Encoding $false))
 
-# ---------- 打包 ----------
 $outMsix = Join-Path $root ("eton-{0}-x64.msix" -f $Version)
 if (Test-Path $outMsix) { Remove-Item $outMsix -Force }
 & $makeappx pack /o /v /d $layout /p $outMsix
 if ($LASTEXITCODE -ne 0) { throw "makeappx 打包失败" }
 
-# ---------- 可选:自签名(仅用于本机安装测试) ----------
 if ($Sign) {
     if (-not $signtool) { throw "未找到 signtool.exe" }
     $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $Publisher -and $_.HasPrivateKey }

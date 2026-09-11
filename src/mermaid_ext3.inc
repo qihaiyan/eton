@@ -1,12 +1,4 @@
-/* ================================================================
-   mermaid 扩展图族 · 三：timeline / journey / gantt / xychart /
-   mindmap / gitGraph 的布局绘制，及 Ext* 总分发。
-   由 mermaid.c 末尾 include。
-   ================================================================ */
 
-/* ---------------- timeline ----------------
-   mermaid v10 风格：标题居中 + 分时段着色的水平轴线，
-   事件圆点骑轴、上下交替悬挂文字（圆点→竖线→文字块）。 */
 static COLORREF TlColor(const MdTheme* th, int idx) {
     int dark = (GetRValue(th->bg) + GetGValue(th->bg) + GetBValue(th->bg)) < 384;
     static const COLORREF kLight[6] = {
@@ -18,7 +10,6 @@ static COLORREF TlColor(const MdTheme* th, int idx) {
     return (dark ? kDark : kLight)[idx % 6];
 }
 
-/* 事件文字块尺寸与时段段宽（两处共用） */
 static int TlEvBlockW(HDC hdc, const MdFonts* f, TlEv* ev) {
     int w = TextW(hdc, f->body, ev->head);
     if (ev->body[0]) {
@@ -83,7 +74,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
             else            { if (need > belowH) belowH = need; }
         }
 
-    /* 标题居中 */
     if (p->title[0]) {
         HFONT of = (HFONT)SelectObject(hdc, f->bold);
         int tw = TextW(hdc, f->bold, p->title);
@@ -101,7 +91,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
         int segW = TlSegW(hdc, f, s);
         COLORREF pc = TlColor(th, i);
 
-        /* 时段轴段（着色，端点略内缩成圆头感） */
         HPEN seg = CreatePen(PS_SOLID, UI_Scale(3), pc);
         HPEN op = (HPEN)SelectObject(hdc, seg);
         MoveToEx(hdc, x, axisY, NULL);
@@ -109,7 +98,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
         SelectObject(hdc, op);
         DeleteObject(seg);
 
-        /* 时段标签：加粗着色，段上方居中 */
         {
             HFONT of = (HFONT)SelectObject(hdc, f->bold);
             int lw = TextW(hdc, f->bold, s->title);
@@ -120,7 +108,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
             SelectObject(hdc, of);
         }
 
-        /* 事件：圆点骑轴，竖线连文字，上/下交替 */
         int ex = x + TextW(hdc, f->bold, s->title) / 2 + UI_Scale(12);
         HBRUSH dotBr = CreateSolidBrush(pc);
         for (int j = 0; j < s->n; j++) {
@@ -130,7 +117,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
             int dotX = ex + bw / 2;
             BOOL up = (j % 2 == 0);
 
-            /* 竖线 */
             HPEN st = CreatePen(PS_SOLID, UI_Scale(2), pc);
             HPEN op2 = (HPEN)SelectObject(hdc, st);
             if (up) {
@@ -143,7 +129,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
             SelectObject(hdc, op2);
             DeleteObject(st);
 
-            /* 圆点（描边用底色断开轴线） */
             HPEN np = CreatePen(PS_SOLID, 1, th->bg);
             HPEN op3 = (HPEN)SelectObject(hdc, np);
             HBRUSH ob = (HBRUSH)SelectObject(hdc, dotBr);
@@ -152,7 +137,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
             SelectObject(hdc, op3);
             DeleteObject(np);
 
-            /* 文字块（以圆点为中心水平居中） */
             int tx = dotX - bw / 2 + UI_Scale(8) - UI_Scale(0);
             if (up) {
                 int ty = axisY - stem - bh;
@@ -188,7 +172,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
     }
 }
 
-/* ---------------- journey ---------------- */
 static COLORREF JrnScoreColor(const MdTheme* th, int score) {
     int dark = (GetRValue(th->bg) + GetGValue(th->bg) + GetBValue(th->bg)) < 384;
     if (score >= 4) return dark ? RGB(108,168,94) : RGB(84,152,66);
@@ -273,7 +256,6 @@ static void JrnDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     }
 }
 
-/* ---------------- gantt ---------------- */
 static void GanLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     GanD* p = (GanD*)d->ext;
     int rowH = UI_Scale(26);
@@ -311,7 +293,6 @@ static void GanDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     int T = y + axisH;
     double pxPerDay = (double)plotW / days;
     int totalRows = p->n + p->nsecs;
-    /* 月份刻度与竖向网格 */
     SetTextColor(hdc, th->fgMuted);
     HFONT sf = (HFONT)SelectObject(hdc, f->sm);
     HPEN grid = CreatePen(PS_SOLID, 1, th->tableLine);
@@ -334,12 +315,10 @@ static void GanDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     }
     SelectObject(hdc, op);
     DeleteObject(grid);
-    /* 任务行（节标题作为分组行内联显示） */
     int row = 0;
     int secShown = 0;
     for (int i = 0; i < p->n; i++) {
         GanTask* t = &p->t[i];
-        /* 在任务开始前展示尚未展示的节标题（简化：全部前置一次展示） */
         if (secShown < p->nsecs && i == 0) {
             for (int k = 0; k < p->nsecs; k++) {
                 if (!p->secs[k].name[0]) continue;
@@ -372,7 +351,6 @@ static void GanDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     }
 }
 
-/* ---------------- xychart ---------------- */
 static void XyLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     XyD* p = (XyD*)d->ext;
     int W = UI_Scale(420), H = UI_Scale(260);
@@ -479,7 +457,6 @@ static void XyDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
     }
 }
 
-/* ---------------- mindmap ---------------- */
 static int MnSubtreeH(MnD* p, int idx) {
     MnNode* n = &p->ns[idx];
     int firstChild = -1, lastChildEnd = idx;
@@ -534,7 +511,7 @@ static void MnLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     int padX = UI_Scale(12), padY = UI_Scale(6);
     for (int i = 0; i < p->n; i++) {
         MnNode* n = &p->ns[i];
-        HFONT mf = i == 0 ? f->bold : f->body;   /* 根节点加粗绘制，测量须同字体 */
+        HFONT mf = i == 0 ? f->bold : f->body;
         n->w = TextW(hdc, mf, n->text) + padX * 2;
         n->h = FontH(hdc, mf) + padY * 2;
         if (n->shape == MER_CIRCLE) {
@@ -550,8 +527,6 @@ static void MnLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     for (int i = 0; i < p->n; i++)
         p->ns[i].x = UI_Scale(12) + p->ns[i].depth * levelW;
     MnPlace(p, 0, UI_Scale(12));
-    /* 子树围绕根居中时顶层节点可能拿到负 y（画到画布上方被裁）：
-       整体下移补齐到上边距 */
     {
         int minY = 0x7FFFFFFF;
         for (int i = 0; i < p->n; i++)
@@ -604,9 +579,6 @@ static void MnDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
         RECT rc = RectMake4(l + UI_Scale(4), t + UI_Scale(2), r - UI_Scale(4), b - UI_Scale(2));
         SetTextColor(hdc, th->merNodeText);
         HFONT of = (HFONT)SelectObject(hdc, i == 0 ? f->bold : f->body);
-        /* DT_NOPREFIX：标签里的 & 按字面渲染，且避开助记符处理路径。
-           注意文字变"条带"的根因在 Mermaid_Draw 入口统一复位了
-           SetTextAlign —— 上游 TA_BASELINE 残留会破坏 DT_VCENTER 光栅化 */
         DrawTextW(hdc, n->text, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(hdc, of);
     }
@@ -614,7 +586,6 @@ static void MnDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
     DeleteObject(nb);
 }
 
-/* ---------------- gitGraph ---------------- */
 static void GitLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     GitD* g = (GitD*)d->ext;
     int maxLane = 0;
@@ -704,11 +675,10 @@ static void GitDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     }
 }
 
-/* ---------------- Ext* 分发 ---------------- */
 static BOOL ExtParse(MermaidDiagram* d, const char* src, int len, int pos) {
     wchar_t line[1024];
     switch (d->kind) {
-        case 2: {   /* state */
+        case 2: {
             FlowCtx c; ZeroMemory(&c, sizeof(c));
             c.curSub = -1;
             while (pos < len) {
@@ -722,7 +692,7 @@ static BOOL ExtParse(MermaidDiagram* d, const char* src, int len, int pos) {
             d->subs = c.ss; d->nSubs = c.nS;
             return TRUE;
         }
-        case 3: {   /* class */
+        case 3: {
             FlowCtx c; ZeroMemory(&c, sizeof(c));
             c.curSub = -1;
             if (!ClassParse(&c, src, len, pos)) {
@@ -735,7 +705,7 @@ static BOOL ExtParse(MermaidDiagram* d, const char* src, int len, int pos) {
             d->subs = c.ss; d->nSubs = c.nS;
             return TRUE;
         }
-        case 4: {   /* er */
+        case 4: {
             FlowCtx c; ZeroMemory(&c, sizeof(c));
             c.curSub = -1;
             if (!ErParse(&c, src, len, pos)) {

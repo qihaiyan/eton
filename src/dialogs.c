@@ -6,21 +6,17 @@ wchar_t g_replText[512];
 BOOL g_findCase = FALSE, g_findWord = FALSE, g_findDown = TRUE;
 BOOL g_findRegex = FALSE;
 
-HWND g_hFindDlg = NULL;   /* 非模态查找/替换对话框（空 = 未打开） */
+HWND g_hFindDlg = NULL;
 
 LONG g_findStart = 0;
 
-/* Scintilla uses UTF-8 internally; our search UI uses wchar_t.
-   DoFindFrom works on wchar_t by pulling UTF-8 text and converting.
-   Position returned is a Scintilla byte position. */
 LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re, BOOL down, LONG start, BOOL wrap, BOOL* found) {
     *found = FALSE;
     if (!hed) return -1;
-    /* Convert search text to UTF-8 */
     char utf8[1024];
     int u8len = WideCharToMultiByte(CP_UTF8, 0, text, -1, utf8, sizeof(utf8), NULL, NULL);
     if (u8len <= 0) return -1;
-    u8len--; /* exclude null terminator */
+    u8len--;
 
     Sci_Position docLen = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
     if (docLen == 0) return -1;
@@ -31,8 +27,6 @@ LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re, BOOL d
     if (re) flags |= SCFIND_REGEXP;
     SendMessage(hed, SCI_SETSEARCHFLAGS, flags, 0);
 
-    /* First search from given start; 返回"下次查找起点"：
-       向下 = 匹配结束位置（正则的 \d+ 等不能按原文长度推算），向上 = 匹配起点 */
     SendMessage(hed, SCI_SETTARGETSTART, start, 0);
     SendMessage(hed, SCI_SETTARGETEND, down ? docLen : 0, 0);
     Sci_Position pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8);
@@ -42,7 +36,6 @@ LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re, BOOL d
         *found = TRUE;
         return down ? (LONG)SendMessage(hed, SCI_GETTARGETEND, 0, 0) : (LONG)pos;
     }
-    /* Wrap search */
     if (wrap) {
         if (down) {
             SendMessage(hed, SCI_SETTARGETSTART, 0, 0);
@@ -62,7 +55,6 @@ LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re, BOOL d
     return -1;
 }
 
-/* ---------------- 全部高亮（indicator 20） ---------------- */
 void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re) {
     if (!hed) return;
     SendMessage(hed, SCI_SETINDICATORCURRENT, 20, 0);
@@ -85,7 +77,7 @@ void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re) {
     while (count < 2000 &&
            (pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8)) >= 0) {
         Sci_Position end = (Sci_Position)SendMessage(hed, SCI_GETTARGETEND, 0, 0);
-        if (end <= pos) end = pos + 1;   /* 零宽匹配（如 a*）防死循环 */
+        if (end <= pos) end = pos + 1;
         SendMessage(hed, SCI_INDICATORFILLRANGE, pos, end - pos);
         SendMessage(hed, SCI_SETTARGETSTART, end, 0);
         SendMessage(hed, SCI_SETTARGETEND, docLen, 0);
@@ -93,14 +85,13 @@ void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re) {
     }
 }
 
-/* 读取对话框上的查找选项，并处理"激活文档变化后起点失效"的情况 */
 static void ReadFindOptions(HWND hdlg, HWND* lastEdit) {
     GetDlgItemTextW(hdlg, IDC_FIND_TEXT, g_findText, 512);
     g_findCase = IsDlgButtonChecked(hdlg, IDC_FIND_CASE) == BST_CHECKED;
     g_findWord = IsDlgButtonChecked(hdlg, IDC_FIND_WORD) == BST_CHECKED;
     g_findRegex = IsDlgButtonChecked(hdlg, IDC_FIND_REGEX) == BST_CHECKED;
     HWND hed = Editor_ActiveEdit();
-    if (hed != *lastEdit) {   /* 换了文档：起点重置为光标处 */
+    if (hed != *lastEdit) {
         *lastEdit = hed;
         g_findStart = (hed) ? (LONG)SendMessage(hed, SCI_GETCURRENTPOS, 0, 0) : 0;
     }
@@ -111,7 +102,6 @@ static void DestroyFindDlg(HWND hdlg) {
     DestroyWindow(hdlg);
 }
 
-/* ---------------- Find ---------------- */
 static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static HWND s_lastEdit = NULL;
     if (msg == WM_INITDIALOG) {
@@ -143,7 +133,7 @@ static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
                 Find_MarkAll(hed, g_findText, g_findCase, g_findWord, g_findRegex);
             } else {
                 SetDlgItemTextW(hdlg, IDC_FIND_STATUS, T(STR_NO_MATCH));
-                Find_MarkAll(hed, L"", FALSE, FALSE, FALSE);   /* 清除旧高亮 */
+                Find_MarkAll(hed, L"", FALSE, FALSE, FALSE);
             }
             return TRUE;
         }
@@ -154,7 +144,6 @@ static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     return FALSE;
 }
 
-/* ---------------- Replace ---------------- */
 static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static HWND s_lastEdit = NULL;
     if (msg == WM_INITDIALOG) {
@@ -200,7 +189,6 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             int u8len = WideCharToMultiByte(CP_UTF8, 0, g_findText, -1, utf8find, sizeof(utf8find), NULL, NULL) - 1;
             WideCharToMultiByte(CP_UTF8, 0, g_replText, -1, utf8repl, sizeof(utf8repl), NULL, NULL);
             if (g_findRegex) {
-                /* 正则：从起点搜到一处即原地替换（支持 \1 分组引用） */
                 SendMessage(hed, SCI_SETSEARCHFLAGS, SCFIND_REGEXP |
                             (g_findCase ? SCFIND_MATCHCASE : 0), 0);
                 SendMessage(hed, SCI_SETTARGETSTART, g_findStart, 0);
@@ -220,11 +208,9 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return TRUE;
             }
-            /* Check if current selection matches find text */
             Sci_Position selStart = (Sci_Position)SendMessage(hed, SCI_GETSELECTIONSTART, 0, 0);
             Sci_Position selEnd = (Sci_Position)SendMessage(hed, SCI_GETSELECTIONEND, 0, 0);
             if (selEnd - selStart == u8len) {
-                /* Get selected text and compare */
                 char selbuf[1024];
                 SendMessage(hed, SCI_GETSELTEXT, 0, (LPARAM)selbuf);
                 BOOL eq = g_findCase ? (strcmp(selbuf, utf8find) == 0) : (_stricmp(selbuf, utf8find) == 0);
@@ -248,7 +234,6 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             int rlen = WideCharToMultiByte(CP_UTF8, 0, g_replText, -1, utf8repl, sizeof(utf8repl), NULL, NULL) - 1;
             if (rlen < 0) rlen = 0;
             int count = 0;
-            /* Target whole doc */
             SendMessage(hed, SCI_SETTARGETSTART, 0, 0);
             SendMessage(hed, SCI_SETTARGETEND, (WPARAM)SendMessage(hed, SCI_GETLENGTH, 0, 0), 0);
             int flags = 0;
@@ -258,13 +243,11 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             SendMessage(hed, SCI_SETSEARCHFLAGS, flags, 0);
             Sci_Position pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8find);
             while (pos >= 0) {
-                /* Replace: set target to found range and replace */
                 Sci_Position tend = (Sci_Position)SendMessage(hed, SCI_GETTARGETEND, 0, 0);
                 SendMessage(hed, SCI_SETTARGETSTART, pos, 0);
                 SendMessage(hed, SCI_SETTARGETEND, tend, 0);
                 SendMessage(hed, SCI_REPLACETARGET, -1, (LPARAM)utf8repl);
                 count++;
-                /* Continue from after replacement（零宽/空替换防死循环） */
                 Sci_Position newpos = pos + rlen;
                 if (newpos < tend) newpos = tend;
                 if (newpos <= pos) newpos = pos + 1;
@@ -286,7 +269,6 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 void Dlg_Find(HWND hwnd, BOOL replace) {
-    /* 非模态：查找时可继续编辑；重复打开则按新类型重建 */
     if (g_hFindDlg) { DestroyFindDlg(g_hFindDlg); }
     g_hFindDlg = CreateDialogParamW(g_hInst,
                     MAKEINTRESOURCEW(replace ? IDD_REPLACE : IDD_FIND),
@@ -294,7 +276,6 @@ void Dlg_Find(HWND hwnd, BOOL replace) {
     if (g_hFindDlg) ShowWindow(g_hFindDlg, SW_SHOW);
 }
 
-/* ---------------- Goto ---------------- */
 static INT_PTR CALLBACK GotoProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static HWND hed = NULL;
     if (msg == WM_INITDIALOG) {
@@ -315,7 +296,6 @@ static INT_PTR CALLBACK GotoProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             if (line < 1) line = 1;
             if (line > total) line = total;
             if (hed && total > 0) {
-                /* SCI_GOTOLINE scrolls the line into view and places caret */
                 SendMessage(hed, SCI_GOTOLINE, line - 1, 0);
             }
             EndDialog(hdlg, 1);
@@ -332,7 +312,6 @@ void Dlg_Goto(HWND hwnd) {
     DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_GOTO), hwnd, GotoProc, 0);
 }
 
-/* ---------------- About ---------------- */
 static INT_PTR CALLBACK AboutProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_INITDIALOG) { I18n_ApplyDialog(hdlg, IDD_ABOUT); return TRUE; }
     if (msg == WM_COMMAND) {
@@ -347,7 +326,6 @@ void Dlg_About(HWND hwnd) {
     DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_ABOUT), hwnd, AboutProc, 0);
 }
 
-/* ---------------- Open with encoding ---------------- */
 static const struct { Encoding enc; } g_encList[] = {
     { ENC_ANSI     },
     { ENC_UTF8     },

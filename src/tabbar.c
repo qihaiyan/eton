@@ -1,22 +1,15 @@
 #include "common.h"
 
-/* ---------- 自绘标签栏（窗口类 "NPPTabBar"） ----------
-   由 main.c 创建窗口；点击标签发 WM_APP_TABSEL、点 × / 中键发 WM_APP_TABCLOSE、
-   双击空白发 IDM_NEW 给主窗口处理。标签数据（标题/数量/激活）直接读全局 g_docs。
-   标签放不下时右侧显示 ◀▶ 滚动按钮（Marlett 字体字符 3/4）；
-   悬停高亮标签与 × ，并用 tooltip 显示完整路径。 */
-
-static const int ARROW_W_96 = 16;    /* 滚动按钮宽（96-DPI 基准） */
+static const int ARROW_W_96 = 16;
 #define MTBH_SCROLL_STEP UI_Scale(80)
 
-static int  s_scroll = 0;            /* 水平滚动截去的像素 */
-static int  s_hoverTab = -1;         /* 悬停标签索引 */
-static BOOL s_hoverClose = FALSE;    /* 悬停在 × 上 */
-static int  s_hoverArrow = -1;       /* 悬停滚动按钮 0/1 */
-static BOOL s_tracking = FALSE;      /* TrackMouseEvent 已登记 */
-static HWND s_tip = NULL;            /* tooltip 控件 */
+static int  s_scroll = 0;
+static int  s_hoverTab = -1;
+static BOOL s_hoverClose = FALSE;
+static int  s_hoverArrow = -1;
+static BOOL s_tracking = FALSE;
+static HWND s_tip = NULL;
 
-/* tooltip 深/浅主题跟随（DarkMode_Explorer 为系统主题串，失败则保持默认） */
 void TabBar_ApplyTheme(void) {
     if (!s_tip) return;
     typedef BOOL (WINAPI *SetThemeFn)(HWND, LPCWSTR, LPCWSTR);
@@ -26,10 +19,9 @@ void TabBar_ApplyTheme(void) {
     if (st) st(s_tip, g_dark ? L"DarkMode_Explorer" : L"", NULL);
     FreeLibrary(ux);
 }
-static wchar_t s_tipText[1024];      /* tooltip 文本缓冲（控件引用其指针） */
+static wchar_t s_tipText[1024];
 static int  s_tipTab = -1;
 
-/* 计算每个标签的矩形（未滚动坐标系：x 从 0 起累加） */
 static void TabBar_Rects(HWND hwnd, RECT* out, int* n) {
     RECT rc; GetClientRect(hwnd, &rc);
     int count = g_docCount;
@@ -51,7 +43,6 @@ static void TabBar_Rects(HWND hwnd, RECT* out, int* n) {
 
 static int ArrowW(void) { return UI_Scale(ARROW_W_96); }
 
-/* 标签总宽是否超出可视区（决定是否显示滚动按钮） */
 static BOOL TabBar_Overflow(HWND hwnd, int totalW) {
     RECT rc; GetClientRect(hwnd, &rc);
     return totalW > rc.right;
@@ -64,7 +55,6 @@ static void TabBar_ClampScroll(int totalW, int visible) {
     if (s_scroll < 0) s_scroll = 0;
 }
 
-/* 命中测试：返回标签索引（-1 无），closeHit=点在 × 上；arrow=-1/0/1 */
 static int TabBar_HitTest(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow) {
     *closeHit = FALSE;
     if (arrow) *arrow = -1;
@@ -91,7 +81,6 @@ static int TabBar_HitTest(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow)
     return -1;
 }
 
-/* 更新 tooltip 文本（唯一 tool，uId=0） */
 static void TabBar_SetTipText(HWND hwnd, int tab) {
     if (!s_tip) return;
     if (tab == s_tipTab) return;
@@ -145,7 +134,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         int visible = ovf ? (rc.right - 2 * aw) : rc.right;
         TabBar_ClampScroll(totalW, visible);
 
-        /* 保证激活标签可见 */
         if (g_curDoc >= 0 && g_curDoc < n && n > 0) {
             if (rects[g_curDoc].left < s_scroll)
                 s_scroll = rects[g_curDoc].left;
@@ -154,7 +142,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             TabBar_ClampScroll(totalW, visible);
         }
 
-        /* 仅在可视区内绘制标签 */
         if (n > 0) {
             HRGN clip = CreateRectRgn(0, 0, visible, rc.bottom);
             SelectClipRgn(hdc, clip);
@@ -180,7 +167,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 RECT tr = {r.left + UI_Scale(8), r.top, r.right - UI_Scale(18), r.bottom};
                 DrawTextW(hdc, g_docs[i].title, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
                 SelectObject(hdc, old);
-                /* 关闭按钮 ×（悬停时加底色） */
                 RECT cb = {r.right - UI_Scale(16), r.top + (r.bottom - r.top)/2 - UI_Scale(7),
                            r.right - UI_Scale(4),  r.top + (r.bottom - r.top)/2 + UI_Scale(7)};
                 if (hovered && s_hoverClose) {
@@ -196,7 +182,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             DeleteObject(clip);
         }
 
-        /* 滚动按钮（Marlett 字符 3=◀ 4=▶） */
         if (ovf) {
             HFONT mar = CreateFontW(-UI_Scale(10), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -240,14 +225,14 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         BOOL closeHit; int arrow;
         int i = TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow);
         if (i < 0 && arrow < 0)
-            PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(IDM_NEW, 0), 0);   /* 双击空白新建 */
+            PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(IDM_NEW, 0), 0);
         return 0;
     }
     if (msg == WM_MBUTTONDOWN) {
         int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
         BOOL closeHit; int arrow;
         int i = TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow);
-        if (i >= 0) PostMessage(g_hwndMain, WM_APP_TABCLOSE, (WPARAM)i, 0);   /* 中键关闭 */
+        if (i >= 0) PostMessage(g_hwndMain, WM_APP_TABCLOSE, (WPARAM)i, 0);
         return 0;
     }
     if (msg == WM_MOUSEWHEEL) {
@@ -306,7 +291,6 @@ void TabBar_Register(void) {
     RegisterClassExW(&tc);
 }
 
-/* main.c 右键菜单用的命中测试封装（详见 TabBar_HitTest） */
 int TabBar_HitTestPublic(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow) {
     return TabBar_HitTest(hwnd, mx, my, closeHit, arrow);
 }

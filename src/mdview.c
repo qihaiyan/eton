@@ -1,25 +1,15 @@
-/* mdview.c — Markdown 原生预览视图（MD4C 解析 + GDI 自绘）
-   参照 tinta 的架构：解析（md4c.c）→ 块树 → 按宽度排版 → 双缓冲绘制，
-   零 Web 引擎。单一全局子窗口 "ETONMDView"，按当前文档 previewOn 显隐。
-   交互：F12/菜单切换、Esc 退出、滚轮/键盘滚动、链接点击（相对路径按
-   文档所在目录解析）、悬停手型。Mermaid 代码块走 mermaid.c 原生渲染，
-   不支持的图族回退为代码块显示。 */
-
 #include "common.h"
 #include "md4c.h"
 
-/* ============================ 模型 ============================ */
-
-/* 行内样式位 */
 enum { STY_BOLD = 1, STY_EM = 2, STY_CODE = 4, STY_STRIKE = 8,
        STY_LINK = 16, STY_IMG = 32, STY_BR = 64,
        STY_MATH = 128, STY_MATHDISP = 256 };
 
 typedef struct MdRun {
-    wchar_t* text;        /* 拥有；STY_BR 时为 NULL */
+    wchar_t* text;
     unsigned style;
-    wchar_t* href;        /* 拥有；链接/图片目标 */
-    MathBox* math;        /* STY_MATH：由 text(LaTeX) 构建的排版盒（拥有） */
+    wchar_t* href;
+    MathBox* math;
 } MdRun;
 
 typedef struct MdBlock MdBlock;
@@ -31,33 +21,31 @@ typedef enum {
 
 struct MdBlock {
     int type;
-    MdRun* runs; int nRuns;             /* 段落/标题/单元格文本 */
-    int level;                          /* 标题级别 1..6 */
-    wchar_t* code; int codeLen;         /* 代码块原文（宽字符） */
+    MdRun* runs; int nRuns;
+    int level;
+    wchar_t* code; int codeLen;
     char fenceLang[24];
-    MermaidDiagram* diag;               /* mermaid 已解析图表（拥有） */
-    BOOL isTask; wchar_t taskMark;      /* 任务列表项 */
-    int itemNum; wchar_t itemDelim;     /* 有序编号 + 分隔符 */
-    BOOL tight;                         /* 紧凑列表 */
+    MermaidDiagram* diag;
+    BOOL isTask; wchar_t taskMark;
+    int itemNum; wchar_t itemDelim;
+    BOOL tight;
     int nCols, nRows;
-    int* aligns;                        /* 每列对齐 0左 1中 2右 */
-    MdBlock** cells;                    /* nRows*nCols 个单元格块（拥有） */
+    int* aligns;
+    MdBlock** cells;
     MdBlock** children; int nChildren;
 };
 
-/* 排版产物（绘制原语，文档坐标系） */
 typedef enum { ITM_LINES, ITM_RECT, ITM_FRAME, ITM_DIAGRAM, ITM_IMAGE, ITM_MATH } MdItemType;
-/* ITM_RECT 子类型 */
 enum { RCT_CODEBG = 0, RCT_QUOTEBAR, RCT_HRULE, RCT_TABLEHEAD, RCT_CANVAS };
 
 typedef struct MdFrag {
     MdRun* run;
-    const wchar_t* s; int len;          /* 指向 run->text 内部，零拷贝 */
+    const wchar_t* s; int len;
     int x, w;
 } MdFrag;
 
 typedef struct MdLine {
-    int y, h, asc;                      /* asc = 基线相对行顶偏移 */
+    int y, h, asc;
     MdFrag* frags; int nF;
 } MdLine;
 
@@ -66,32 +54,28 @@ typedef struct MdItem {
     RECT rc;
     int flag;
     MdLine* lines; int nLines;
-    int role;                           /* 字体角色：0=body 1..6=标题 7=mono 8=small */
+    int role;
     MermaidDiagram* diag;
-    void* image;                        /* ITM_IMAGE：GpImage*（缓存所有，勿随 item 释放） */
+    void* image;
     UINT imageW, imageH;
-    MdRun* mathRun;                     /* ITM_MATH：借用（盒随 run 释放） */
-    MdRun* ownRun;                      /* 合成 run（列表标记等），随 item 释放 */
+    MdRun* mathRun;
+    MdRun* ownRun;
 } MdItem;
-
-/* ============================ 视图状态 ============================ */
 
 static struct {
     HWND hwnd;
-    MdBlock* root;                      /* 当前文档模型 */
-    int docIdx;                         /* 模型对应 g_docs 下标，-1 无 */
+    MdBlock* root;
+    int docIdx;
     MdItem* items; int nItems, capItems;
     int docH, scrollY, clientW, clientH;
     MdFonts fonts;
     BOOL fontsOk;
-    wchar_t baseDir[MAX_PATH];          /* 文档目录（相对链接解析） */
+    wchar_t baseDir[MAX_PATH];
     HCURSOR hHand;
-    /* 自绘滚动条 */
     BOOL sbDrag; int sbDragOff;
     int lastLayoutW;
 } V;
 
-/* ============================ GDI+ 图片（平铺 API，动态加载） ============================ */
 typedef void* GpImage;
 typedef void* GpGraphics;
 typedef struct { UINT32 GdiplusVersion; void* Deb; BOOL sbt, sec; } GdipStartupInput;
@@ -112,7 +96,6 @@ static BOOL s_gdipOk = FALSE;
 static void GdipInit(void) {
     HMODULE g = LoadLibraryW(L"gdiplus.dll");
     if (!g) return;
-    /* 注意：Startup/Shutdown 导出名是 "Gdiplus" 前缀，其余 flat API 是 "Gdip" */
     p_GdipStartup = (void*)GetProcAddress(g, "GdiplusStartup");
     p_GdipShutdown = (void*)GetProcAddress(g, "GdiplusShutdown");
     p_GdipCreateBitmapFromFile = (void*)GetProcAddress(g, "GdipCreateBitmapFromFile");
@@ -132,7 +115,6 @@ static void GdipInit(void) {
     if (p_GdipStartup(&tok, &si, NULL) == 0) s_gdipOk = TRUE;
 }
 
-/* 图片缓存（路径 → GpImage*，LRU 上限 16） */
 typedef struct { wchar_t path[MAX_PATH]; GpImage* img; UINT w, h; } ImgEnt;
 static ImgEnt s_imgs[16];
 static int s_nImgs = 0;
@@ -153,7 +135,7 @@ static ImgEnt* ImgGet(const wchar_t* full) {
     p_GdipGetImageWidth(im, &w);
     p_GdipGetImageHeight(im, &h);
     if (!w || !h) { p_GdipDisposeImage(im); return NULL; }
-    int slot = s_nImgs < 16 ? s_nImgs++ : 0;   /* 满了覆盖 0 号（简单策略） */
+    int slot = s_nImgs < 16 ? s_nImgs++ : 0;
     if (s_imgs[slot].img) p_GdipDisposeImage(s_imgs[slot].img);
     wcscpy_s(s_imgs[slot].path, MAX_PATH, full);
     s_imgs[slot].img = im;
@@ -161,8 +143,6 @@ static ImgEnt* ImgGet(const wchar_t* full) {
     s_imgs[slot].h = h;
     return &s_imgs[slot];
 }
-
-/* ============================ 小工具 ============================ */
 
 static MdBlock* BlkNew(int type) {
     MdBlock* b = (MdBlock*)calloc(1, sizeof(MdBlock));
@@ -198,7 +178,6 @@ static void BlkFree(MdBlock* b) {
     free(b);
 }
 
-/* UTF-8 片段 → 新分配宽字符串 */
 static wchar_t* Utf8ToW(const char* s, int len) {
     if (len <= 0) len = (int)strlen(s);
     int n = MultiByteToWideChar(CP_UTF8, 0, s, len, NULL, 0);
@@ -209,29 +188,25 @@ static wchar_t* Utf8ToW(const char* s, int len) {
     return w;
 }
 
-/* ============================ MD4C 解析 ============================ */
-
 typedef struct {
-    MdBlock* stack[64]; int depth;      /* 容器栈 */
-    MdBlock* textBlk;                   /* 当前收集文本的块（P/H/TH/TD） */
+    MdBlock* stack[64]; int depth;
+    MdBlock* textBlk;
     unsigned style;
-    wchar_t* href;                      /* 活动链接目标（链接不嵌套） */
-    char* codeBuf; int codeLen, codeCap;   /* 代码/HTML 块 UTF-8 累积 */
-    char* mathBuf; int mathLen;            /* 数学 span 的 LaTeX 原文累积 */
+    wchar_t* href;
+    char* codeBuf; int codeLen, codeCap;
+    char* mathBuf; int mathLen;
     int inMath; BOOL mathDisp;
-    MdBlock* codeBlk;                   /* 当前代码块 */
+    MdBlock* codeBlk;
     int quoteDepth;
     int olStart[64]; char olDelim[64]; int olNum[64]; BOOL inOl[64];
-    MdBlock* table;                     /* 当前表格 */
-    int cellCount;                      /* 已收集单元格数 */
+    MdBlock* table;
+    int cellCount;
 } MdParseCtx;
 
-static MdParseCtx* P;                   /* 回调用户数据（单线程同步解析） */
+static MdParseCtx* P;
 
 static void AddRun(const wchar_t* s, int len, unsigned style) {
     if (!P->textBlk) {
-        /* 紧凑列表（条目间无空行）不发出 MD_BLOCK_P，内联文本直接挂在 LI 下：
-           惰性建段落并入树，否则整段文字会被静默丢弃 */
         MdBlock* top = P->stack[P->depth];
         if (top && top->type == MDB_LI) {
             P->textBlk = BlkNew(MDB_P);
@@ -268,7 +243,6 @@ static void CodeAppend(const char* s, int len) {
     P->codeBuf[P->codeLen] = 0;
 }
 
-/* MD_ATTRIBUTE（lang/href 等）→ 宽字符串（整体取 text；实体引用罕见，按原文处理） */
 static void AttrToWide(MD_ATTRIBUTE a, wchar_t* out, int cch) {
     int n = MultiByteToWideChar(CP_UTF8, 0, a.text, (int)a.size, out, cch - 1);
     if (n < 0) n = 0;
@@ -373,7 +347,6 @@ static int MdEnterBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
         case MD_BLOCK_TH:
         case MD_BLOCK_TD:
             P->textBlk = BlkNew(MDB_P);
-            /* 列对齐来自单元格 detail（以表头行为准写入列属性） */
             if (P->table && P->textBlk) {
                 MD_ALIGN al = ((const MD_BLOCK_TD_DETAIL*)detail)->align;
                 int a = (al == MD_ALIGN_CENTER) ? 1 : (al == MD_ALIGN_RIGHT) ? 2 : 0;
@@ -395,7 +368,6 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             break;
         case MD_BLOCK_UL: case MD_BLOCK_OL: case MD_BLOCK_LI:
         case MD_BLOCK_TABLE:
-            /* 紧凑列表的惰性段落已在 AddRun 时挂入 LI，这里只需复位 */
             P->textBlk = NULL;
             if (P->depth > 0) P->depth--;
             if (type == MD_BLOCK_TABLE) P->table = NULL;
@@ -421,7 +393,6 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             P->codeBlk = NULL;
             if (!c) break;
             if (P->codeLen > 0) {
-                /* 去掉结尾多余空行 */
                 while (P->codeLen > 0 && (P->codeBuf[P->codeLen-1] == '\n' ||
                        P->codeBuf[P->codeLen-1] == '\r')) P->codeLen--;
             }
@@ -432,7 +403,6 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
                     BlkAppend(P->stack[P->depth], c);
                     break;
                 }
-                /* 解析失败 → 回退为代码块，首行给提示 */
                 wchar_t hint[256];
                 wsprintf(hint, L"[%s]", T(STR_MD_MERMAID_UNSUP));
                 wchar_t* body = Utf8ToW(P->codeBuf, P->codeLen);
@@ -558,10 +528,9 @@ static int MdText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE len, void* ud) 
         }
         case MD_TEXT_BR:
         case MD_TEXT_SOFTBR:
-            AddRun(L"", 0, STY_BR | P->style);   /* 排版时强制换行 */
+            AddRun(L"", 0, STY_BR | P->style);
             break;
         case MD_TEXT_LATEXMATH: {
-            /* 数学原文累积（在 enter/leave span 之间整段收齐） */
             int need = P->mathLen + (int)len;
             char* nb = (char*)realloc(P->mathBuf, (size_t)need + 1);
             if (nb) {
@@ -589,8 +558,8 @@ static MD_PARSER g_mdParser = {
 };
 
 static MdBlock* MdParseDoc(const char* utf8, DWORD len) {
-    MdBlock* root = BlkNew(MDB_QUOTE);      /* 复用容器类型作为根（type 不用于绘制） */
-    root->type = MDB_P;                      /* 根类型无意义 */
+    MdBlock* root = BlkNew(MDB_QUOTE);
+    root->type = MDB_P;
     MdParseCtx ctx;
     ZeroMemory(&ctx, sizeof(ctx));
     ctx.stack[0] = root;
@@ -601,8 +570,6 @@ static MdBlock* MdParseDoc(const char* utf8, DWORD len) {
     free(ctx.codeBuf);
     return root;
 }
-
-/* ============================ 字体 ============================ */
 
 static HFONT MkFont(int pt, int weight, BOOL italic, const wchar_t* face) {
     int h = -MulDiv(pt, (int)g_dpi, 72);
@@ -637,7 +604,6 @@ static void FontsEnsure(HDC hdc) {
         f->h[i] = MkFont((int)(b * kHead[i] + 0.5), FW_BOLD, FALSE, L"Segoe UI");
     f->mono  = MkFont(b, FW_NORMAL, FALSE, L"Consolas");
     f->sm = MkFont(b - 2 > 8 ? b - 2 : 8, FW_NORMAL, FALSE, L"Segoe UI");
-    /* 数学字体（Cambria Math）：正文 / 脚本(0.72) / 脚本的脚本(0.55) × 正/斜体 */
     f->mathIt   = MkFont(b,        FW_NORMAL, TRUE,  L"Cambria Math");
     f->mathUp   = MkFont(b,        FW_NORMAL, FALSE, L"Cambria Math");
     f->mathItS  = MkFont((int)(b * 0.72 + 0.5), FW_NORMAL, TRUE,  L"Cambria Math");
@@ -652,7 +618,6 @@ static void FontsEnsure(HDC hdc) {
     V.fontsOk = TRUE;
 }
 
-/* 字体角色 */
 enum { ROLE_BODY = 0, ROLE_H1 = 1, ROLE_MONO = 7, ROLE_SMALL = 8 };
 
 static HFONT FontFor(unsigned style, int role) {
@@ -668,8 +633,6 @@ static HFONT FontFor(unsigned style, int role) {
     if (e) return f->emph;
     return f->body;
 }
-
-/* ============================ 排版 ============================ */
 
 static void ItemResetAll(void) {
     for (int i = 0; i < V.nItems; i++) {
@@ -695,7 +658,6 @@ static void ItemPush(int type, RECT rc, int flag) {
     it->role = ROLE_BODY;
 }
 
-/* 词元：把 run 文本切成可断行的原子（ASCII 词 / CJK 单字 / 空格） */
 typedef struct Tok { MdRun* run; const wchar_t* s; int len; BOOL space; } Tok;
 
 static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
@@ -703,12 +665,12 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
     Tok* toks = NULL; int nT = 0, capT = 0;
     for (int i = 0; i < nRuns; i++) {
         MdRun* r = &runs[i];
-        if (r->style & STY_BR) {   /* 强制换行标记 */
+        if (r->style & STY_BR) {
             toks = (Tok*)realloc(toks, ((size_t)nT + 1) * sizeof(Tok));
             toks[nT].run = r; toks[nT].s = NULL; toks[nT].len = 0; toks[nT].space = FALSE;
             nT++; continue;
         }
-        if (r->style & STY_MATH) {  /* 数学：整个 run 是一个原子单元 */
+        if (r->style & STY_MATH) {
             toks = (Tok*)realloc(toks, ((size_t)nT + 1) * sizeof(Tok));
             toks[nT].run = r; toks[nT].s = r->text; toks[nT].len = 0; toks[nT].space = FALSE;
             nT++; continue;
@@ -768,7 +730,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
                 }
                 continue;
             }
-            if (tk->run->style & STY_MATH) {   /* 数学原子单元 */
+            if (tk->run->style & STY_MATH) {
                 MdRun* mr2 = tk->run;
                 if (!mr2->math) mr2->math = Math_Build(mr2->text);
                 if (mr2->math) Math_Measure(mr2->math, hdc, &V.fonts);
@@ -806,9 +768,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
                 }
             }
         }
-        /* 落行 */
         if (nF > 0) {
-            /* 去掉行尾空格 frag（宽度已含） */
             while (nF > 0 && fr[nF-1].run->text && fr[nF-1].len > 0 &&
                    (fr[nF-1].s[0] == L' ')) {
                 nF--;
@@ -822,7 +782,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
             fr = NULL; nF = 0;
         }
         x = 0; lineH = 0; asc = 0;
-        if (overflow) i--;   /* 超宽落行：当前 token 下一轮重放，否则该词会被整个丢掉 */
+        if (overflow) i--;
     }
     free(toks);
     if (curFont) SelectObject(hdc, GetStockObject(SYSTEM_FONT));
@@ -831,7 +791,6 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
     return nL;
 }
 
-/* 排版一个文本块（段落/标题），追加 ITM_LINES；返回高度 */
 static int LayoutText(HDC hdc, MdBlock* b, int x0, int avail, int* y, int role,
                       UINT fmtExtra) {
     (void)fmtExtra;
@@ -870,9 +829,6 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         *y += h + UI_Scale(16) + UI_Scale(12);
         return;
     }
-    /* 代码文本按行拆（合成 run 堆分配：frag 借用其指针到绘制阶段）。
-       每行临时写入 NUL 截断再交给 WrapRuns——否则换行符会被当成普通
-       词字符，整个后续文本并成一个超宽词元，代码块渲染成重叠乱码。 */
     MdLine* lines = NULL; int nL = 0;
     MdRun* codeRun = (MdRun*)calloc(1, sizeof(MdRun));
     codeRun->style = 0; codeRun->href = NULL; codeRun->text = NULL;
@@ -895,7 +851,7 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         if (!nl) break;
         p = nl + 1;
     }
-    codeRun->text = NULL;   /* text 指向块内缓冲，所有权在块，勿随 item 释放 */
+    codeRun->text = NULL;
     int pad = UI_Scale(10);
     int h = 0;
     for (int i = 0; i < nL; i++) {
@@ -921,7 +877,6 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
 static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     int nC = b->nCols, nR = b->nRows;
     if (nC <= 0 || nR <= 0 || !b->cells) return;
-    /* 列自然宽（单行不折行估宽） */
     int* colW = (int*)calloc((size_t)nC, sizeof(int));
     int pad = UI_Scale(7);
     for (int r = 0; r < nR; r++) {
@@ -943,7 +898,6 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     int total = pad * 2 * nC;
     for (int c = 0; c < nC; c++) total += colW[c];
     if (total > avail) {
-        /* 等比收缩，保底列宽 */
         int natTotal = total;
         for (int c = 0; c < nC; c++) {
             colW[c] = colW[c] * (avail - pad * 2 * nC) / (natTotal - pad * 2 * nC);
@@ -952,7 +906,6 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         total = pad * 2 * nC;
         for (int c = 0; c < nC; c++) total += colW[c];
     }
-    /* 每格排版 */
     typedef struct { MdLine* lines; int nL; int h; } CellLay;
     CellLay* lays = (CellLay*)calloc((size_t)nR * nC, sizeof(CellLay));
     for (int r = 0; r < nR; r++) {
@@ -969,7 +922,6 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
             cl->h = hh ? hh : V.fonts.lineH;
         }
     }
-    /* 行高 */
     int* rowH = (int*)calloc((size_t)nR, sizeof(int));
     for (int r = 0; r < nR; r++) {
         int mx = V.fonts.lineH;
@@ -979,7 +931,6 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         }
         rowH[r] = mx;
     }
-    /* 表头底色 */
     if (nR > 0) {
         RECT hd = { x0, *y, x0 + total, *y + rowH[0] };
         ItemPush(ITM_RECT, hd, RCT_TABLEHEAD);
@@ -997,7 +948,6 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
                 it->type = ITM_LINES; it->rc = rc;
                 it->lines = cl->lines; it->nLines = cl->nL;
                 it->role = ROLE_BODY;
-                /* 对齐：调整每行 frag 的 x */
                 int align = b->aligns ? b->aligns[c] : 0;
                 for (int i = 0; i < cl->nL; i++) {
                     int lw = 0;
@@ -1011,14 +961,12 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
                         cl->lines[i].frags[k].x += off;
                 }
             }
-            /* 列分隔线 */
             if (c + 1 < nC) {
                 RECT vl = { xx + colW[c] + pad, yy, xx + colW[c] + pad + 1, yy + rowH[r] };
                 ItemPush(ITM_RECT, vl, RCT_CODEBG);
             }
             xx += colW[c] + pad * 2;
         }
-        /* 行分隔线（表头下） */
         if (r == 0) {
             RECT hl = { x0, yy + rowH[r] - 1, x0 + total, yy + rowH[r] };
             ItemPush(ITM_RECT, hl, RCT_HRULE);
@@ -1038,7 +986,6 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
     for (int i = 0; i < b->nChildren; i++) {
         MdBlock* li = b->children[i];
         int startY = *y;
-        /* 标记文本 */
         wchar_t mark[32];
         if (li->isTask)
             wcscpy(mark, (li->taskMark == L' ' || !li->taskMark) ? L"☐" : L"☑");
@@ -1055,7 +1002,6 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
             SelectObject(hdc, of);
         }
         int indent = mw + UI_Scale(10);
-        /* 标记（合成 run 需堆分配：绘制发生在函数返回之后） */
         RECT mk = { x0, *y, x0 + mw, *y + V.fonts.lineH };
         V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
         {
@@ -1077,11 +1023,9 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
             ln->h = tm.tmHeight; ln->asc = tm.tmAscent; ln->y = 0;
             it->lines = ln; it->nLines = 1;
         }
-        /* 内容 */
         int inner = *y;
         for (int c = 0; c < li->nChildren; c++)
             LayoutBlock(hdc, li->children[c], x0 + indent, avail - indent, &inner, qd);
-        /* 内容首行与标记对齐（若首块是文本，把标记画在首行基线；简化为同顶） */
         *y = inner > *y ? inner : *y + V.fonts.lineH;
         *y += itemGap;
         (void)startY;
@@ -1089,7 +1033,6 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
     *y += UI_Scale(2);
 }
 
-/* 相对路径解析为绝对路径（http/mailto/锚点返回 NULL） */
 static wchar_t* ResolveLocalHref(const wchar_t* href) {
     if (!href || !*href || href[0] == L'#') return NULL;
     if (_wcsnicmp(href, L"http://", 7) == 0 || _wcsnicmp(href, L"https://", 8) == 0 ||
@@ -1102,7 +1045,6 @@ static wchar_t* ResolveLocalHref(const wchar_t* href) {
     return full;
 }
 
-/* 独立图片段：段落里只有一个图片 run、其余全是空白 → 块级渲染图片 */
 static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     MdRun* img = NULL;
     for (int i = 0; i < b->nRuns; i++) {
@@ -1112,21 +1054,19 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
         for (const wchar_t* p = r->text; *p; p++)
             if (*p != L' ' && *p != L'\t') {
                 if (r->style & STY_IMG) {
-                    if (img) return FALSE;   /* 两个图片混排 → 按文本渲染 */
+                    if (img) return FALSE;
                     img = r;
                     break;
                 }
-                return FALSE;                /* 有实际文字 → 按文本渲染 */
+                return FALSE;
             }
     }
     if (!img) return FALSE;
     wchar_t* full = ResolveLocalHref(img->href ? img->href : L"");
-    if (!full) return FALSE;                 /* 远程图片 → 仍按占位文本渲染 */
+    if (!full) return FALSE;
     ImgEnt* e = ImgGet(full);
-    if (!e) return FALSE;                    /* 加载失败 → 占位文本 */
+    if (!e) return FALSE;
 
-    /* 显示尺寸：1:1 物理像素、不放大（DPI 放大会把 1080px 的图拉到近 1900px，
-       图标/截图都显得巨大）；仅超宽时等比收缩到可用宽度 */
     UINT w = e->w;
     UINT h = e->h;
     if (w > (UINT)avail) { h = (UINT)((double)h * avail / w); w = (UINT)avail; }
@@ -1145,7 +1085,6 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
     return TRUE;
 }
 
-/* 块级公式：段落里只有一个 $$..$$ 公式 run、其余空白 → 居中绘制 */
 static BOOL LayoutMathParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     MdRun* mr = NULL;
     for (int i = 0; i < b->nRuns; i++) {
@@ -1157,7 +1096,7 @@ static BOOL LayoutMathParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) 
                     if (*p != L' ' && *p != L'\t') return FALSE;
             continue;
         }
-        if (mr) return FALSE;   /* 多个公式混排 → 按内联处理 */
+        if (mr) return FALSE;
         mr = r;
     }
     if (!mr) return FALSE;
@@ -1227,7 +1166,7 @@ static void LayoutBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y, int quot
         case MDB_UL: case MDB_OL:
             LayoutList(hdc, b, x0, avail, y, quoteDepth);
             break;
-        case MDB_LI:   /* LI 由 LayoutList 处理；不应直接到这里 */
+        case MDB_LI:
             for (int i = 0; i < b->nChildren; i++)
                 LayoutBlock(hdc, b->children[i], x0, avail, y, quoteDepth);
             break;
@@ -1243,8 +1182,6 @@ static void LayoutBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y, int quot
 
 static void LayoutAll(void) {
     if (V.clientW <= 0 || V.clientH <= 0) {
-        /* 窗口尚未获得尺寸（创建/首次显示前）：跳过本次，
-           等 WM_SIZE 到来后再真正排版，避免按 0 宽排出废布局 */
         V.lastLayoutW = -1;
         return;
     }
@@ -1253,7 +1190,7 @@ static void LayoutAll(void) {
     HDC hdc = GetDC(V.hwnd);
     FontsEnsure(hdc);
     int x0 = UI_Scale(28);
-    int avail = V.clientW - UI_Scale(28) * 2 - UI_Scale(12);   /* 右侧留滚动条 */
+    int avail = V.clientW - UI_Scale(28) * 2 - UI_Scale(12);
     if (avail < UI_Scale(100)) avail = UI_Scale(100);
     int y = UI_Scale(16);
     if (V.root)
@@ -1269,14 +1206,12 @@ static void LayoutAll(void) {
     InvalidateRect(V.hwnd, NULL, FALSE);
 }
 
-/* ============================ 主题 ============================ */
-
 void MdTheme_Build(MdTheme* th) {
     if (g_dark) {
         th->bg        = RGB(30,30,30);
         th->fg        = RGB(212,216,221);
         th->fgMuted   = RGB(139,148,158);
-        th->head      = RGB(230,237,243);   /* 标题提亮一档（GitHub Dark 同款 #E6EDF3） */
+        th->head      = RGB(230,237,243);
         th->link      = RGB(88,166,255);
         th->quoteBar  = RGB(77,87,98);
         th->codeBg    = RGB(40,42,46);
@@ -1300,7 +1235,7 @@ void MdTheme_Build(MdTheme* th) {
         th->bg        = RGB(255,255,255);
         th->fg        = RGB(31,35,40);
         th->fgMuted   = RGB(110,119,129);
-        th->head      = RGB(31,35,40);      /* 浅色：标题与正文同色即可 */
+        th->head      = RGB(31,35,40);
         th->link      = RGB(9,105,218);
         th->quoteBar  = RGB(208,215,222);
         th->codeBg    = RGB(246,248,250);
@@ -1323,8 +1258,6 @@ void MdTheme_Build(MdTheme* th) {
     }
 }
 
-/* ============================ 绘制 ============================ */
-
 static int SbThickness(void) { return UI_Scale(12); }
 
 static void PaintContent(HDC hdc, const MdTheme* th) {
@@ -1332,8 +1265,6 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
     GetClientRect(V.hwnd, &rcClient);
     int top = V.scrollY, bot = V.scrollY + V.clientH;
 
-    /* 内存 DC 默认 OPAQUE+白底：不设透明，文档开头（首段公式/图表之前的）
-       文字会带白色背景块，深色主题下尤其刺眼 */
     SetBkMode(hdc, TRANSPARENT);
 
     HPEN ulPen = CreatePen(PS_SOLID, 1, th->link);
@@ -1372,7 +1303,6 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
             }
             case ITM_DIAGRAM:
                 if (it->diag) {
-                    /* 裁剪到画布：图表元素绝不越界串到相邻块 */
                     RECT drc = it->rc;
                     InflateRect(&drc, UI_Scale(16), UI_Scale(16));
                     OffsetRect(&drc, 0, -V.scrollY);
@@ -1387,20 +1317,19 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                 if (!s_gdipOk || !it->image) break;
                 GpGraphics* g = NULL;
                 if (p_GdipCreateFromHDC(hdc, &g) == 0 && g) {
-                    p_GdipSetInterpolationMode(g, 7 /*HighQualityBicubic*/);
+                    p_GdipSetInterpolationMode(g, 7 );
                     RECT rc = it->rc;
                     OffsetRect(&rc, 0, -V.scrollY);
                     p_GdipDrawImageRectRectI(g, (GpImage*)it->image,
                         rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
                         0, 0, (int)it->imageW, (int)it->imageH,
-                        2 /*UnitPixel*/, NULL, NULL, NULL);
-                    p_GdipFlush(g, 1 /*FlushIntentionFlush*/);
+                        2 , NULL, NULL, NULL);
+                    p_GdipFlush(g, 1 );
                     p_GdipDeleteGraphics(g);
                 }
                 break;
             }
             case ITM_MATH: {
-                /* 块级公式：居中绘制 */
                 if (it->mathRun && it->mathRun->math) {
                     Math_Draw(it->mathRun->math, hdc,
                               it->rc.left, it->rc.top + Math_Ascent(it->mathRun->math) - V.scrollY,
@@ -1418,14 +1347,11 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                     for (int k = 0; k < ln->nF; k++) {
                         MdFrag* fr = &ln->frags[k];
                         MdRun* run = fr->run;
-                        /* 数学原子单元：以排版盒绘制，不走文本路径 */
                         if ((run->style & STY_MATH) && run->math) {
                             int fx2 = it->rc.left + fr->x;
                             Math_Draw(run->math, hdc, fx2, baseY, th, &V.fonts);
                             continue;
                         }
-                        /* 判空看 frag 的 s：代码块的合成 run->text 故意为 NULL
-                           （文字在块缓冲里，frag 自带指针与长度才是绘制数据） */
                         if (!fr->s || fr->len == 0) continue;
                         int fx = it->rc.left + fr->x;
                         HFONT f = FontFor(run->style, it->role);
@@ -1466,8 +1392,6 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                         SelectObject(hdc, of);
                     }
                 }
-                /* TextOutW 用的是 TA_BASELINE，画完复位，避免污染后续
-                   DrawTextW（其 DT_VCENTER 光栅化会被基线对齐状态破坏） */
                 SetTextAlign(hdc, TA_LEFT | TA_TOP);
                 break;
             }
@@ -1529,8 +1453,6 @@ static void Paint(void) {
     EndPaint(V.hwnd, &ps);
 }
 
-/* ============================ 交互 ============================ */
-
 static void ClampScroll(void) {
     int maxScroll = V.docH - V.clientH;
     if (maxScroll < 0) maxScroll = 0;
@@ -1544,7 +1466,6 @@ static void ScrollBy(int dy) {
     ClampScroll();
     if (V.scrollY != old) {
         InvalidateRect(V.hwnd, NULL, FALSE);
-        /* 分屏：预览滚动按比例带动编辑器（锁防回环） */
         if (g_mdSplit && !g_mdSyncLock) {
             g_mdSyncLock = TRUE;
             Editor_SyncScrollFromPreview(MdView_GetScrollFraction());
@@ -1553,7 +1474,6 @@ static void ScrollBy(int dy) {
     }
 }
 
-/* 命中链接：返回 href（借用，勿释放），NULL 无 */
 static const wchar_t* HitLink(int px, int py) {
     int dy = py + V.scrollY;
     int dx = px;
@@ -1579,7 +1499,7 @@ static const wchar_t* HitLink(int px, int py) {
 
 static void OpenLink(const wchar_t* href) {
     if (!href || !*href) return;
-    if (href[0] == L'#') return;   /* 文档内锚点：暂不支持 */
+    if (href[0] == L'#') return;
     if (_wcsnicmp(href, L"http://", 7) == 0 || _wcsnicmp(href, L"https://", 8) == 0 ||
         _wcsnicmp(href, L"mailto:", 7) == 0) {
         ShellExecuteW(V.hwnd, L"open", href, NULL, NULL, SW_SHOWNORMAL);
@@ -1603,7 +1523,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             else { ClampScroll(); InvalidateRect(hwnd, NULL, FALSE); }
             return 0;
         case WM_MOUSEWHEEL: {
-            /* 高分辨率滚轮每次 ±40 等小增量：累积到整格再滚动 */
             static int acc = 0;
             acc += (short)HIWORD(wp);
             int steps = acc / WHEEL_DELTA;
@@ -1617,7 +1536,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             int px = GET_X_LPARAM(lp), py = GET_Y_LPARAM(lp);
             int sbw = SbThickness();
             if (V.docH > V.clientH && px >= V.clientW - sbw) {
-                /* 滚动条 */
                 int thumbH = V.clientH * V.clientH / V.docH;
                 if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
                 int maxScroll = V.docH - V.clientH;
@@ -1658,7 +1576,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             switch (wp) {
                 case VK_ESCAPE:
                     if (g_mdSplit) {
-                        /* 并排模式：Esc 只把焦点还给编辑器，不退出分屏 */
                         if (g_curDoc >= 0 && g_curDoc < g_docCount &&
                             g_docs[g_curDoc].hwndEdit)
                             SetFocus(g_docs[g_curDoc].hwndEdit);
@@ -1679,8 +1596,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-
-/* ============================ 对外接口 ============================ */
 
 void MdView_Register(void) {
     WNDCLASSEXW wc;
@@ -1710,13 +1625,11 @@ BOOL MdView_IsVisible(void) {
 }
 
 static void LoadContent(int index) {
-    /* 释放旧模型 */
     if (V.root) { BlkFree(V.root); V.root = NULL; }
     ItemResetAll();
     V.scrollY = 0;
     V.docIdx = index;
 
-    /* 文档目录（相对链接解析） */
     V.baseDir[0] = L'\0';
     if (!g_docs[index].isNew && g_docs[index].path[0]) {
         wcscpy_s(V.baseDir, MAX_PATH, g_docs[index].path);
@@ -1739,34 +1652,31 @@ void MdView_OnActivate(void) {
     BOOL isMd = (g_curDoc >= 0 && g_curDoc < g_docCount &&
                  g_docs[g_curDoc].lang == LANG_MD);
     BOOL show = isMd && (g_docs[g_curDoc].previewOn || g_mdSplit);
-    static BOOL lastShown = FALSE;
     HWND hed = (g_curDoc >= 0 && g_curDoc < g_docCount) ? g_docs[g_curDoc].hwndEdit : NULL;
     if (show) {
         LoadContent(g_curDoc);
         if (g_mdSplit) {
-            /* 并排：编辑器保持可见，焦点留给编辑器 */
             ShowWindow(V.hwnd, SW_SHOW);
             if (hed) ShowWindow(hed, SW_SHOW);
         } else {
-            /* 全屏预览：必须隐藏编辑器——Scintilla 在 mdview 之后创建（Z 序更高），
-               不隐藏会盖在预览之上（表现为"滚动一下才出预览"） */
-            if (hed) ShowWindow(hed, SW_HIDE);
             ShowWindow(V.hwnd, SW_SHOW);
             SetFocus(V.hwnd);
         }
     } else {
-        ShowWindow(V.hwnd, SW_HIDE);
         if (hed) {
             ShowWindow(hed, SW_SHOW);
             SetFocus(hed);
         }
+        ShowWindow(V.hwnd, SW_HIDE);
     }
-    /* 可见性翻转时让编辑区/预览区重新占位（Editor_Layout 会回调 MdView_OnLayout） */
-    if (show != lastShown) {
-        lastShown = show;
+    int mode = show ? (g_mdSplit ? 2 : 1) : 0;
+    static int lastMode = 0;
+    if (mode != lastMode) {
+        lastMode = mode;
         Editor_Layout();
     }
-    if (show) InvalidateRect(V.hwnd, NULL, FALSE);   /* 立即整幅重绘，不等首个事件 */
+    if (show && !g_mdSplit && hed) ShowWindow(hed, SW_HIDE);
+    if (show) InvalidateRect(V.hwnd, NULL, FALSE);
 }
 
 void MdView_Toggle(void) {
@@ -1774,15 +1684,15 @@ void MdView_Toggle(void) {
     Doc* d = &g_docs[g_curDoc];
     if (d->lang != LANG_MD) return;
     d->previewOn = !d->previewOn;
-    if (d->previewOn) g_mdSplit = FALSE;   /* 全屏预览与并排互斥 */
-    MdView_OnActivate();   /* 内部会在可见性变化时联动 Editor_Layout */
+    if (d->previewOn) g_mdSplit = FALSE;
+    MdView_OnActivate();
 }
 
 void MdView_ToggleSplit(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     if (g_docs[g_curDoc].lang != LANG_MD) return;
     g_mdSplit = !g_mdSplit;
-    if (g_mdSplit) g_docs[g_curDoc].previewOn = FALSE;   /* 并排时退出全屏预览 */
+    if (g_mdSplit) g_docs[g_curDoc].previewOn = FALSE;
     MdView_OnActivate();
 }
 
@@ -1830,9 +1740,6 @@ void MdView_RefreshIfActive(int index) {
         LoadContent(index);
 }
 
-/* ============================ 打印/导出 PDF ============================ */
-/* 以打印友好宽度（96dpi 基准 760px）重排后，按页高切分绘制到打印 DC。
-   复用屏幕绘制管线：每页临时把 V.scrollY/V.clientH 设为该页范围。 */
 BOOL MdView_PrintPages(HDC hdc, int pw, int ph) {
     if (!V.hwnd || pw <= 0 || ph <= 0) return FALSE;
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return FALSE;

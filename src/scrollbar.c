@@ -1,34 +1,27 @@
 #include "common.h"
 
-/* ---------- 自绘滚动条（窗口类 "ETONScrollBar"，覆盖编辑区边缘） ----------
-   Scintilla 的滚动条是窗口非客户区滚动条（WS_HSCROLL/WS_VSCROLL），
-   由系统按经典浅色样式绘制、无法随应用主题变化，故在 ApplyScintillaStyle
-   里禁用原生滚动条（SCI_SETVSCROLLBAR/HSCROLLBAR = 0），改用这里的自绘条。
-   垂直条常显；水平条在非换行模式下显示。 */
-
 #define SB_INSET_96     2
 #define SB_THICK_96     12
 #define SB_MINTHUMB_96  24
 
 typedef struct {
     HWND hwnd;
-    BOOL horiz;      /* FALSE=垂直 TRUE=水平 */
+    BOOL horiz;
     BOOL dragging;
     BOOL hover;
-    double grab;     /* 按下点相对 thumb 起点的偏移（px） */
+    double grab;
 } SBState;
 
-static SBState g_sb[2];                 /* [0] 垂直 [1] 水平 */
-static double s_pos[2], s_frac[2];      /* thumb 起点/长度比例（0..1） */
+static SBState g_sb[2];
+static double s_pos[2], s_frac[2];
 static BOOL s_show[2] = { FALSE, FALSE };
-static RECT s_rc[2];                    /* 由 Editor_Layout 写入的目标矩形 */
+static RECT s_rc[2];
 static BOOL s_haveLayout = FALSE;
 
 int ScrollBars_Thickness(void) { return UI_Scale(SB_THICK_96); }
 
 static HWND Hed(void) { return Editor_ActiveEdit(); }
 
-/* 沿滚动方向的几何量：轨道长 / thumb 长 / thumb 起点 */
 static void SBGeom(SBState* st, int* trackLen, int* thumbLen, int* thumbPos) {
     RECT rc; GetClientRect(st->hwnd, &rc);
     int len = st->horiz ? rc.right : rc.bottom;
@@ -49,7 +42,6 @@ static double PtAlong(SBState* st, LPARAM lp) {
     return st->horiz ? x : y;
 }
 
-/* 按比例（0..1）滚动编辑区 */
 static void SBScrollTo(SBState* st, double ratio) {
     HWND hed = Hed();
     if (!hed) return;
@@ -116,7 +108,7 @@ static LRESULT CALLBACK SBProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (pt >= thumbPos && pt <= thumbPos + thumbLen) {
             st->grab = pt - thumbPos;
         } else {
-            st->grab = thumbLen / 2.0;   /* 点击轨道：以点击处为中心跳转 */
+            st->grab = thumbLen / 2.0;
             SBScrollTo(st, (pt - st->grab - UI_Scale(SB_INSET_96)) / (trackLen - thumbLen));
         }
         st->dragging = TRUE;
@@ -177,13 +169,12 @@ void ScrollBars_Create(HWND parent) {
     }
 }
 
-/* Editor_Layout 调用：设定滚动条区域（编辑区右缘/底缘） */
 void ScrollBars_Layout(int x, int y, int w, int h, int thickness, BOOL showH) {
     if (!g_sb[0].hwnd) return;
     SetRect(&s_rc[0], x + w - thickness, y, x + w, y + h);
     SetRect(&s_rc[1], x, y + h - thickness, x + w - thickness, y + h);
     s_haveLayout = TRUE;
-    (void)showH;   /* 水平条显隐由 ScrollBars_Update 依据换行状态决定 */
+    (void)showH;
     SetWindowPos(g_sb[0].hwnd, NULL, s_rc[0].left, s_rc[0].top,
                  thickness, h, SWP_NOZORDER | SWP_NOACTIVATE);
     SetWindowPos(g_sb[1].hwnd, NULL, s_rc[1].left, s_rc[1].top,
@@ -191,12 +182,10 @@ void ScrollBars_Layout(int x, int y, int w, int h, int thickness, BOOL showH) {
     ScrollBars_Update();
 }
 
-/* 与活动文档同步 thumb 位置/长度和显隐（SCN_UPDATEUI 等时机调用） */
 void ScrollBars_Update(void) {
     HWND hed = Hed();
     BOOL showV = FALSE, showH = FALSE;
     if (hed && g_curDoc >= 0 && s_haveLayout) {
-        /* 垂直：行 */
         int total = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
         int vis = (int)SendMessage(hed, SCI_LINESONSCREEN, 0, 0);
         if (vis < 1) vis = 1;
@@ -207,7 +196,6 @@ void ScrollBars_Update(void) {
         } else {
             s_frac[0] = 1.0; s_pos[0] = 0;
         }
-        /* 水平：像素（换行模式下 Scintilla 禁用横向滚动） */
         if (!g_wordWrap) {
             RECT rc; GetClientRect(hed, &rc);
             int visW = rc.right - (int)SendMessage(hed, SCI_GETMARGINWIDTHN, 0, 0)

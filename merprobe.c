@@ -1,17 +1,9 @@
-/* merprobe.c — 本地验证工具：模拟 mdview 滚动视口中渲染 mermaid 图。
-   用法：merprobe in.mmd out.png zoom docTop scrollY viewW viewH [--ddb|--win]
-     zoom×100（175=175%）；--ddb 用 DDB 位图、--win 在真实窗口 DC 上绘制。
-   构建（x64 Native Tools 下，在仓库根）：
-     cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
-        /Isrc /Ideps\scintilla /Ideps\lexilla /Ideps\md4c ^
-        /Febuild\merprobe.exe merprobe.c src\mermaid.c ^
-        /link /SUBSYSTEM:CONSOLE user32.lib gdi32.lib kernel32.lib */
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "common.h"
 
-static int s_zoom = 100;   /* ×100：175 = 175% DPI */
+static int s_zoom = 100;
 int UI_Scale(int px) { return MulDiv(px, s_zoom, 100); }
 
 static int  (WINAPI* p_GdipStartup)(ULONG_PTR*, const void*, void*);
@@ -42,15 +34,14 @@ static void ThemeDark(MdTheme* th) {
 
 int main(int argc, char** argv) {
     if (argc < 8) { printf("usage: merprobe in.mmd out.png zoom docTop scrollY viewW viewH\n"); return 1; }
-    /* 与 eton 一致：PerMonitorV2 DPI 感知（否则窗口/DC 被系统虚拟化，行为不同） */
     {
         typedef LONG (WINAPI* SPDAC_t)(LONG);
         HMODULE u32 = GetModuleHandleW(L"user32.dll");
         SPDAC_t spdac = (SPDAC_t)GetProcAddress(u32, "SetProcessDpiAwarenessContext");
-        if (spdac) spdac(-4 /*PER_MONITOR_AWARE_V2*/);
+        if (spdac) spdac(-4 );
     }
     s_zoom = atoi(argv[3]);
-    if (s_zoom < 50) s_zoom *= 100;      /* 兼容传 1.75→atoi=1；显式传 175 */
+    if (s_zoom < 50) s_zoom *= 100;
     int docTop = atoi(argv[4]), scrollY = atoi(argv[5]);
     int W = atoi(argv[6]), H = atoi(argv[7]);
 
@@ -70,7 +61,6 @@ int main(int argc, char** argv) {
 
     MdFonts f;
     ZeroMemory(&f, sizeof(f));
-    /* 复刻 mdview：11pt 正文按 DPI 换算（MulDiv 同款整数运算），sm = body-2pt */
     int bodyPx = MulDiv(11, s_zoom * 96 / 100, 72);
     int smPx   = MulDiv(9,  s_zoom * 96 / 100, 72);
     f.body = Mk(bodyPx, FW_NORMAL, L"Segoe UI");
@@ -83,8 +73,6 @@ int main(int argc, char** argv) {
     HDC scr = GetDC(NULL);
     HDC hdc = CreateCompatibleDC(scr);
 
-    /* --win 模式：在真实顶层窗口 DC 上执行 Measure+Draw（复刻 mdview 的绘制环境），
-       完成后 BitBlt 回 DIB 保存。用法：merprobe in out zoom docTop scrollY W H --win */
     HWND hwndWin = NULL;
     HDC hdcWin = NULL;
     for (int ai = 8; ai < argc; ai++)
@@ -105,7 +93,6 @@ int main(int argc, char** argv) {
         }
     if (hdcWin) hdc = hdcWin;
 
-    /* 字体度量自检：屏幕 DC（app 测量环境）vs DIB（app 绘制环境） */
     BITMAPINFO bi;
     ZeroMemory(&bi, sizeof(bi));
     bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -116,7 +103,6 @@ int main(int argc, char** argv) {
     bi.bmiHeader.biCompression = BI_RGB;
     void* bits = NULL;
     HBITMAP dib = NULL;
-    /* --ddb：用 DDB（CreateCompatibleBitmap）而非 DIB section —— 复刻 mdview Paint 的内存位图 */
     int useDdb = 0;
     for (int ai = 8; ai < argc; ai++) if (strcmp(argv[ai], "--ddb") == 0) useDdb = 1;
     if (useDdb) dib = CreateCompatibleBitmap(scr, W, H);
@@ -146,7 +132,6 @@ int main(int argc, char** argv) {
     FillRect(hdc, &rcAll, bg);
     DeleteObject(bg);
 
-    /* 复刻 mdview：canvas 背景块 + 图表项（8px 内衬）+ 画布裁剪 */
     int x0 = hdcWin ? UI_Scale(60) : 60 * s_zoom;
     RECT canvas = { x0, docTop, x0 + sz.cx + UI_Scale(16), docTop + sz.cy + UI_Scale(16) };
     OffsetRect(&canvas, 0, -scrollY);
@@ -154,8 +139,6 @@ int main(int argc, char** argv) {
     FillRect(hdc, &canvas, cb);
     DeleteObject(cb);
 
-    /* 复刻 mdview：图表前先画标题（h[0] ≈ 11pt*1.9=21pt 大号粗体 Segoe UI，
-       TextOutW per fragment）—— 前置字体实现可能影响后续 DrawText 光栅化 */
     {
         HFONT h0 = Mk(MulDiv(21, s_zoom * 96 / 100, 72), FW_BOLD, L"Segoe UI");
         HFONT oh = (HFONT)SelectObject(hdc, h0);
@@ -171,14 +154,12 @@ int main(int argc, char** argv) {
     OffsetRect(&drc, 0, -scrollY);
     RECT clip = drc;
     InflateRect(&clip, UI_Scale(16), UI_Scale(16));
-    /* 复刻 mdview：ITM_LINES 绘制后 DC 遗留 TA_LEFT|TA_BASELINE 文本对齐 */
     SetTextAlign(hdc, TA_LEFT | TA_BASELINE);
     SaveDC(hdc);
     IntersectClipRect(hdc, clip.left, clip.top, clip.right, clip.bottom);
     Mermaid_Draw(d, hdc, drc.left, drc.top, &f, &th);
     RestoreDC(hdc, -1);
 
-    /* 客观检测：用 MnDraw 同款字体/风格测 DrawTextW 实际需要的宽度 */
     {
         int padX = UI_Scale(12), padY = UI_Scale(6);
         const wchar_t* txts[] = { L"多标签", L"语法高亮", L"Markdown", L"编辑器" };
@@ -200,14 +181,14 @@ int main(int argc, char** argv) {
         }
     }
     GdiFlush();
-    if (hdcWin) {   /* --win：把窗口 DC 上的绘制结果拷回 DIB 以便保存 */
+    if (hdcWin) {
         HDC mdc = CreateCompatibleDC(hdcWin);
         HGDIOBJ ob = SelectObject(mdc, dib);
         BitBlt(mdc, 0, 0, W, H, hdcWin, 0, 0, SRCCOPY);
         SelectObject(mdc, ob);
         DeleteDC(mdc);
         GdiFlush();
-        Sleep(80);   /* 窗口稍作停留便于肉眼/截图确认 */
+        Sleep(80);
     }
 
     HMODULE gp = LoadLibraryW(L"gdiplus.dll");

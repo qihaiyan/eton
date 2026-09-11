@@ -1,22 +1,14 @@
 #include "common.h"
 
-/* ---------- 自绘状态栏（窗口类 "ETONStatus"） ----------
-   替代通用控件 msctls_statusbar32：后者的底色/文字色跟随系统主题，
-   暗色主题下仍是白底黑字。这里直接用 g_clrStatusBg / g_clrStatusFg
-   绘制，随"视图 → 主题"即时切换。 */
-
 #define SB_PARTS 5
 
 static wchar_t s_text[SB_PARTS][64];
-static int s_partR[SB_PARTS];      /* 每段右边界（-1 = 客户区右缘） */
+static int s_partR[SB_PARTS];
 static BOOL s_haveParts = FALSE;
 
 static HFONT s_font = NULL;
 static UINT s_fontDpi = 0;
 
-/* 按窗口 DPI 生成系统状态栏字体。
-   NONCLIENTMETRICS 返回的是系统 DPI 下的字体，仅在窗口 DPI 与系统不同时再换算，
-   否则会双重缩放导致文字过大。 */
 static HFONT StatusFont(HWND hwnd) {
     UINT dpi = GetDpiForWindow(hwnd);
     if (s_font && dpi == s_fontDpi) return s_font;
@@ -49,7 +41,7 @@ static LRESULT CALLBACK StatusProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (s_text[i][0])
                 DrawTextW(hdc, s_text[i], -1, &tr,
                           DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
-            if (i > 0) {   /* 段间分隔线 */
+            if (i > 0) {
                 COLORREF c = g_dark ? RGB(63,63,63) : RGB(160,160,160);
                 RECT sep = { l, 2, l + 1, rc.bottom - 2 };
                 HBRUSH sb = CreateSolidBrush(c);
@@ -84,7 +76,7 @@ void StatusBar_SetParts(const int* rightEdges, int n) {
 
 BOOL StatusBar_SetText(int part, const wchar_t* text) {
     if (part < 0 || part >= SB_PARTS || !text) return FALSE;
-    if (wcscmp(s_text[part], text) == 0) return TRUE;   /* 无变化不重绘 */
+    if (wcscmp(s_text[part], text) == 0) return TRUE;
     _snwprintf(s_text[part], 64, L"%s", text);
     s_text[part][63] = L'\0';
     InvalidateRect(g_hwndStatus, NULL, FALSE);

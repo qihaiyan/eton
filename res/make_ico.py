@@ -1,9 +1,3 @@
-"""Generate app.ico from app.png (multi-size Windows icon).
-
-Requires Pillow:  pip install Pillow
-Run from anywhere:  python res/make_ico.py
-"""
-
 from pathlib import Path
 
 from PIL import Image

@@ -3,9 +3,6 @@
 #pragma code_page(65001)
 LANGUAGE 0x04, 0x02
 
-/* 菜单不再放在资源里：界面文字需随界面语言切换，
-   主菜单由 src/i18n.c 的 I18n_BuildMainMenu 在运行时构建。 */
-
 IDR_ACCEL ACCELERATORS
 BEGIN
     "N",  IDM_NEW,      VIRTKEY, CONTROL

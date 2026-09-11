@@ -20,7 +20,6 @@ REM    3) fallback scan of common install paths (when vswhere is unavailable)
 REM ============================================================================
 setlocal enabledelayedexpansion
 
-REM ---------- arguments ----------
 set "AUTO=0"
 if /i "%~1"=="auto" set "AUTO=1"
 if /i "%~1"=="now"  set "AUTO=1"
@@ -30,7 +29,6 @@ echo Error: unknown argument "%~1". Usage: build.bat [auto]
 exit /b 2
 :args_ok
 
-REM ---------- locate vcvarsall.bat ----------
 if not defined VCVARS goto :search_vswhere
 if exist "%VCVARS%" goto :have_vcvars
 

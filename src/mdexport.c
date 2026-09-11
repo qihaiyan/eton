@@ -1,13 +1,7 @@
-/* mdexport.c — Markdown 导出：HTML（内嵌 mermaid.js，离线可用）与
-   PDF（经打印对话框，分页渲染 mdview 的 GDI 绘制管线）。
-   HTML 生成走 md4c-html（deps/md4c/md4c-html.c），数学 span 后处理为
-   \( \) / \[ \] 交给 MathJax（CDN，查看导出文件时需要联网）。 */
 
 #include "common.h"
 #include "md4c-html.h"
 #include <commdlg.h>
-
-/* ============================ HTML 导出 ============================ */
 
 typedef struct { char* p; size_t len, cap; } StrBuf;
 
@@ -27,19 +21,17 @@ static void SbPut(StrBuf* b, const char* s, size_t n) {
 }
 static void SbStr(StrBuf* b, const char* s) { SbPut(b, s, strlen(s)); }
 
-/* md4c-html 输出回调 */
 static void MdHtmlOut(const MD_CHAR* s, MD_SIZE n, void* ud) {
     SbPut((StrBuf*)ud, s, n);
 }
 
-/* 数学定界：<x-equation> → \( … </x-equation> → \)；display 形式用 \[ \] */
 static void MathDelimit(StrBuf* in) {
     static const char openD[] = "<x-equation type=\"display\">";
     static const char openI[] = "<x-equation>";
     static const char closeT[] = "</x-equation>";
     StrBuf out = { 0 };
     size_t i = 0;
-    int depth = 0;          /* 当前未闭合的是否 display */
+    int depth = 0;
     int dispStack[32]; int dsp = 0;
     while (i < in->len) {
         if (i + sizeof(openD) - 1 <= in->len &&
@@ -71,8 +63,6 @@ static void MathDelimit(StrBuf* in) {
     (void)depth;
 }
 
-/* mermaid 代码块：<pre><code class="language-mermaid">..</code></pre>
-   → <pre class="mermaid">..</pre>（交给内嵌 mermaid.js 渲染） */
 static void MermaidBlocks(StrBuf* in) {
     static const char pat[] = "<pre><code class=\"language-mermaid\">";
     static const char end[] = "</code></pre>";
@@ -114,7 +104,6 @@ static const char* kHtmlCss =
 "table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:6px 10px}"
 "th{background:#ecf0f3}img{max-width:100%}";
 
-/* 导出的 HTML 中插入 mermaid.js：优先内嵌资源（离线可用），缺资源时退 CDN */
 static void AppendMermaidScript(StrBuf* html, BOOL* usedRes) {
     HRSRC hr = FindResourceW(g_hInst, MAKEINTRESOURCEW(IDR_MERMAID_JS), RT_RCDATA);
     if (hr) {
@@ -149,7 +138,6 @@ void MdExport_Html(void) {
     MathDelimit(&body);
     MermaidBlocks(&body);
 
-    /* 默认文件名：<文档名>.html */
     wchar_t fname[MAX_PATH];
     wcscpy_s(fname, MAX_PATH, g_docs[g_curDoc].title);
     wchar_t* dot = wcsrchr(fname, L'.');
@@ -168,7 +156,6 @@ void MdExport_Html(void) {
 
     StrBuf html = { 0 };
     SbStr(&html, "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>");
-    /* 标题（文档名，HTML 转义从简——title 里含 < > 的情况极罕见） */
     SbStr(&html, "<title>Document</title>\n");
     SbStr(&html, "<style>"); SbStr(&html, kHtmlCss); SbStr(&html, "</style>\n");
     SbStr(&html, "</head>\n<body>\n");
@@ -191,8 +178,6 @@ void MdExport_Html(void) {
     free(html.p);
     (void)usedRes; (void)filter;
 }
-
-/* ============================ PDF 导出（打印） ============================ */
 
 void MdExport_Pdf(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
