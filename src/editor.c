@@ -1,6 +1,7 @@
 #include "common.h"
 
-static const int TAB_HEIGHT_96 = 26;
+static const int TAB_HEIGHT_96 = 22;
+static const int EDIT_TOP_PAD_96 = 4;
 static const int STATUS_HEIGHT_96 = 22;
 
 static const char* LexerName[] = {
@@ -39,7 +40,7 @@ void Editor_ApplyThemeColors(void) {
 
 static void RecreateTabFont(void) {
     if (g_hFont) DeleteObject(g_hFont);
-    int h = -MulDiv(g_fontSize, (int)g_dpi, 72);
+    int h = -MulDiv(9, (int)g_dpi, 72);
     g_hFont = CreateFontW(h, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                           DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
@@ -576,7 +577,7 @@ void Editor_Layout(void) {
     SetWindowPos(g_hwndTab, NULL, 0, 0, cx, tabH, SWP_NOZORDER);
     SetWindowPos(g_hwndStatus, NULL, 0, cy - statusH, cx, statusH, SWP_NOZORDER);
 
-    int top = tabH;
+    int top = tabH + UI_Scale(EDIT_TOP_PAD_96);
     int bottom = cy - statusH;
     int h = bottom - top;
 

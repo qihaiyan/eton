@@ -6,6 +6,10 @@
 - 静态链接运行库（`/MT`）+ Scintilla + Lexilla，编译产物仅依赖系统 DLL，可直接拷贝到其他 Windows 机器运行
 - 内嵌 Common Controls v6 清单，自动获得系统主题（含暗色标题栏/控件）
 
+<a href="https://get.microsoft.com/installer/download/9p1bnmg6qkf8?referrer=appbadge" target="_self" >
+	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
+</a>
+
 ---
 
 ## 功能特性

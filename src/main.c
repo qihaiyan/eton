@@ -316,6 +316,7 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             ApplyTitleBarTheme(hwnd);
             InvalidateRect(g_hwndTab, NULL, FALSE);
             InvalidateRect(g_hwndStatus, NULL, FALSE);
+            InvalidateRect(hwnd, NULL, TRUE);
             ScrollBars_Repaint();
             TabBar_ApplyTheme();
             RebuildMainMenu(hwnd);
@@ -473,6 +474,13 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ResizeStatus();
             Editor_Layout();
             return 0;
+        case WM_ERASEBKGND: {
+            RECT rc; GetClientRect(hwnd, &rc);
+            HBRUSH hb = CreateSolidBrush(g_clrBg);
+            FillRect((HDC)wp, &rc, hb);
+            DeleteObject(hb);
+            return 1;
+        }
         case WM_DPICHANGED: {
             g_dpi = HIWORD(wp);
             const RECT* sug = (const RECT*)lp;
