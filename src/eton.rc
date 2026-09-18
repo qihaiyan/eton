@@ -130,11 +130,11 @@ BEGIN
     BEGIN
         BLOCK "080404b0"
         BEGIN
-            VALUE "CompanyName",      "海易华天"
+            VALUE "CompanyName",      "HiEASE"
             VALUE "FileDescription",  "ETON text editor"
             VALUE "FileVersion",      ET_VERSION_STR
             VALUE "InternalName",     "eton"
-            VALUE "LegalCopyright",   "Copyright (C) 2026 海易华天"
+            VALUE "LegalCopyright",   "Copyright (C) 2026 HiEASE"
             VALUE "OriginalFilename", "eton.exe"
             VALUE "ProductName",      "ETON"
             VALUE "ProductVersion",   ET_VERSION_STR
