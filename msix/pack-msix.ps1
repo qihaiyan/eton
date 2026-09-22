@@ -1,7 +1,7 @@
 ﻿param(
-    [string]$Name = "ETON",
-    [string]$Publisher = "CN=ETON Local Test",
-    [string]$Version = "1.0.1.0",
+    [string]$Name = "A99C7AF7.ETON",
+    [string]$Publisher = "CN=15387737-D26A-48FB-9636-57EAD340851A",
+    [string]$Version = "1.0.2.0",
     [switch]$Sign
 )
 
