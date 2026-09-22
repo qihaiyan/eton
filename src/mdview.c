@@ -8,7 +8,9 @@ enum { STY_BOLD = 1, STY_EM = 2, STY_CODE = 4, STY_STRIKE = 8,
 typedef struct MdRun {
     wchar_t* text;
     unsigned style;
-    wchar_t* href;
+    wchar_t* href;      /* 链接目标；图片运行为图片源 */
+    wchar_t* link;      /* 包裹图片的链接目标（<a><img/></a>），点击用 */
+    int imgW;           /* HTML width 属性（96dpi 像素），0 = 自然尺寸 */
     MathBox* math;
 } MdRun;
 
@@ -60,6 +62,7 @@ typedef struct MdItem {
     UINT imageW, imageH;
     MdRun* mathRun;
     MdRun* ownRun;
+    wchar_t* href;      /* 图片项的点击目标（来自包裹链接或图片源） */
 } MdItem;
 
 static struct {
@@ -188,6 +191,7 @@ static void BlkFree(MdBlock* b) {
     for (int i = 0; i < b->nRuns; i++) {
         free(b->runs[i].text);
         free(b->runs[i].href);
+        free(b->runs[i].link);
         if (b->runs[i].math) Math_Free(b->runs[i].math);
     }
     free(b->runs);
@@ -214,10 +218,17 @@ static wchar_t* Utf8ToW(const char* s, int len) {
 }
 
 typedef struct {
+    int tag;            /* TAG_A / TAG_B / ... */
+    unsigned bits;
+    wchar_t* href;      /* 仅 TAG_A */
+} HEnt;
+
+typedef struct {
     MdBlock* stack[64]; int depth;
     MdBlock* textBlk;
     unsigned style;
-    wchar_t* href;
+    HEnt hstk[8]; int hDepth;   /* <a>/<b>/<i>... 与 markdown 链接共用的样式栈 */
+    wchar_t* imgSrc;            /* 当前 MD_SPAN_IMG 或 <img> 的图片源 */
     char* codeBuf; int codeLen, codeCap;
     char* mathBuf; int mathLen;
     int inMath; BOOL mathDisp;
@@ -229,6 +240,8 @@ typedef struct {
 } MdParseCtx;
 
 static MdParseCtx* P;
+
+static const wchar_t* CurLinkHref(void);
 
 static void AddRun(const wchar_t* s, int len, unsigned style) {
     if (!P->textBlk) {
@@ -250,7 +263,18 @@ static void AddRun(const wchar_t* s, int len, unsigned style) {
         memcpy(r->text, s, (size_t)len * sizeof(wchar_t));
         r->text[len] = L'\0';
     }
-    r->href = (style & (STY_LINK | STY_IMG)) && P->href ? _wcsdup(P->href) : NULL;
+    r->link = NULL;
+    if (style & STY_IMG) {
+        r->href = P->imgSrc ? _wcsdup(P->imgSrc) : NULL;
+        const wchar_t* lh = CurLinkHref();
+        r->link = lh ? _wcsdup(lh) : NULL;
+    } else if (style & STY_LINK) {
+        const wchar_t* lh = CurLinkHref();
+        r->href = lh ? _wcsdup(lh) : NULL;
+    } else {
+        r->href = NULL;
+    }
+    r->imgW = 0;
 }
 
 static void CodeAppend(const char* s, int len) {
@@ -271,6 +295,370 @@ static void AttrToWide(MD_ATTRIBUTE a, wchar_t* out, int cch) {
     if (n < 0) n = 0;
     out[n] = L'\0';
 }
+
+/* ===================== 行内 HTML（<a>/<img>/<br>/样式标签）=====================
+ * md4c 把原始 HTML 以 MD_TEXT_HTML 交给渲染方，这里把标签映射到既有 run 体系：
+ * <a href> → STY_LINK、<img src alt width> → STY_IMG 运行、<br> → STY_BR、
+ * b/strong/i/em/del/s/code → 对应样式位，其余标签剥掉、保留内部文本。
+ * markdown 原生 [![](img)](link) 与 HTML 标签共用同一套链接样式栈。
+ */
+
+enum { TAG_A = 1, TAG_B, TAG_I, TAG_DEL, TAG_CODE, TAGS_IMG = 101, TAGS_BR = 102 };
+
+static void HtmlPushTag(int id, unsigned bits, const wchar_t* href) {
+    if (P->hDepth >= 8) return;
+    P->hstk[P->hDepth].tag = id;
+    P->hstk[P->hDepth].bits = bits;
+    P->hstk[P->hDepth].href = href ? _wcsdup(href) : NULL;
+    P->hDepth++;
+    P->style |= bits;
+}
+
+static void HtmlPopTag(int id) {
+    for (int k = P->hDepth - 1; k >= 0; k--) {
+        if (P->hstk[k].tag == id) {
+            for (int j = P->hDepth - 1; j >= k; j--) {
+                P->style &= ~P->hstk[j].bits;
+                free(P->hstk[j].href);
+                P->hstk[j].href = NULL;
+            }
+            P->hDepth = k;
+            return;
+        }
+    }
+}
+
+static const wchar_t* CurLinkHref(void) {
+    for (int k = P->hDepth - 1; k >= 0; k--)
+        if (P->hstk[k].tag == TAG_A) return P->hstk[k].href;
+    return NULL;
+}
+
+/* 段落结束时复位，防止未闭合标签跨段泄漏状态 */
+static void ResetInlineHtml(void) {
+    while (P->hDepth > 0) {
+        P->hDepth--;
+        P->style &= ~P->hstk[P->hDepth].bits;
+        free(P->hstk[P->hDepth].href);
+        P->hstk[P->hDepth].href = NULL;
+    }
+    free(P->imgSrc);
+    P->imgSrc = NULL;
+}
+
+/* 解码一个 &entity;（常用命名 + 十进制/十六进制数字），返回消耗字节数 */
+static int DecodeOneEntity(const char* s, int rem, char* out, int* outLen) {
+    *outLen = 0;
+    if (rem < 3 || s[0] != '&') return 0;
+    static const struct { const char* name; char ch; } kNamed[] = {
+        { "amp;", '&' }, { "lt;", '<' }, { "gt;", '>' },
+        { "quot;", '"' }, { "apos;", '\'' }, { "nbsp;", ' ' },
+    };
+    if (s[1] != '#') {
+        for (int i = 0; i < 6; i++) {
+            int n = (int)strlen(kNamed[i].name);
+            if (rem >= 2 + n && strncmp(s + 1, kNamed[i].name, n) == 0) {
+                out[0] = kNamed[i].ch;
+                *outLen = 1;
+                return 2 + n;
+            }
+        }
+        return 0;
+    }
+    unsigned v = 0; int i = 2, digits = 0, hex = 0;
+    if (i < rem && (s[i] == 'x' || s[i] == 'X')) { hex = 1; i++; }
+    while (i < rem && digits < 7) {
+        char c = s[i];
+        int d;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (hex && c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (hex && c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        else break;
+        v = v * (hex ? 16u : 10u) + (unsigned)d;
+        i++; digits++;
+    }
+    if (digits == 0 || i >= rem || s[i] != ';') return 0;
+    if (v > 0x10FFFF || (v >= 0xD800 && v <= 0xDFFF)) return 0;
+    int n;
+    if (v < 0x80) { out[0] = (char)v; n = 1; }
+    else if (v < 0x800) {
+        out[0] = (char)(0xC0 | (v >> 6));
+        out[1] = (char)(0x80 | (v & 0x3F));
+        n = 2;
+    } else if (v < 0x10000) {
+        out[0] = (char)(0xE0 | (v >> 12));
+        out[1] = (char)(0x80 | ((v >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (v & 0x3F));
+        n = 3;
+    } else {
+        out[0] = (char)(0xF0 | (v >> 18));
+        out[1] = (char)(0x80 | ((v >> 12) & 0x3F));
+        out[2] = (char)(0x80 | ((v >> 6) & 0x3F));
+        out[3] = (char)(0x80 | (v & 0x3F));
+        n = 4;
+    }
+    *outLen = n;
+    return i + 1;
+}
+
+static int DecodeEntitiesUtf8(const char* in, int len, char* out, int cap) {
+    int o = 0;
+    for (int i = 0; i < len; ) {
+        if (in[i] == '&') {
+            char tmp[8]; int tl = 0;
+            int used = DecodeOneEntity(in + i, len - i, tmp, &tl);
+            if (used > 0 && o + tl <= cap) {
+                memcpy(out + o, tmp, (size_t)tl);
+                o += tl;
+                i += used;
+                continue;
+            }
+        }
+        out[o++] = in[i++];
+    }
+    return o;
+}
+
+/* 文本节点 → run；blockMode 时按 HTML 规则折叠空白（连续空白 → 单空格） */
+static void HtmlAddText(const char* s, int len, BOOL blockMode) {
+    if (len <= 0) return;
+    char* dbuf = (char*)malloc((size_t)len);
+    if (!dbuf) return;
+    int dn = DecodeEntitiesUtf8(s, len, dbuf, len);
+    wchar_t* w = Utf8ToW(dbuf, dn);
+    free(dbuf);
+    if (!w) return;
+    if (blockMode) {
+        wchar_t* w2 = (wchar_t*)malloc(((size_t)wcslen(w) + 1) * sizeof(wchar_t));
+        if (w2) {
+            int n = 0;
+            BOOL sp = FALSE;
+            BOOL emitted = P->textBlk && P->textBlk->nRuns > 0;
+            for (const wchar_t* p = w; *p; p++) {
+                if (*p == L' ' || *p == L'\t' || *p == L'\r' || *p == L'\n') {
+                    sp = TRUE;
+                    continue;
+                }
+                if (sp) {
+                    if (n > 0 || emitted) w2[n++] = L' ';
+                    sp = FALSE;
+                }
+                w2[n++] = *p;
+            }
+            w2[n] = L'\0';
+            if (n > 0) AddRun(w2, n, P->style);
+            free(w2);
+        }
+    } else {
+        AddRun(w, (int)wcslen(w), P->style);
+    }
+    free(w);
+}
+
+typedef struct {
+    int consumed;       /* 整个标签（含 <>）字节数；0 = 不是标签 */
+    int tagId;
+    BOOL closing;
+    char href[2048]; int hrefLen;
+    char src[2048];  int srcLen;
+    char alt[512];   int altLen;
+    int width;
+} HtmlTag;
+
+static char TagCharLower(char c) {
+    return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+}
+
+static int TagNameToId(const char* name) {
+    if (!strcmp(name, "a")) return TAG_A;
+    if (!strcmp(name, "b") || !strcmp(name, "strong")) return TAG_B;
+    if (!strcmp(name, "i") || !strcmp(name, "em")) return TAG_I;
+    if (!strcmp(name, "del") || !strcmp(name, "s")) return TAG_DEL;
+    if (!strcmp(name, "code")) return TAG_CODE;
+    if (!strcmp(name, "img")) return TAGS_IMG;
+    if (!strcmp(name, "br")) return TAGS_BR;
+    return 0;
+}
+
+static BOOL TagIsNameChar(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') || c == '-' || c == '_' || c == ':';
+}
+
+/* 在标签属性区（不含 <name 与 >）解析需要的属性 */
+static void ParseAttrs(const char* s, int len, HtmlTag* t) {
+    int i = 0;
+    while (i < len) {
+        while (i < len && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n' || s[i] == '/'))
+            i++;
+        if (i >= len) break;
+        char name[16]; int nn = 0;
+        while (i < len && TagIsNameChar(s[i]) && nn < 15)
+            name[nn++] = TagCharLower(s[i++]);
+        name[nn] = '\0';
+        if (nn == 0) { i++; continue; }   /* 跳过属性区里的非法字符 */
+        while (i < len && (s[i] == ' ' || s[i] == '\t')) i++;
+        const char* val = NULL; int valLen = 0;
+        if (i < len && s[i] == '=') {
+            i++;
+            while (i < len && (s[i] == ' ' || s[i] == '\t')) i++;
+            if (i < len && (s[i] == '"' || s[i] == '\'')) {
+                char q = s[i++];
+                val = s + i;
+                while (i < len && s[i] != q) i++;
+                valLen = i - (int)(val - s);
+                if (i < len) i++;
+            } else {
+                val = s + i;
+                while (i < len && s[i] != ' ' && s[i] != '\t' && s[i] != '/' && s[i] != '>')
+                    i++;
+                valLen = i - (int)(val - s);
+            }
+        }
+        if (nn == 0 || valLen <= 0) continue;
+        char* dst = NULL; int dstCap = 0, *dstLen = NULL;
+        if (!strcmp(name, "href") && t->tagId == TAG_A) { dst = t->href; dstCap = 2048; dstLen = &t->hrefLen; }
+        else if (!strcmp(name, "src") && t->tagId == TAGS_IMG) { dst = t->src; dstCap = 2048; dstLen = &t->srcLen; }
+        else if (!strcmp(name, "alt") && t->tagId == TAGS_IMG) { dst = t->alt; dstCap = 512; dstLen = &t->altLen; }
+        else if (!strcmp(name, "width") && t->tagId == TAGS_IMG) {
+            int v = 0, k = 0;
+            while (k < valLen && val[k] >= '0' && val[k] <= '9') { v = v * 10 + (val[k] - '0'); k++; }
+            if (k > 0 && v >= 1 && v <= 4096) t->width = v;
+            continue;
+        }
+        if (dst) {
+            char dec[2048];
+            int dn = DecodeEntitiesUtf8(val, valLen < 2048 ? valLen : 2048, dec, 2048);
+            int cp = dn < dstCap - 1 ? dn : dstCap - 1;
+            memcpy(dst, dec, (size_t)cp);
+            dst[cp] = '\0';
+            *dstLen = cp;
+        }
+    }
+}
+
+/* 尝试解析 s[0] 起始的一个标签；返回 0 表示不是合法标签（按文本处理） */
+static int ParseHtmlTag(const char* s, int rem, HtmlTag* t) {
+    ZeroMemory(t, sizeof(*t));
+    if (rem < 3 || s[0] != '<') return 0;
+    if (s[1] == '!') {
+        if (rem >= 4 && s[2] == '-' && s[3] == '-') {
+            for (int i = 4; i + 2 < rem; i++)
+                if (s[i] == '-' && s[i + 1] == '-' && s[i + 2] == '>')
+                    return i + 3;
+            return rem;    /* 未闭合注释：整段吞掉 */
+        }
+        for (int i = 2; i < rem; i++)
+            if (s[i] == '>') return i + 1;
+        return rem;
+    }
+    int i = 1;
+    if (i < rem && s[i] == '/') { t->closing = TRUE; i++; }
+    if (i >= rem || !((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= 'A' && s[i] <= 'Z'))) return 0;
+    char name[16]; int nn = 0;
+    while (i < rem && TagIsNameChar(s[i])) {
+        if (nn < 15) name[nn++] = TagCharLower(s[i]);
+        i++;
+    }
+    name[nn] = '\0';
+    int j = i;
+    while (j < rem && s[j] != '>') j++;
+    if (j >= rem) return 0;
+    t->tagId = TagNameToId(name);
+    if (!t->closing && (t->tagId == TAG_A || t->tagId == TAGS_IMG))
+        ParseAttrs(s + i, j - i, t);
+    t->consumed = j + 1;
+    return t->consumed;
+}
+
+static void HtmlTextToRuns(const char* s, int len, BOOL blockMode) {
+    int i = 0;
+    while (i < len) {
+        if (s[i] == '<') {
+            HtmlTag t;
+            int tl = ParseHtmlTag(s + i, len - i, &t);
+            if (tl > 0) {
+                switch (t.tagId) {
+                    case TAG_A:
+                        if (t.closing) HtmlPopTag(TAG_A);
+                        else {
+                            wchar_t hw[2048];
+                            int n = MultiByteToWideChar(CP_UTF8, 0, t.href,
+                                                        t.hrefLen, hw, 2047);
+                            if (n < 0) n = 0;
+                            hw[n] = L'\0';
+                            HtmlPushTag(TAG_A, STY_LINK, hw);
+                        }
+                        break;
+                    case TAG_B:
+                        if (t.closing) HtmlPopTag(TAG_B);
+                        else HtmlPushTag(TAG_B, STY_BOLD, NULL);
+                        break;
+                    case TAG_I:
+                        if (t.closing) HtmlPopTag(TAG_I);
+                        else HtmlPushTag(TAG_I, STY_EM, NULL);
+                        break;
+                    case TAG_DEL:
+                        if (t.closing) HtmlPopTag(TAG_DEL);
+                        else HtmlPushTag(TAG_DEL, STY_STRIKE, NULL);
+                        break;
+                    case TAG_CODE:
+                        if (t.closing) HtmlPopTag(TAG_CODE);
+                        else HtmlPushTag(TAG_CODE, STY_CODE, NULL);
+                        break;
+                    case TAGS_BR:
+                        if (!t.closing) AddRun(L"", 0, STY_BR | P->style);
+                        break;
+                    case TAGS_IMG:
+                        if (!t.closing) {
+                            wchar_t srcW[2048], altW[512];
+                            int n = MultiByteToWideChar(CP_UTF8, 0, t.src,
+                                                        t.srcLen, srcW, 2047);
+                            if (n < 0) n = 0;
+                            srcW[n] = L'\0';
+                            n = MultiByteToWideChar(CP_UTF8, 0, t.alt,
+                                                    t.altLen, altW, 511);
+                            if (n < 0) n = 0;
+                            altW[n] = L'\0';
+                            free(P->imgSrc);
+                            P->imgSrc = srcW[0] ? _wcsdup(srcW) : NULL;
+                            unsigned save = P->style;
+                            P->style |= STY_IMG;
+                            AddRun(altW, (int)wcslen(altW), P->style);
+                            P->style = save;
+                            free(P->imgSrc);
+                            P->imgSrc = NULL;
+                            if (t.width > 0 && P->textBlk && P->textBlk->nRuns > 0)
+                                P->textBlk->runs[P->textBlk->nRuns - 1].imgW = t.width;
+                        }
+                        break;
+                    default:
+                        break;  /* 其余标签：剥离，仅保留内部文本 */
+                }
+                i += tl;
+                continue;
+            }
+        }
+        /* 无效标签的 '<'（如 "a < b"）并入后续文本，保证 i 前进 */
+        int j = i + (s[i] == '<' ? 1 : 0);
+        while (j < len && s[j] != '<') j++;
+        HtmlAddText(s + i, j - i, blockMode);
+        i = j;
+    }
+}
+
+/* HTML 块里是否含 <img / <a（决定是否值得按行内规则重写） */
+static BOOL BufHasImgOrLink(const char* s, int len) {
+    for (int i = 0; i + 4 < len; i++) {
+        if (s[i] != '<') continue;
+        char a = TagCharLower(s[i + 1]), b = TagCharLower(s[i + 2]);
+        if (a == 'i' && b == 'm' && TagCharLower(s[i + 3]) == 'g') return TRUE;
+        if (a == 'a' && (b == ' ' || b == '>' || b == '\t' || b == '\r' || b == '\n' || b == '/'))
+            return TRUE;
+    }
+    return FALSE;
+}
+
 
 static int MdEnterBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
     (void)ud;
@@ -398,10 +786,12 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
         case MD_BLOCK_H: case MD_BLOCK_P:
             if (P->textBlk) BlkAppend(P->stack[P->depth], P->textBlk);
             P->textBlk = NULL;
+            ResetInlineHtml();
             break;
         case MD_BLOCK_TH: case MD_BLOCK_TD: {
             MdBlock* cell = P->textBlk;
             P->textBlk = NULL;
+            ResetInlineHtml();
             if (!cell || !P->table) { BlkFree(cell); break; }
             MdBlock** nc = (MdBlock**)realloc(P->table->cells,
                 ((size_t)P->cellCount + 1) * sizeof(MdBlock*));
@@ -418,6 +808,19 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             if (P->codeLen > 0) {
                 while (P->codeLen > 0 && (P->codeBuf[P->codeLen-1] == '\n' ||
                        P->codeBuf[P->codeLen-1] == '\r')) P->codeLen--;
+            }
+            if (type == MD_BLOCK_HTML && BufHasImgOrLink(P->codeBuf, P->codeLen)) {
+                /* 徽章常见形态：<p align=center>/<div> 包裹 <a><img/></a>。
+                 * 按行内规则重写成段落，其余标签剥离、保留文本 */
+                MdBlock* p = BlkNew(MDB_P);
+                MdBlock* saved = P->textBlk;
+                P->textBlk = p;
+                HtmlTextToRuns(P->codeBuf, P->codeLen, TRUE);
+                ResetInlineHtml();
+                P->textBlk = saved;
+                BlkAppend(P->stack[P->depth], p);
+                BlkFree(c);
+                break;
             }
             if (type == MD_BLOCK_CODE && P->codeLen > 0 &&
                 _stricmp(c->fenceLang, "mermaid") == 0) {
@@ -466,11 +869,10 @@ static int MdEnterSpan(MD_SPANTYPE type, void* detail, void* ud) {
         case MD_SPAN_DEL:    P->style |= STY_STRIKE; break;
         case MD_SPAN_CODE:   P->style |= STY_CODE; break;
         case MD_SPAN_A: {
-            P->style |= STY_LINK;
             const MD_SPAN_A_DETAIL* d = (const MD_SPAN_A_DETAIL*)detail;
             wchar_t tmp[2048];
             AttrToWide(d->href, tmp, 2048);
-            P->href = _wcsdup(tmp);
+            HtmlPushTag(TAG_A, STY_LINK, tmp);
             break;
         }
         case MD_SPAN_IMG: {
@@ -478,7 +880,8 @@ static int MdEnterSpan(MD_SPANTYPE type, void* detail, void* ud) {
             const MD_SPAN_IMG_DETAIL* d = (const MD_SPAN_IMG_DETAIL*)detail;
             wchar_t tmp[2048];
             AttrToWide(d->src, tmp, 2048);
-            P->href = _wcsdup(tmp);
+            free(P->imgSrc);
+            P->imgSrc = _wcsdup(tmp);
             break;
         }
         default: break;
@@ -508,12 +911,12 @@ static int MdLeaveSpan(MD_SPANTYPE type, void* detail, void* ud) {
         case MD_SPAN_DEL:    P->style &= ~STY_STRIKE; break;
         case MD_SPAN_CODE:   P->style &= ~STY_CODE; break;
         case MD_SPAN_A:
-            P->style &= ~STY_LINK;
-            free(P->href); P->href = NULL;
+            HtmlPopTag(TAG_A);
             break;
         case MD_SPAN_IMG:
             P->style &= ~STY_IMG;
-            free(P->href); P->href = NULL;
+            free(P->imgSrc);
+            P->imgSrc = NULL;
             break;
         default: break;
     }
@@ -543,10 +946,7 @@ static int MdText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE len, void* ud) 
             break;
         case MD_TEXT_HTML: {
             if (P->codeBlk) CodeAppend(text, (int)len);
-            else {
-                wchar_t* w = Utf8ToW(text, (int)len);
-                if (w) { AddRun(w, (int)wcslen(w), P->style | STY_CODE); free(w); }
-            }
+            else HtmlTextToRuns(text, (int)len, FALSE);
             break;
         }
         case MD_TEXT_BR:
@@ -588,7 +988,7 @@ static MdBlock* MdParseDoc(const char* utf8, DWORD len) {
     ctx.stack[0] = root;
     P = &ctx;
     md_parse(utf8, (MD_SIZE)len, &g_mdParser, &ctx);
-    free(ctx.href);
+    ResetInlineHtml();
     free(ctx.mathBuf);
     free(ctx.codeBuf);
     return root;
@@ -667,8 +1067,11 @@ static void ItemResetAll(void) {
         }
         if (V.items[i].ownRun) {
             free(V.items[i].ownRun->text);
+            free(V.items[i].ownRun->href);
+            free(V.items[i].ownRun->link);
             free(V.items[i].ownRun);
         }
+        free(V.items[i].href);
     }
     free(V.items);
     V.items = NULL; V.nItems = 0; V.capItems = 0;
@@ -1072,42 +1475,186 @@ static BOOL ResolveLocalHref(const wchar_t* href, wchar_t* full, int cch) {
     return TRUE;
 }
 
+static BOOL IsHttpUrl(const wchar_t* s) {
+    return s && (_wcsnicmp(s, L"http://", 7) == 0 || _wcsnicmp(s, L"https://", 8) == 0);
+}
+
+/* 占位框标签：alt 优先，否则取 URL 末段（%20 还原为空格） */
+static void ImgFallbackLabel(const wchar_t* src, const wchar_t* alt, wchar_t* out, int cch) {
+    if (alt && *alt) {
+        wcsncpy_s(out, cch, alt, _TRUNCATE);
+        return;
+    }
+    const wchar_t* seg = L"image";
+    wchar_t buf[64];
+    if (src && *src) {
+        const wchar_t* slash = wcsrchr(src, L'/');
+        const wchar_t* p = slash ? slash + 1 : src;
+        int n = 0;
+        while (*p && *p != L'?' && *p != L'#' && n < 40) {
+            if (p[0] == L'%' && p[1] == L'2' && p[2] == L'0') { buf[n++] = L' '; p += 3; }
+            else buf[n++] = *p++;
+        }
+        buf[n] = L'\0';
+        if (n > 0) seg = buf;
+    }
+    wcsncpy_s(out, cch, seg, _TRUNCATE);
+}
+
+/* 纯图片段落：单图或多图徽章行，横排、超宽换行；
+ * 加载失败（SVG/远程未就绪/本地缺失）画可点击占位框 */
+typedef struct { MdRun* run; int w, h; ImgEnt* ent; int isBr; } ImgU;
+
 static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
-    MdRun* img = NULL;
+    if (b->nRuns <= 0) return FALSE;
+    ImgU* U = (ImgU*)calloc((size_t)b->nRuns, sizeof(ImgU));
+    if (!U) return FALSE;
+    int nU = 0, nImg = 0;
     for (int i = 0; i < b->nRuns; i++) {
         MdRun* r = &b->runs[i];
-        if (r->style & STY_BR) continue;
-        if (!r->text) continue;
-        for (const wchar_t* p = r->text; *p; p++)
-            if (*p != L' ' && *p != L'\t') {
-                if (r->style & STY_IMG) {
-                    if (img) return FALSE;
-                    img = r;
-                    break;
-                }
-                return FALSE;
-            }
+        if (r->style & STY_BR) {
+            if (nU >= b->nRuns) break;
+            U[nU].isBr = TRUE;
+            nU++;
+            continue;
+        }
+        if (!(r->style & STY_IMG)) {
+            BOOL ws = TRUE;
+            if (!r->text) ws = FALSE;
+            else for (const wchar_t* p = r->text; *p; p++)
+                if (*p != L' ' && *p != L'\t') { ws = FALSE; break; }
+            if (!ws) { free(U); return FALSE; }
+            continue;
+        }
+        U[nU].run = r;
+        nU++;
+        nImg++;
     }
-    if (!img) return FALSE;
-    wchar_t full[MAX_PATH];
-    if (!ResolveLocalHref(img->href ? img->href : L"", full, MAX_PATH)) return FALSE;
-    ImgEnt* e = ImgGet(full);
-    if (!e) return FALSE;
+    if (nImg == 0) { free(U); return FALSE; }
 
-    UINT w = e->w;
-    UINT h = e->h;
-    if (w > (UINT)avail) { h = (UINT)((double)h * avail / w); w = (UINT)avail; }
-    if (!w || !h) return FALSE;
+    HFONT of = (HFONT)SelectObject(hdc, V.fonts.body);
+    for (int i = 0; i < nU; i++) {
+        if (U[i].isBr) continue;
+        MdRun* r = U[i].run;
+        const wchar_t* src = r->href ? r->href : L"";
+        ImgEnt* e = NULL;
+        if (IsHttpUrl(src)) {
+            wchar_t full[MAX_PATH];
+            if (MdImg_CachePath(src, full, MAX_PATH) &&
+                GetFileAttributesW(full) != INVALID_FILE_ATTRIBUTES)
+                e = ImgGet(full);
+            else
+                MdImg_Ensure(src);   /* 异步下载，完成后经 WM_MDIMG_READY 重排 */
+        } else {
+            wchar_t full[MAX_PATH];
+            if (ResolveLocalHref(src, full, MAX_PATH)) e = ImgGet(full);
+        }
+        U[i].ent = e;
+        if (e) {
+            UINT w = e->w, h = e->h;
+            if (r->imgW > 0 && w > 0) {
+                int tw = UI_Scale(r->imgW);
+                if (tw > avail) tw = avail;
+                if (tw > 0) { h = (UINT)((double)h * tw / w); w = (UINT)tw; }
+            }
+            if (w > (UINT)avail && w > 0) { h = (UINT)((double)h * avail / w); w = (UINT)avail; }
+            U[i].w = (int)w;
+            U[i].h = (int)h;
+        } else {
+            wchar_t label[80];
+            ImgFallbackLabel(src, r->text, label, 80);
+            SIZE sz = { UI_Scale(20), 0 };
+            GetTextExtentPoint32W(hdc, label, (int)wcslen(label), &sz);
+            int w = sz.cx + UI_Scale(24);
+            if (r->imgW > 0) {
+                int tw = UI_Scale(r->imgW);
+                if (tw > w) w = tw;
+            }
+            if (w > avail) w = avail;
+            if (w < UI_Scale(48)) w = UI_Scale(48);
+            U[i].w = w;
+            U[i].h = V.fonts.lineH + UI_Scale(12);
+        }
+        if (U[i].w <= 0 || U[i].h <= 0) { U[i].w = UI_Scale(48); U[i].h = V.fonts.lineH; }
+    }
 
-    MdItem* it = ItemAlloc();
-    if (!it) return FALSE;
-    it->type = ITM_IMAGE;
-    it->rc.left = x0; it->rc.top = *y;
-    it->rc.right = x0 + (int)w; it->rc.bottom = *y + (int)h;
-    it->image = e->img;
-    it->imageW = e->w; it->imageH = e->h;
-    *y += (int)h + UI_Scale(9);
-    (void)hdc;
+    int cx = x0, rowH = 0;
+    for (int i = 0; i < nU; i++) {
+        if (U[i].isBr || (cx + U[i].w > x0 + avail && cx > x0)) {
+            *y += rowH + UI_Scale(6);
+            cx = x0;
+            rowH = 0;
+            if (U[i].isBr) continue;
+        }
+        MdRun* r = U[i].run;
+        const wchar_t* click = r->link ? r->link
+                             : (IsHttpUrl(r->href) ? r->href : NULL);
+        if (U[i].ent) {
+            MdItem* it = ItemAlloc();
+            if (it) {
+                it->type = ITM_IMAGE;
+                it->rc.left = cx; it->rc.top = *y;
+                it->rc.right = cx + U[i].w; it->rc.bottom = *y + U[i].h;
+                it->image = U[i].ent->img;
+                it->imageW = U[i].ent->w; it->imageH = U[i].ent->h;
+                it->href = click ? _wcsdup(click) : NULL;
+            }
+        } else {
+            wchar_t label[80];
+            ImgFallbackLabel(r->href ? r->href : L"", r->text, label, 80);
+            MdRun* mr = (MdRun*)calloc(1, sizeof(MdRun));
+            MdLine* ln = (MdLine*)calloc(1, sizeof(MdLine));
+            MdFrag* fr = (MdFrag*)calloc(1, sizeof(MdFrag));
+            if (mr && ln && fr) {
+                mr->text = _wcsdup(label);
+                mr->style = STY_LINK;
+                mr->href = click ? _wcsdup(click) : NULL;
+                SIZE sz = { 0, 0 };
+                if (mr->text)
+                    GetTextExtentPoint32W(hdc, label, (int)wcslen(label), &sz);
+                TEXTMETRICW tm;
+                GetTextMetricsW(hdc, &tm);
+                if (mr->text) {
+                    fr->run = mr; fr->s = mr->text; fr->len = (int)wcslen(mr->text);
+                    fr->x = 0; fr->w = sz.cx;
+                    ln->frags = fr; ln->nF = 1;
+                    ln->h = tm.tmHeight; ln->asc = tm.tmAscent; ln->y = 0;
+                    RECT box = { cx, *y, cx + U[i].w, *y + U[i].h };
+                    ItemPush(ITM_FRAME, box, 0);
+                    MdItem* it = ItemAlloc();
+                    if (it) {
+                        it->type = ITM_LINES;
+                        int tx = cx + (U[i].w - sz.cx) / 2;
+                        if (tx < cx + UI_Scale(6)) tx = cx + UI_Scale(6);
+                        int ty = *y + (U[i].h - (int)tm.tmHeight) / 2;
+                        if (ty < *y + UI_Scale(4)) ty = *y + UI_Scale(4);
+                        it->rc.left = tx; it->rc.top = ty;
+                        it->rc.right = cx + U[i].w; it->rc.bottom = *y + U[i].h;
+                        it->lines = ln; it->nLines = 1;
+                        it->role = ROLE_BODY;
+                        it->ownRun = mr;
+                    } else {
+                        free(ln);
+                        free(fr);
+                        free(mr->text); free(mr->href); free(mr);
+                        mr = NULL;
+                    }
+                } else {
+                    free(ln); free(fr);
+                    free(mr->href); free(mr);
+                    mr = NULL;
+                }
+            } else {
+                free(ln); free(fr);
+                if (mr) { free(mr->text); free(mr->href); free(mr); }
+            }
+        }
+        cx += U[i].w + UI_Scale(6);
+        if (U[i].h > rowH) rowH = U[i].h;
+    }
+    SelectObject(hdc, of);
+    *y += rowH + UI_Scale(9);
+    free(U);
     return TRUE;
 }
 
@@ -1533,6 +2080,12 @@ static const wchar_t* HitLink(int px, int py) {
     int dx = px;
     for (int i = 0; i < V.nItems; i++) {
         MdItem* it = &V.items[i];
+        if (it->type == ITM_IMAGE) {
+            if (it->href && dy >= it->rc.top && dy < it->rc.bottom &&
+                dx >= it->rc.left && dx < it->rc.right)
+                return it->href;
+            continue;
+        }
         if (it->type != ITM_LINES) continue;
         if (dy < it->rc.top || dy >= it->rc.bottom) continue;
         for (int l = 0; l < it->nLines; l++) {
@@ -1541,10 +2094,10 @@ static const wchar_t* HitLink(int px, int py) {
             if (dy < lt || dy >= lt + ln->h) continue;
             for (int k = 0; k < ln->nF; k++) {
                 MdFrag* fr = &ln->frags[k];
-                if (!fr->run->href || fr->len == 0) continue;
+                if ((!fr->run->href && !fr->run->link) || fr->len == 0) continue;
                 int fx = it->rc.left + fr->x;
                 if (dx >= fx - 1 && dx <= fx + fr->w + 1)
-                    return fr->run->href;
+                    return fr->run->link ? fr->run->link : fr->run->href;
             }
         }
     }
@@ -1563,6 +2116,8 @@ static void OpenLink(const wchar_t* href) {
     if (ResolveLocalHref(href, full, MAX_PATH))
         ShellExecuteW(V.hwnd, L"open", full, NULL, NULL, SW_SHOWNORMAL);
 }
+
+static void LoadContentEx(int index, BOOL force);
 
 static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
@@ -1649,6 +2204,15 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case VK_END:   ScrollBy(V.docH); return 0;
             }
             break;
+        case WM_MDIMG_READY:
+            if (V.docIdx >= 0 && V.docIdx < g_docCount) {
+                int save = V.scrollY;
+                LoadContentEx(V.docIdx, TRUE);
+                V.scrollY = save;
+                ClampScroll();
+                InvalidateRect(hwnd, NULL, FALSE);
+            }
+            return 0;
         case WM_SETFOCUS:
             return 0;
     }
@@ -1674,6 +2238,7 @@ void MdView_Create(HWND parent) {
     V.hwnd = CreateWindowExW(0, L"ETONMDView", NULL,
                              WS_CHILD | WS_VISIBLE | WS_TABSTOP,
                              0, 0, 0, 0, parent, NULL, g_hInst, NULL);
+    MdImg_Init(V.hwnd);
     ShowWindow(V.hwnd, SW_HIDE);
     V.docIdx = -1;
 }
@@ -1682,8 +2247,8 @@ BOOL MdView_IsVisible(void) {
     return V.hwnd && IsWindowVisible(V.hwnd);
 }
 
-static void LoadContent(int index) {
-    if (index >= 0 && index < g_docCount && V.docIdx == index &&
+static void LoadContentEx(int index, BOOL force) {
+    if (!force && index >= 0 && index < g_docCount && V.docIdx == index &&
         V.root && V.modGen == g_docs[index].modGen)
         return;
     s_imgGen++;
@@ -1709,6 +2274,10 @@ static void LoadContent(int index) {
     }
     LayoutAll();
     ImgSweep();
+}
+
+static void LoadContent(int index) {
+    LoadContentEx(index, FALSE);
 }
 
 void MdView_OnActivate(void) {

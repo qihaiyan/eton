@@ -18,6 +18,7 @@
 #define WM_APP_TABCLOSE    (WM_APP + 2)
 #define WM_APP_GUTUPDATE   (WM_APP + 3)
 #define WM_APP_RECOLOR     (WM_APP + 4)
+#define WM_MDIMG_READY     (WM_APP + 5)   /* 远程图片下载完成，请求重排 */
 
 #define MAX_DOCS 64
 #define MAX_RECENT 12
@@ -193,6 +194,11 @@ void Mermaid_FontsChanged(void);
 void MdView_SyncScrollFromEdit(double frac);
 double MdView_GetScrollFraction(void);
 void MdTheme_Build(MdTheme* th);
+
+/* mdimg.c — 远程图片下载与缓存 */
+void MdImg_Init(HWND notifyWnd);
+BOOL MdImg_CachePath(const wchar_t* url, wchar_t* out, int cch);
+void MdImg_Ensure(const wchar_t* url);
 
 void Editor_SyncScrollFromPreview(double frac);
 
