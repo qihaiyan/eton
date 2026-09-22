@@ -2,6 +2,8 @@
 
 一个用 **原生 Win32 C API**（不依赖 MFC / Qt / .NET / Electron）实现的、类 Notepad++ 的 Windows 文本编辑器。
 
+软件大小只有2M。
+
 - 源码可直接用 Visual Studio 生成工具（MSVC）编译为单个 `eton.exe`
 - 静态链接运行库（`/MT`）+ Scintilla + Lexilla，编译产物仅依赖系统 DLL，可直接拷贝到其他 Windows 机器运行
 - 内嵌 Common Controls v6 清单，自动获得系统主题（含暗色标题栏/控件）
@@ -9,6 +11,8 @@
 <a href="https://get.microsoft.com/installer/download/9p1bnmg6qkf8?referrer=appbadge" target="_self" >
 	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
 </a>
+
+![eton](res/eton.png)
 
 ---
 
@@ -146,26 +150,6 @@ wix build -arch x64 eton.wxs -d Version=0.0.1 -acceptEula wix7 -o eton-0.0.1-x64
 - 版本号为**三段式**（如 `0.0.1`），安装到 Program Files 并创建开始菜单快捷方式，per-machine 范围。
 - 发布 GitHub Release（tag `v0.0.1`）时 CI 自动构建 exe + MSI 并附加到 Release；配置了签名证书 secrets 时自动用 signtool 签名。本地分发的 MSI 建议自签：
   `signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f 证书.pfx /p 密码 eton-0.0.1-x64.msi`
-
-### MSIX（微软商店 / Win10 1809+ 侧载）
-
-用 `msix\pack-msix.ps1`（需要 Windows SDK 的 makeappx，图标资产自动从 `res\app.png` 生成）：
-
-```powershell
-# 商店提交包：用 Partner Center 的 Package/Identity 值，保持未签名（上架时商店统一签名）
-powershell -File msix\pack-msix.ps1 -Name A99C7AF7.ETON -Publisher "CN=15387737-D26A-48FB-9636-57EAD340851A" -Version 0.0.2.0
-
-# 本机测试包：默认测试标识 + 自签名证书（首次会自动创建证书并导出 .cer）
-powershell -File msix\pack-msix.ps1 -Sign
-```
-
-- 版本号为四段式，且**第 4 段（修订号）必须为 0**——微软商店上传校验会拒绝形如 `0.0.1.1` 的版本（报"包接受验证错误"），只能用 `0.0.2.0` 这类格式；每次提交还需大于上一次已发布的版本。本机侧载不受此限制。
-- **Identity（Name + Publisher）必须与已发布版本保持一致**，否则 Windows 视为不同应用、无法覆盖升级。
-- 测试包安装：先把脚本导出的 `build\msix\eton-test-signing.cer` 导入 `本地计算机 → 受信任人`，再双击或 `Add-AppxPackage` 安装。
-
-### 版本号来源
-
-`eton.exe` 内嵌版本取自 `src\version.h`（CI 发布时按 tag 自动重新生成）；MSI / MSIX 的版本在打包命令里单独传入。
 
 ---
 
