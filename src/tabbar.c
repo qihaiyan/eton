@@ -22,18 +22,41 @@ void TabBar_ApplyTheme(void) {
 static wchar_t s_tipText[1024];
 static int  s_tipTab = -1;
 
+/* 标签宽度缓存：标题/DPI/字体代不变时复用，避免每次鼠标移动都做 GDI 文本测量 */
+static struct {
+    wchar_t title[256];
+    int w;
+    UINT dpi;
+    int fontGen;
+} s_wcache[MAX_DOCS];
+
+static int TabWidth(HWND hwnd, int i) {
+    if (i >= 0 && i < MAX_DOCS &&
+        s_wcache[i].fontGen == g_fontGen && s_wcache[i].dpi == g_dpi &&
+        wcscmp(s_wcache[i].title, g_docs[i].title) == 0)
+        return s_wcache[i].w;
+    HDC hdc = GetDC(hwnd);
+    HFONT old = (HFONT)SelectObject(hdc, g_hFont);
+    SIZE sz; GetTextExtentPoint32W(hdc, g_docs[i].title, (int)wcslen(g_docs[i].title), &sz);
+    SelectObject(hdc, old); ReleaseDC(hwnd, hdc);
+    int w = sz.cx + UI_Scale(40);
+    if (w < UI_Scale(90)) w = UI_Scale(90);
+    if (w > UI_Scale(240)) w = UI_Scale(240);
+    if (i >= 0 && i < MAX_DOCS) {
+        wcscpy_s(s_wcache[i].title, 256, g_docs[i].title);
+        s_wcache[i].w = w;
+        s_wcache[i].dpi = g_dpi;
+        s_wcache[i].fontGen = g_fontGen;
+    }
+    return w;
+}
+
 static void TabBar_Rects(HWND hwnd, RECT* out, int* n) {
     RECT rc; GetClientRect(hwnd, &rc);
     int count = g_docCount;
     int x = 0;
     for (int i = 0; i < count && i < MAX_DOCS; i++) {
-        HDC hdc = GetDC(hwnd);
-        HFONT old = (HFONT)SelectObject(hdc, g_hFont);
-        SIZE sz; GetTextExtentPoint32W(hdc, g_docs[i].title, (int)wcslen(g_docs[i].title), &sz);
-        SelectObject(hdc, old); ReleaseDC(hwnd, hdc);
-        int w = sz.cx + UI_Scale(40);
-        if (w < UI_Scale(90)) w = UI_Scale(90);
-        if (w > UI_Scale(240)) w = UI_Scale(240);
+        int w = TabWidth(hwnd, i);
         out[i].left = x; out[i].top = 0;
         out[i].right = x + w; out[i].bottom = rc.bottom;
         x += w;

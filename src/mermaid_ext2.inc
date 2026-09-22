@@ -331,7 +331,7 @@ static void PieDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     for (int i = 0; i < p->n; i++) {
         double frac2 = p->s[i].val / p->total;
         double a1 = a0 + frac2 * 360.0;
-        HBRUSH br = CreateSolidBrush(MerPal(th, i));
+        HBRUSH br = MerBrushC(MerPal(th, i));
         HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
         Pie(hdc, cx - R, cy - R, cx + R, cy + R,
             (int)(cx + R * 100 * cos(a0 * 3.14159265 / 180.0)),
@@ -339,7 +339,6 @@ static void PieDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
             (int)(cx + R * 100 * cos(a1 * 3.14159265 / 180.0)),
             (int)(cy + R * 100 * sin(a1 * 3.14159265 / 180.0)));
         SelectObject(hdc, ob);
-        DeleteObject(br);
         if (frac2 > 0.04) {
             double mid = (a0 + a1) / 2 * 3.14159265 / 180.0;
             wchar_t txt[16];
@@ -360,9 +359,7 @@ static void PieDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     int ly = cy - (p->n * (FontH(hdc, f->sm) + UI_Scale(8))) / 2;
     for (int i = 0; i < p->n; i++) {
         RECT sw = { lx, ly + UI_Scale(2), lx + UI_Scale(14), ly + UI_Scale(14) };
-        HBRUSH br = CreateSolidBrush(MerPal(th, i));
-        FillRect(hdc, &sw, br);
-        DeleteObject(br);
+        FillRect(hdc, &sw, MerBrushC(MerPal(th, i)));
         SetTextColor(hdc, th->fg);
         wchar_t txt[160];
         _snwprintf(txt, 159, L"%s  (%.0f%%)", p->s[i].label, p->s[i].val / p->total * 100);
@@ -438,12 +435,11 @@ static void QuadDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         if (y < 0) y = 0; if (y > 1) y = 1;
         int px = (int)(L + x * S), py = (int)(B2 - y * S);
         HBRUSH ob2 = (HBRUSH)SelectObject(hdc, ptBr);
-        HPEN np = CreatePen(PS_SOLID, 1, th->bg);
+        HPEN np = MerPenC(PS_SOLID, 1, th->bg);
         HPEN op2 = (HPEN)SelectObject(hdc, np);
         Ellipse(hdc, px - UI_Scale(5), py - UI_Scale(5), px + UI_Scale(5), py + UI_Scale(5));
         SelectObject(hdc, op2);
         SelectObject(hdc, ob2);
-        DeleteObject(np);
         SetTextColor(hdc, th->fg);
         TextOutW(hdc, px + UI_Scale(8), py - FontH(hdc, f->sm) / 2,
                  p->pts[i].name, (int)wcslen(p->pts[i].name));

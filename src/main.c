@@ -3,6 +3,7 @@
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <shellapi.h>
+#include <stdarg.h>
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
@@ -23,6 +24,7 @@ Doc g_docs[MAX_DOCS];
 int g_docCount = 0;
 int g_curDoc = -1;
 HFONT g_hFont = NULL;
+int g_fontGen = 0;
 int g_fontSize = 11;
 BOOL g_wordWrap = FALSE;
 BOOL g_showGutter = TRUE;
@@ -33,11 +35,21 @@ int g_recentCount = 0;
 COLORREF g_clrBg, g_clrFg, g_clrSelBg, g_clrGutterBg, g_clrGutterFg, g_clrStatusBg, g_clrStatusFg;
 BOOL g_suppressDirty = FALSE;
 BOOL g_draftsDirty = FALSE;
+BOOL g_sessionDirty = FALSE;
 BOOL g_mdSplit = FALSE;
 BOOL g_mdSyncLock = FALSE;
 
 void ShowError(const wchar_t* msg) {
     MessageBoxW(NULL, msg, T(STR_APP_TITLE), MB_ICONERROR);
+}
+
+int WFmtV(wchar_t* buf, int cch, const wchar_t* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int n = _vsnwprintf(buf, cch, fmt, ap);
+    va_end(ap);
+    if (n < 0 || n >= cch) buf[cch - 1] = L'\0';
+    return n;
 }
 
 void ApplyTitleBarTheme(HWND hwnd) {
@@ -259,7 +271,7 @@ static BOOL ConfirmExit(void) {
     for (int i = 0; i < g_docCount; i++) {
         if (g_docs[i].dirty && !g_docs[i].isNew) {
             wchar_t msg[300];
-            wsprintf(msg, T(STR_MSG_FILE_NOT_SAVED), g_docs[i].title);
+            WFmt(msg, T(STR_MSG_FILE_NOT_SAVED), g_docs[i].title);
             int r = MessageBoxW(g_hwndMain, msg, T(STR_APP_TITLE), MB_YESNOCANCEL | MB_ICONQUESTION);
             if (r == IDCANCEL) return FALSE;
             if (r == IDYES) { if (!Editor_SaveDoc(i, FALSE)) return FALSE; }
@@ -372,7 +384,7 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
         case IDM_EXPLORER:
             if (g_curDoc >= 0 && !g_docs[g_curDoc].isNew && g_docs[g_curDoc].path[0]) {
                 wchar_t params[MAX_PATH + 16];
-                wsprintf(params, L"/select,\"%s\"", g_docs[g_curDoc].path);
+                WFmt(params, L"/select,\"%s\"", g_docs[g_curDoc].path);
                 ShellExecuteW(hwnd, L"open", L"explorer.exe", params, NULL, SW_SHOWNORMAL);
             }
             break;
@@ -548,7 +560,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     if (DiskWriteTimePublic(d->path, &cur) &&
                         CompareFileTime(&cur, &d->ftWrite) != 0) {
                         wchar_t msg[400];
-                        wsprintf(msg, T(STR_MSG_FILE_CHANGED_RELOAD), d->title);
+                        WFmt(msg, T(STR_MSG_FILE_CHANGED_RELOAD), d->title);
                         if (MessageBoxW(hwnd, msg, T(STR_APP_TITLE),
                                         MB_YESNO | MB_ICONQUESTION) == IDYES) {
                             Editor_LoadFile(g_curDoc, d->path, d->enc);
@@ -562,6 +574,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_TIMER:
             if (wp == 1) {
+                if (g_sessionDirty || g_draftsDirty) {
+                    Session_Save();
+                    g_sessionDirty = FALSE;
+                }
                 if (g_draftsDirty) Session_SaveDrafts();
                 for (int i = 0; i < g_docCount; i++) {
                     if (g_docs[i].dirty && !g_docs[i].isNew)

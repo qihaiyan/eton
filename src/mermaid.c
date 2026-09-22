@@ -20,20 +20,65 @@ static BOOL LineToWide(const char* src, int len, int* ppos, wchar_t* out, int cc
     return n > 0;
 }
 
+/* 文本宽度按 (字体代, 内容) 记忆化：布局+绘制期间同一字符串反复测量是热路径 */
+static unsigned s_twGen = 0;
+#define TW_CACHE_N 64
+#define TW_MAX_STR 48
+static struct {
+    unsigned gen; HFONT f; int len; int w;
+    wchar_t s[TW_MAX_STR];
+} s_tw[TW_CACHE_N];
+
 static int TextW(HDC hdc, HFONT f, const wchar_t* s) {
+    int len = (int)wcslen(s);
+    if (len > 0 && len < TW_MAX_STR && f) {
+        unsigned __int64 h = 1469598103934665603ull;
+        for (int i = 0; i < len; i++) {
+            h ^= (unsigned)s[i];
+            h *= 1099511628211ull;
+        }
+        unsigned slot = (unsigned)(h % TW_CACHE_N);
+        if (s_tw[slot].gen == s_twGen && s_tw[slot].f == f &&
+            s_tw[slot].len == len && wcscmp(s_tw[slot].s, s) == 0)
+            return s_tw[slot].w;
+        HFONT of = (HFONT)SelectObject(hdc, f);
+        SIZE sz;
+        GetTextExtentPoint32W(hdc, s, len, &sz);
+        SelectObject(hdc, of);
+        s_tw[slot].gen = s_twGen;
+        s_tw[slot].f = f;
+        s_tw[slot].len = len;
+        s_tw[slot].w = sz.cx;
+        wcscpy_s(s_tw[slot].s, TW_MAX_STR, s);
+        return sz.cx;
+    }
     HFONT of = (HFONT)SelectObject(hdc, f);
-    SIZE sz; 
+    SIZE sz;
     GetTextExtentPoint32W(hdc, s, (int)wcslen(s), &sz);
     SelectObject(hdc, of);
     return sz.cx;
 }
 
+static struct { HFONT f; int h; } s_fhCache[8];
+static int s_fhUsed = 0;
+
 static int FontH(HDC hdc, HFONT f) {
+    for (int i = 0; i < s_fhUsed; i++)
+        if (s_fhCache[i].f == f) return s_fhCache[i].h;
     HFONT of = (HFONT)SelectObject(hdc, f);
     TEXTMETRICW tm;
     GetTextMetricsW(hdc, &tm);
     SelectObject(hdc, of);
+    int slot = s_fhUsed < 8 ? s_fhUsed++ : 0;
+    s_fhCache[slot].f = f;
+    s_fhCache[slot].h = tm.tmHeight;
     return tm.tmHeight;
+}
+
+void Mermaid_FontsChanged(void) {
+    s_fhUsed = 0;
+    ZeroMemory(s_fhCache, sizeof(s_fhCache));
+    s_twGen++;
 }
 
 typedef enum { MER_RECT, MER_ROUND, MER_CIRCLE, MER_DIAMOND, MER_FLAG,
@@ -108,6 +153,32 @@ static void* MerGrow(void* p, int* cap, int need, int elem) {
     void* q = realloc(p, (size_t)nc * elem);
     *cap = nc;
     return q;
+}
+
+/* GDI 对象按 (样式,宽度,颜色) / 颜色 缓存，避免绘制热路径反复创建销毁 */
+#define MER_CACHE_N 64
+static struct { int style, w; COLORREF c; HPEN p; } s_mpc[MER_CACHE_N];
+static struct { COLORREF c; HBRUSH b; } s_mbc[MER_CACHE_N];
+
+static HPEN MerPenC(int style, int w, COLORREF c) {
+    unsigned i = (((unsigned)c * 2654435761u) ^ ((unsigned)style << 6) ^ (unsigned)(w * 7))
+                 % MER_CACHE_N;
+    if (!s_mpc[i].p || s_mpc[i].style != style || s_mpc[i].w != w || s_mpc[i].c != c) {
+        if (s_mpc[i].p) DeleteObject(s_mpc[i].p);
+        s_mpc[i].p = CreatePen(style, w, c);
+        s_mpc[i].style = style; s_mpc[i].w = w; s_mpc[i].c = c;
+    }
+    return s_mpc[i].p;
+}
+
+static HBRUSH MerBrushC(COLORREF c) {
+    unsigned i = ((unsigned)c * 2654435761u) % MER_CACHE_N;
+    if (!s_mbc[i].b || s_mbc[i].c != c) {
+        if (s_mbc[i].b) DeleteObject(s_mbc[i].b);
+        s_mbc[i].b = CreateSolidBrush(c);
+        s_mbc[i].c = c;
+    }
+    return s_mbc[i].b;
 }
 
 typedef struct {
@@ -984,15 +1055,13 @@ static void DrawArrowHead(HDC hdc, COLORREF clr, BOOL filled, int x, int y, doub
     pts[1].y = (int)(y - size * dy + hw * py);
     pts[2].x = (int)(x - size * dx - hw * px);
     pts[2].y = (int)(y - size * dy - hw * py);
-    HPEN pen = CreatePen(PS_SOLID, 1, clr);
-    HBRUSH br = filled ? CreateSolidBrush(clr) : (HBRUSH)GetStockObject(NULL_BRUSH);
+    HPEN pen = MerPenC(PS_SOLID, 1, clr);
+    HBRUSH br = filled ? MerBrushC(clr) : (HBRUSH)GetStockObject(NULL_BRUSH);
     HPEN op = (HPEN)SelectObject(hdc, pen);
     HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
     Polygon(hdc, pts, 3);
     SelectObject(hdc, ob);
     SelectObject(hdc, op);
-    DeleteObject(pen);
-    if (filled) DeleteObject(br);
 }
 
 static void EdgeClip(int* px, int* py, int cx, int cy, int w, int h, double fx, double fy) {
@@ -1179,12 +1248,11 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
                     dm[3].y = (int)(my - L / 2 * mdy - W2 * py);
                     dm[4] = dm[0];
                     HBRUSH db = ed->rel == MRE_COMPOSE
-                        ? CreateSolidBrush(th->merEdge)
+                        ? MerBrushC(th->merEdge)
                         : (HBRUSH)GetStockObject(NULL_BRUSH);
                     HBRUSH ob3 = (HBRUSH)SelectObject(hdc, db);
                     Polygon(hdc, dm, 5);
                     SelectObject(hdc, ob3);
-                    if (ed->rel == MRE_COMPOSE) DeleteObject(db);
                     break;
                 }
                 case MRE_ASSOC:
@@ -1220,9 +1288,8 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             int px2 = (d->kind == 2) ? 5 : 3, py2 = (d->kind == 2) ? 3 : 1;
             RECT chip = { mx - sz.cx / 2 - px2, my - sz.cy / 2 - py2,
                           mx + sz.cx / 2 + px2, my + sz.cy / 2 + py2 };
-            HBRUSH lb = CreateSolidBrush((d->kind == 2) ? th->selBg : th->merLabelBg);
+            HBRUSH lb = MerBrushC((d->kind == 2) ? th->selBg : th->merLabelBg);
             FillRect(hdc, &chip, lb);
-            DeleteObject(lb);
             SetTextColor(hdc, th->merLabelFg);
             SetTextAlign(hdc, TA_CENTER | TA_TOP);
             TextOutW(hdc, mx, chip.top + 1, ed->label, (int)wcslen(ed->label));
@@ -1245,8 +1312,8 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         int rr = UI_Scale(12);
         if (d->kind == 2 && nd->shape == MER_ROUND) {
             COLORREF pc = StatePal(th, stateColorIdx++);
-            penOwn = CreatePen(PS_SOLID, 2, pc);
-            brOwn = CreateSolidBrush(MixClr(th->selBg, pc, 0.15));
+            penOwn = MerPenC(PS_SOLID, 2, pc);
+            brOwn = MerBrushC(MixClr(th->selBg, pc, 0.15));
             SelectObject(hdc, penOwn);
             SelectObject(hdc, brOwn);
             rr = UI_Scale(5);
@@ -1262,19 +1329,18 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
                 Ellipse(hdc, l, t, r, b);
                 break;
             case MER_START: {
-                HPEN sp = CreatePen(PS_SOLID, 2, th->link);
+                HPEN sp = MerPenC(PS_SOLID, 2, th->link);
                 HPEN op2 = (HPEN)SelectObject(hdc, sp);
                 HBRUSH ob2 = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
                 Ellipse(hdc, l, t, r, b);
                 SelectObject(hdc, ob2);
                 SelectObject(hdc, op2);
-                DeleteObject(sp);
                 break;
             }
             case MER_END: {
                 COLORREF rc = MerPal(th, 5);
-                HPEN sp = CreatePen(PS_SOLID, 2, rc);
-                HBRUSH sb = CreateSolidBrush(rc);
+                HPEN sp = MerPenC(PS_SOLID, 2, rc);
+                HBRUSH sb = MerBrushC(rc);
                 HPEN op2 = (HPEN)SelectObject(hdc, sp);
                 HBRUSH ob2 = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
                 Ellipse(hdc, l, t, r, b);
@@ -1283,8 +1349,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
                 Ellipse(hdc, l + m, t + m, r - m, b - m);
                 SelectObject(hdc, ob2);
                 SelectObject(hdc, op2);
-                DeleteObject(sp);
-                DeleteObject(sb);
                 break;
             }
             case MER_DIAMOND: {
@@ -1304,8 +1368,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         }
         SelectObject(hdc, ob);
         SelectObject(hdc, op);
-        if (penOwn) DeleteObject(penOwn);
-        if (brOwn)  DeleteObject(brOwn);
 
         SetTextColor(hdc, th->merNodeText);
         if ((d->kind == 3 || d->kind == 4) && nd->extra) {
@@ -1378,13 +1440,12 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
 
             int l = ox + margin + indent, r = ox + d->sz.cx - margin - indent;
             int t = oy + it->y - UI_Scale(4), b = oy + yEnd;
-            HPEN pen = CreatePen(PS_SOLID, 1, th->frame);
+            HPEN pen = MerPenC(PS_SOLID, 1, th->frame);
             HPEN op = (HPEN)SelectObject(hdc, pen);
             HBRUSH ob = (HBRUSH)SelectObject(hdc, (HBRUSH)GetStockObject(NULL_BRUSH));
             RoundRect(hdc, l, t, r, b, UI_Scale(6), UI_Scale(6));
             SelectObject(hdc, ob);
             SelectObject(hdc, op);
-            DeleteObject(pen);
 
             if (it->kind != MSF_RECT) {
                 const wchar_t* kindLabel = FrameKindLabel(it->kind);
@@ -1403,12 +1464,11 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
             if (indent >= UI_Scale(10)) indent -= UI_Scale(10);
         } else if (it->type == MSI_FRAME_ELSE) {
             int l = ox + margin + indent, r = ox + d->sz.cx - margin - indent;
-            HPEN pen = CreatePen(PS_DOT, 1, th->frame);
+            HPEN pen = MerPenC(PS_DOT, 1, th->frame);
             HPEN op = (HPEN)SelectObject(hdc, pen);
             MoveToEx(hdc, l, oy + it->y, NULL);
             LineTo(hdc, r, oy + it->y);
             SelectObject(hdc, op);
-            DeleteObject(pen);
             wchar_t buf[180];
             _snwprintf(buf, 179, L"else%s%s", it->label[0] ? L" [" : L"", it->label);
             SetTextColor(hdc, th->fgMuted);

@@ -51,15 +51,15 @@ void Session_Save(void) {
         if (!val) continue;
         n++;
         wchar_t key[16];
-        wsprintf(key, L"file%d", n);
+        WFmt(key, L"file%d", n);
         WritePrivateProfileStringW(L"session", key, val, ini);
         if (i == g_curDoc) activeTab = n;
     }
     wchar_t cnt[16];
-    wsprintf(cnt, L"%d", n);
+    WFmt(cnt, L"%d", n);
     WritePrivateProfileStringW(L"session", L"count", cnt, ini);
     wchar_t at[16];
-    wsprintf(at, L"%d", activeTab);
+    WFmt(at, L"%d", activeTab);
     WritePrivateProfileStringW(L"session", L"activetab", at, ini);
 }
 
@@ -74,7 +74,7 @@ void Session_SaveDrafts(void) {
         if (SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) == 0) {
             if (d->draft[0]) {
                 wchar_t p[MAX_PATH];
-                wsprintf(p, L"%s\\%s", dir, d->draft);
+                WFmt(p, L"%s\\%s", dir, d->draft);
                 DeleteFileW(p);
                 d->draft[0] = L'\0';
             }
@@ -83,8 +83,8 @@ void Session_SaveDrafts(void) {
         if (!d->draft[0]) {
             for (int k = 1; k < 1000; k++) {
                 wchar_t nm[32], p[MAX_PATH];
-                wsprintf(nm, L"draft%d.txt", k);
-                wsprintf(p, L"%s\\%s", dir, nm);
+                WFmt(nm, L"draft%d.txt", k);
+                WFmt(p, L"%s\\%s", dir, nm);
                 if (!PathFileExistsW(p)) {
                     wcscpy_s(d->draft, 64, nm);
                     break;
@@ -96,7 +96,7 @@ void Session_SaveDrafts(void) {
         char* text = Editor_GetTextUtf8(i, &len);
         if (!text) continue;
         wchar_t p[MAX_PATH];
-        wsprintf(p, L"%s\\%s", dir, d->draft);
+        WFmt(p, L"%s\\%s", dir, d->draft);
         HANDLE h = CreateFileW(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (h != INVALID_HANDLE_VALUE) {
             DWORD wr;
@@ -104,13 +104,13 @@ void Session_SaveDrafts(void) {
             CloseHandle(h);
             n++;
             wchar_t key[16];
-            wsprintf(key, L"draft%d", n);
+            WFmt(key, L"draft%d", n);
             WritePrivateProfileStringW(L"session", key, d->draft, ini);
         }
         free(text);
     }
     wchar_t v[16];
-    wsprintf(v, L"%d", n);
+    WFmt(v, L"%d", n);
     WritePrivateProfileStringW(L"session", L"drafts", v, ini);
     g_draftsDirty = FALSE;
 }
@@ -122,14 +122,14 @@ void Session_DiscardDraft(int index) {
     wchar_t dir[MAX_PATH];
     if (!Session_GetDraftDir(dir, MAX_PATH)) return;
     wchar_t p[MAX_PATH];
-    wsprintf(p, L"%s\\%s", dir, d->draft);
+    WFmt(p, L"%s\\%s", dir, d->draft);
     DeleteFileW(p);
     d->draft[0] = L'\0';
 }
 
 static int Session_OpenDraft(const wchar_t* draftdir, const wchar_t* name, int seq) {
     wchar_t dp[MAX_PATH], title[32];
-    wsprintf(dp, L"%s\\%s", draftdir, name);
+    WFmt(dp, L"%s\\%s", draftdir, name);
     HANDLE h = CreateFileW(dp, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) return -1;
     DWORD size = GetFileSize(h, NULL);
@@ -141,7 +141,7 @@ static int Session_OpenDraft(const wchar_t* draftdir, const wchar_t* name, int s
     }
     CloseHandle(h);
     if (!buf) return -1;
-    wsprintf(title, T(STR_UNTITLED_N), seq);
+    WFmt(title, T(STR_UNTITLED_N), seq);
     int ni = Editor_NewDoc(NULL, title, TRUE);
     if (ni >= 0) {
         wcscpy_s(g_docs[ni].draft, 64, name);
@@ -166,7 +166,7 @@ int Session_Restore(void) {
     BOOL hasMarker = FALSE;
     for (int i = 1; i <= count; i++) {
         wchar_t key[16], v[MAX_PATH];
-        wsprintf(key, L"file%d", i);
+        WFmt(key, L"file%d", i);
         GetPrivateProfileStringW(L"session", key, L"", v, MAX_PATH, ini);
         if (!v[0]) continue;
         if (wcscmp(v, L"*draft*") == 0) { isDraft[nTabs] = TRUE; hasMarker = TRUE; }
@@ -180,9 +180,9 @@ int Session_Restore(void) {
     static wchar_t dnames[MAX_DOCS][64];
     for (int k = 1; k <= drafts; k++) {
         wchar_t key[16];
-        wsprintf(key, L"draft%d", k);
+        WFmt(key, L"draft%d", k);
         GetPrivateProfileStringW(L"session", key, L"", dnames[k - 1], 64, ini);
-        if (!dnames[k - 1][0]) wsprintf(dnames[k - 1], L"draft%d.txt", k);
+        if (!dnames[k - 1][0]) WFmt(dnames[k - 1], L"draft%d.txt", k);
     }
 
     int savedActiveTab = (int)GetPrivateProfileIntW(L"session", L"activetab", 0, ini);
@@ -217,7 +217,7 @@ int Session_Restore(void) {
 
     {
         wchar_t find[MAX_PATH];
-        wsprintf(find, L"%s\\*.txt", draftdir);
+        WFmt(find, L"%s\\*.txt", draftdir);
         WIN32_FIND_DATAW fd;
         HANDLE hf = FindFirstFileW(find, &fd);
         if (hf != INVALID_HANDLE_VALUE) {
@@ -227,7 +227,7 @@ int Session_Restore(void) {
                     if (g_docs[i].isNew && _wcsicmp(g_docs[i].draft, fd.cFileName) == 0) { used = TRUE; break; }
                 if (!used) {
                     wchar_t p[MAX_PATH];
-                    wsprintf(p, L"%s\\%s", draftdir, fd.cFileName);
+                    WFmt(p, L"%s\\%s", draftdir, fd.cFileName);
                     DeleteFileW(p);
                 }
             } while (FindNextFileW(hf, &fd));
@@ -271,10 +271,10 @@ void Session_SaveWindow(HWND hwnd) {
     wchar_t ini[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
     wchar_t v[16];
-    wsprintf(v, L"%d", (int)rc.left);   WritePrivateProfileStringW(L"window", L"left",   v, ini);
-    wsprintf(v, L"%d", (int)rc.top);    WritePrivateProfileStringW(L"window", L"top",    v, ini);
-    wsprintf(v, L"%d", (int)(rc.right - rc.left));  WritePrivateProfileStringW(L"window", L"width",  v, ini);
-    wsprintf(v, L"%d", (int)(rc.bottom - rc.top));  WritePrivateProfileStringW(L"window", L"height", v, ini);
+    WFmt(v, L"%d", (int)rc.left);   WritePrivateProfileStringW(L"window", L"left",   v, ini);
+    WFmt(v, L"%d", (int)rc.top);    WritePrivateProfileStringW(L"window", L"top",    v, ini);
+    WFmt(v, L"%d", (int)(rc.right - rc.left));  WritePrivateProfileStringW(L"window", L"width",  v, ini);
+    WFmt(v, L"%d", (int)(rc.bottom - rc.top));  WritePrivateProfileStringW(L"window", L"height", v, ini);
     WritePrivateProfileStringW(L"window", L"max", wp.showCmd == SW_SHOWMAXIMIZED ? L"1" : L"0", ini);
     WritePrivateProfileStringW(L"window", L"valid", L"1", ini);
 }
@@ -326,7 +326,7 @@ void Settings_Save(void) {
     WritePrivateProfileStringW(L"settings", L"dark",     g_dark ? L"1" : L"0", ini);
     WritePrivateProfileStringW(L"settings", L"wrap",     g_wordWrap ? L"1" : L"0", ini);
     WritePrivateProfileStringW(L"settings", L"gutter",   g_showGutter ? L"1" : L"0", ini);
-    wchar_t v[16]; wsprintf(v, L"%d", g_fontSize);
+    wchar_t v[16]; WFmt(v, L"%d", g_fontSize);
     WritePrivateProfileStringW(L"settings", L"fontsize", v, ini);
 }
 

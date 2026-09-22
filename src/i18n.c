@@ -626,7 +626,7 @@ HMENU I18n_BuildMainMenu(void) {
     {
         static wchar_t s_reopen[5][80];
         for (int i = 0; i <= ENC_UTF16BE; i++) {
-            wsprintf(s_reopen[i], T(STR_REOPEN_FMT), EncodingName((Encoding)i));
+            WFmt(s_reopen[i], T(STR_REOPEN_FMT), EncodingName((Encoding)i));
             I18n_OwnerAppend(mEnc, MF_STRING, IDM_REOPEN_ANSI + i, s_reopen[i]);
         }
     }
@@ -733,7 +733,7 @@ void I18n_ApplyDialog(HWND hdlg, int dlgId) {
     }
     if (dlgId == IDD_ABOUT) {
         wchar_t buf[160];
-        wsprintf(buf, T(STR_ABOUT_VERSION), ET_VERSION_STR);
+        WFmt(buf, T(STR_ABOUT_VERSION), ET_VERSION_STR);
         SetDlgItemTextW(hdlg, IDC_ABOUT_LINE4, buf);
     }
     if (dlgId == IDD_GOTO) {

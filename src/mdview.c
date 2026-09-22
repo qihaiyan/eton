@@ -21,7 +21,7 @@ typedef enum {
 
 struct MdBlock {
     int type;
-    MdRun* runs; int nRuns;
+    MdRun* runs; int nRuns, capRuns;
     int level;
     wchar_t* code; int codeLen;
     char fenceLang[24];
@@ -32,7 +32,7 @@ struct MdBlock {
     int nCols, nRows;
     int* aligns;
     MdBlock** cells;
-    MdBlock** children; int nChildren;
+    MdBlock** children; int nChildren, capChildren;
 };
 
 typedef enum { ITM_LINES, ITM_RECT, ITM_FRAME, ITM_DIAGRAM, ITM_IMAGE, ITM_MATH } MdItemType;
@@ -66,6 +66,7 @@ static struct {
     HWND hwnd;
     MdBlock* root;
     int docIdx;
+    unsigned modGen;
     MdItem* items; int nItems, capItems;
     int docH, scrollY, clientW, clientH;
     MdFonts fonts;
@@ -115,9 +116,10 @@ static void GdipInit(void) {
     if (p_GdipStartup(&tok, &si, NULL) == 0) s_gdipOk = TRUE;
 }
 
-typedef struct { wchar_t path[MAX_PATH]; GpImage* img; UINT w, h; } ImgEnt;
+typedef struct { wchar_t path[MAX_PATH]; GpImage* img; UINT w, h; unsigned gen; } ImgEnt;
 static ImgEnt s_imgs[16];
 static int s_nImgs = 0;
+static unsigned s_imgGen = 0;
 
 static ImgEnt* ImgFind(const wchar_t* full) {
     for (int i = 0; i < s_nImgs; i++)
@@ -128,20 +130,36 @@ static ImgEnt* ImgFind(const wchar_t* full) {
 static ImgEnt* ImgGet(const wchar_t* full) {
     if (!s_gdipOk || !full || !full[0]) return NULL;
     ImgEnt* hit = ImgFind(full);
-    if (hit) return hit->img ? hit : NULL;
+    if (hit) { hit->gen = s_imgGen; return hit->img ? hit : NULL; }
     GpImage* im = NULL;
     if (p_GdipCreateBitmapFromFile(full, &im) != 0 || !im) return NULL;
     UINT w = 0, h = 0;
     p_GdipGetImageWidth(im, &w);
     p_GdipGetImageHeight(im, &h);
     if (!w || !h) { p_GdipDisposeImage(im); return NULL; }
-    int slot = s_nImgs < 16 ? s_nImgs++ : 0;
-    if (s_imgs[slot].img) p_GdipDisposeImage(s_imgs[slot].img);
+    /* 满时淘汰最久未使用（gen 最小）的槽位，而不是固定挤掉 0 号 */
+    int slot = 0;
+    if (s_nImgs < 16) slot = s_nImgs++;
+    else {
+        for (int i = 1; i < 16; i++) if (s_imgs[i].gen < s_imgs[slot].gen) slot = i;
+        if (s_imgs[slot].img) p_GdipDisposeImage(s_imgs[slot].img);
+    }
     wcscpy_s(s_imgs[slot].path, MAX_PATH, full);
     s_imgs[slot].img = im;
     s_imgs[slot].w = w;
     s_imgs[slot].h = h;
+    s_imgs[slot].gen = s_imgGen;
     return &s_imgs[slot];
+}
+
+/* 释放本次布局未引用的位图（换文档/内容变更后） */
+static void ImgSweep(void) {
+    int keep = 0;
+    for (int i = 0; i < s_nImgs; i++) {
+        if (s_imgs[i].gen == s_imgGen) s_imgs[keep++] = s_imgs[i];
+        else if (s_imgs[i].img) p_GdipDisposeImage(s_imgs[i].img);
+    }
+    s_nImgs = keep;
 }
 
 static MdBlock* BlkNew(int type) {
@@ -150,11 +168,18 @@ static MdBlock* BlkNew(int type) {
     return b;
 }
 
+#define MD_GROW(arr, need, cap, type) do { \
+    if ((need) >= (cap)) { \
+        int nc_ = (cap) ? (cap) * 2 : 16; \
+        while (nc_ <= (need)) nc_ *= 2; \
+        (arr) = (type*)realloc((arr), (size_t)nc_ * sizeof(type)); \
+        (cap) = nc_; \
+    } \
+} while (0)
+
 static void BlkAppend(MdBlock* parent, MdBlock* child) {
-    MdBlock** nc = (MdBlock**)realloc(parent->children,
-        ((size_t)parent->nChildren + 1) * sizeof(MdBlock*));
-    if (!nc) return;
-    parent->children = nc;
+    MD_GROW(parent->children, parent->nChildren, parent->capChildren, MdBlock*);
+    if (!parent->children) return;
     parent->children[parent->nChildren++] = child;
 }
 
@@ -215,11 +240,9 @@ static void AddRun(const wchar_t* s, int len, unsigned style) {
             return;
         }
     }
-    MdRun* nr = (MdRun*)realloc(P->textBlk->runs,
-        ((size_t)P->textBlk->nRuns + 1) * sizeof(MdRun));
-    if (!nr) return;
-    P->textBlk->runs = nr;
-    MdRun* r = &nr[P->textBlk->nRuns++];
+    MD_GROW(P->textBlk->runs, P->textBlk->nRuns, P->textBlk->capRuns, MdRun);
+    if (!P->textBlk->runs) return;
+    MdRun* r = &P->textBlk->runs[P->textBlk->nRuns++];
     r->style = style;
     r->math = NULL;
     r->text = (wchar_t*)malloc(((size_t)len + 1) * sizeof(wchar_t));
@@ -404,7 +427,7 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
                     break;
                 }
                 wchar_t hint[256];
-                wsprintf(hint, L"[%s]", T(STR_MD_MERMAID_UNSUP));
+                WFmt(hint, L"[%s]", T(STR_MD_MERMAID_UNSUP));
                 wchar_t* body = Utf8ToW(P->codeBuf, P->codeLen);
                 size_t hl = wcslen(hint);
                 c->code = (wchar_t*)malloc((hl + 2 + (body ? wcslen(body) : 0) + 1) * sizeof(wchar_t));
@@ -580,6 +603,7 @@ static HFONT MkFont(int pt, int weight, BOOL italic, const wchar_t* face) {
 }
 
 static void FontsFree(void) {
+    Mermaid_FontsChanged();
     if (!V.fontsOk) return;
     DeleteObject(V.fonts.body); DeleteObject(V.fonts.bold);
     DeleteObject(V.fonts.emph); DeleteObject(V.fonts.boldemph);
@@ -650,12 +674,19 @@ static void ItemResetAll(void) {
     V.items = NULL; V.nItems = 0; V.capItems = 0;
 }
 
-static void ItemPush(int type, RECT rc, int flag) {
-    V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
+static MdItem* ItemAlloc(void) {
+    MD_GROW(V.items, V.nItems, V.capItems, MdItem);
+    if (!V.items) return NULL;
     MdItem* it = &V.items[V.nItems++];
     ZeroMemory(it, sizeof(*it));
-    it->type = type; it->rc = rc; it->flag = flag;
     it->role = ROLE_BODY;
+    return it;
+}
+
+static void ItemPush(int type, RECT rc, int flag) {
+    MdItem* it = ItemAlloc();
+    if (!it) return;
+    it->type = type; it->rc = rc; it->flag = flag;
 }
 
 typedef struct Tok { MdRun* run; const wchar_t* s; int len; BOOL space; } Tok;
@@ -666,12 +697,12 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
     for (int i = 0; i < nRuns; i++) {
         MdRun* r = &runs[i];
         if (r->style & STY_BR) {
-            toks = (Tok*)realloc(toks, ((size_t)nT + 1) * sizeof(Tok));
+            MD_GROW(toks, nT, capT, Tok);
             toks[nT].run = r; toks[nT].s = NULL; toks[nT].len = 0; toks[nT].space = FALSE;
             nT++; continue;
         }
         if (r->style & STY_MATH) {
-            toks = (Tok*)realloc(toks, ((size_t)nT + 1) * sizeof(Tok));
+            MD_GROW(toks, nT, capT, Tok);
             toks[nT].run = r; toks[nT].s = r->text; toks[nT].len = 0; toks[nT].space = FALSE;
             nT++; continue;
         }
@@ -683,27 +714,28 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
             int start = i2;
             if (t[i2] == L' ' || t[i2] == L'\t') {
                 while (i2 < L && (t[i2] == L' ' || t[i2] == L'\t')) i2++;
-                toks = (Tok*)realloc(toks, ((size_t)nT + 1) * sizeof(Tok));
+                MD_GROW(toks, nT, capT, Tok);
                 toks[nT].run = r; toks[nT].s = t + start; toks[nT].len = i2 - start; toks[nT].space = TRUE;
                 nT++;
             } else if (IsCJK(t[i2])) {
                 i2++;
-                toks = (Tok*)realloc(toks, ((size_t)nT + 1) * sizeof(Tok));
+                MD_GROW(toks, nT, capT, Tok);
                 toks[nT].run = r; toks[nT].s = t + start; toks[nT].len = 1; toks[nT].space = FALSE;
                 nT++;
             } else {
                 while (i2 < L && t[i2] != L' ' && t[i2] != L'\t' && !IsCJK(t[i2])) i2++;
-                toks = (Tok*)realloc(toks, ((size_t)nT + 1) * sizeof(Tok));
+                MD_GROW(toks, nT, capT, Tok);
                 toks[nT].run = r; toks[nT].s = t + start; toks[nT].len = i2 - start; toks[nT].space = FALSE;
                 nT++;
             }
         }
     }
 
-    MdLine* lines = NULL; int nL = 0;
-    MdFrag* fr = NULL; int nF = 0;
+    MdLine* lines = NULL; int nL = 0, capL = 0;
+    MdFrag* fr = NULL; int nF = 0, capF = 0;
     int x = 0, lineH = 0, asc = 0;
     HFONT curFont = NULL;
+    TEXTMETRICW curTm; ZeroMemory(&curTm, sizeof(curTm));
 
     int spaceW = 0;
     {
@@ -722,7 +754,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
             Tok* tk = &toks[i];
             if (tk->space) {
                 if (nF > 0) {
-                    fr = (MdFrag*)realloc(fr, ((size_t)nF + 1) * sizeof(MdFrag));
+                    MD_GROW(fr, nF, capF, MdFrag);
                     fr[nF].run = tk->run; fr[nF].s = tk->s; fr[nF].len = tk->len;
                     fr[nF].x = x; fr[nF].w = 0;
                     nF++;
@@ -741,7 +773,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
                 else {
                     if (mh > lineH) lineH = mh;
                     if (ma > asc) asc = ma;
-                    fr = (MdFrag*)realloc(fr, ((size_t)nF + 1) * sizeof(MdFrag));
+                    MD_GROW(fr, nF, capF, MdFrag);
                     fr[nF].run = mr2; fr[nF].s = mr2->text; fr[nF].len = 0;
                     fr[nF].x = x; fr[nF].w = mw;
                     nF++;
@@ -750,16 +782,18 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
                 }
             } else {
                 HFONT fnt = FontFor(tk->run->style, role);
-                if (fnt != curFont) { SelectObject(hdc, fnt); curFont = fnt; }
+                if (fnt != curFont) {
+                    SelectObject(hdc, fnt);
+                    GetTextMetricsW(hdc, &curTm);
+                    curFont = fnt;
+                }
                 SIZE sz;
                 GetTextExtentPoint32W(hdc, tk->s, tk->len, &sz);
                 if (nF > 0 && x + sz.cx > avail) { flush = TRUE; overflow = TRUE; }
                 else {
-                    TEXTMETRICW tm;
-                    GetTextMetricsW(hdc, &tm);
-                    if (tm.tmHeight > lineH) lineH = tm.tmHeight;
-                    if (tm.tmAscent > asc) asc = tm.tmAscent;
-                    fr = (MdFrag*)realloc(fr, ((size_t)nF + 1) * sizeof(MdFrag));
+                    if (curTm.tmHeight > lineH) lineH = curTm.tmHeight;
+                    if (curTm.tmAscent > asc) asc = curTm.tmAscent;
+                    MD_GROW(fr, nF, capF, MdFrag);
                     fr[nF].run = tk->run; fr[nF].s = tk->s; fr[nF].len = tk->len;
                     fr[nF].x = x; fr[nF].w = sz.cx;
                     nF++;
@@ -773,13 +807,13 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
                    (fr[nF-1].s[0] == L' ')) {
                 nF--;
             }
-            lines = (MdLine*)realloc(lines, ((size_t)nL + 1) * sizeof(MdLine));
+            MD_GROW(lines, nL, capL, MdLine);
             MdLine* ln = &lines[nL++];
             ln->frags = fr; ln->nF = nF;
             ln->h = lineH ? lineH : V.fonts.lineH;
             ln->asc = asc;
             ln->y = 0;
-            fr = NULL; nF = 0;
+            fr = NULL; nF = 0; capF = 0;
         }
         x = 0; lineH = 0; asc = 0;
         if (overflow) i--;
@@ -804,9 +838,8 @@ static int LayoutText(HDC hdc, MdBlock* b, int x0, int avail, int* y, int role,
         h += lines[i].h + V.fonts.lineH / 5;
     }
     RECT rc = { x0, *y, x0 + avail, *y + h };
-    V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
-    MdItem* it = &V.items[V.nItems++];
-    ZeroMemory(it, sizeof(*it));
+    MdItem* it = ItemAlloc();
+    if (!it) { free(lines); return 0; }
     it->type = ITM_LINES; it->rc = rc; it->lines = lines; it->nLines = nL;
     it->role = role;
     *y += h;
@@ -819,9 +852,8 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         int w = sz.cx, h = sz.cy;
         RECT bg = { x0, *y, x0 + w + UI_Scale(16), *y + h + UI_Scale(16) };
         ItemPush(ITM_RECT, bg, RCT_CANVAS);
-        V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
-        MdItem* it = &V.items[V.nItems++];
-        ZeroMemory(it, sizeof(*it));
+        MdItem* it = ItemAlloc();
+        if (!it) return;
         it->type = ITM_DIAGRAM;
         it->rc.left = x0 + UI_Scale(8); it->rc.top = *y + UI_Scale(8);
         it->rc.right = it->rc.left + w; it->rc.bottom = it->rc.top + h;
@@ -829,7 +861,7 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         *y += h + UI_Scale(16) + UI_Scale(12);
         return;
     }
-    MdLine* lines = NULL; int nL = 0;
+    MdLine* lines = NULL; int nL = 0, capL = 0;
     MdRun* codeRun = (MdRun*)calloc(1, sizeof(MdRun));
     codeRun->style = 0; codeRun->href = NULL; codeRun->text = NULL;
     wchar_t* p = b->code;
@@ -843,10 +875,8 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         MdLine* sub; int subN;
         WrapRuns(hdc, codeRun, 1, avail - UI_Scale(20), ROLE_MONO, &sub, &subN);
         p[len] = saved;
-        for (int i = 0; i < subN; i++) {
-            lines = (MdLine*)realloc(lines, ((size_t)nL + 1) * sizeof(MdLine));
-            lines[nL++] = sub[i];
-        }
+        MD_GROW(lines, nL + subN, capL, MdLine);
+        for (int i = 0; i < subN; i++) lines[nL++] = sub[i];
         free(sub);
         if (!nl) break;
         p = nl + 1;
@@ -862,9 +892,8 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     RECT bg = { x0, *y, x0 + avail, *y + h + pad * 2 };
     ItemPush(ITM_RECT, bg, RCT_CODEBG);
     ItemPush(ITM_FRAME, bg, 0);
-    V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
-    MdItem* it = &V.items[V.nItems++];
-    ZeroMemory(it, sizeof(*it));
+    MdItem* it = ItemAlloc();
+    if (!it) return;
     it->type = ITM_LINES;
     it->rc.left = x0 + pad; it->rc.top = *y + pad;
     it->rc.right = x0 + avail - pad; it->rc.bottom = *y + pad + h;
@@ -879,22 +908,23 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     if (nC <= 0 || nR <= 0 || !b->cells) return;
     int* colW = (int*)calloc((size_t)nC, sizeof(int));
     int pad = UI_Scale(7);
+    HFONT hf0 = (HFONT)GetCurrentObject(hdc, OBJ_FONT);
+    HFONT cf = NULL;
     for (int r = 0; r < nR; r++) {
         for (int c = 0; c < nC; c++) {
             MdBlock* cell = b->cells[r * nC + c];
             for (int i = 0; i < cell->nRuns; i++) {
                 HFONT f = FontFor(cell->runs[i].style, ROLE_BODY);
-                int w = 0;
-                HFONT of = (HFONT)SelectObject(hdc, f);
+                if (f != cf) { SelectObject(hdc, f); cf = f; }
                 SIZE sz;
                 GetTextExtentPoint32W(hdc, cell->runs[i].text,
                                       (int)wcslen(cell->runs[i].text), &sz);
-                SelectObject(hdc, of);
-                w = sz.cx;
+                int w = sz.cx;
                 if (w > colW[c]) colW[c] = w;
             }
         }
     }
+    SelectObject(hdc, hf0);
     int total = pad * 2 * nC;
     for (int c = 0; c < nC; c++) total += colW[c];
     if (total > avail) {
@@ -942,9 +972,8 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
             CellLay* cl = &lays[r * nC + c];
             if (cl->nL > 0) {
                 RECT rc = { xx + pad, yy + pad, xx + colW[c] - pad, yy + rowH[r] - pad };
-                V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
-                MdItem* it = &V.items[V.nItems++];
-                ZeroMemory(it, sizeof(*it));
+                MdItem* it = ItemAlloc();
+                if (!it) continue;
                 it->type = ITM_LINES; it->rc = rc;
                 it->lines = cl->lines; it->nLines = cl->nL;
                 it->role = ROLE_BODY;
@@ -990,7 +1019,7 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
         if (li->isTask)
             wcscpy(mark, (li->taskMark == L' ' || !li->taskMark) ? L"☐" : L"☑");
         else if (b->type == MDB_OL)
-            wsprintf(mark, L"%d%c", li->itemNum, li->itemDelim ? li->itemDelim : L'.');
+            WFmt(mark, L"%d%c", li->itemNum, li->itemDelim ? li->itemDelim : L'.');
         else
             wcscpy(mark, L"•");
         int mw = 0;
@@ -1003,10 +1032,8 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
         }
         int indent = mw + UI_Scale(10);
         RECT mk = { x0, *y, x0 + mw, *y + V.fonts.lineH };
-        V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
-        {
-            MdItem* it = &V.items[V.nItems++];
-            ZeroMemory(it, sizeof(*it));
+        MdItem* it = ItemAlloc();
+        if (it) {
             it->type = ITM_LINES; it->rc = mk; it->role = ROLE_BODY;
             MdRun* mr = (MdRun*)calloc(1, sizeof(MdRun));
             mr->text = _wcsdup(mark);
@@ -1033,16 +1060,16 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
     *y += UI_Scale(2);
 }
 
-static wchar_t* ResolveLocalHref(const wchar_t* href) {
-    if (!href || !*href || href[0] == L'#') return NULL;
+static BOOL ResolveLocalHref(const wchar_t* href, wchar_t* full, int cch) {
+    full[0] = L'\0';
+    if (!href || !*href || href[0] == L'#') return FALSE;
     if (_wcsnicmp(href, L"http://", 7) == 0 || _wcsnicmp(href, L"https://", 8) == 0 ||
-        _wcsnicmp(href, L"mailto:", 7) == 0) return NULL;
-    static wchar_t full[MAX_PATH];
+        _wcsnicmp(href, L"mailto:", 7) == 0) return FALSE;
     if (PathIsRelativeW(href) && V.baseDir[0])
         PathCombineW(full, V.baseDir, href);
     else
-        wcscpy_s(full, MAX_PATH, href);
-    return full;
+        wcscpy_s(full, cch, href);
+    return TRUE;
 }
 
 static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
@@ -1062,8 +1089,8 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
             }
     }
     if (!img) return FALSE;
-    wchar_t* full = ResolveLocalHref(img->href ? img->href : L"");
-    if (!full) return FALSE;
+    wchar_t full[MAX_PATH];
+    if (!ResolveLocalHref(img->href ? img->href : L"", full, MAX_PATH)) return FALSE;
     ImgEnt* e = ImgGet(full);
     if (!e) return FALSE;
 
@@ -1072,9 +1099,8 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
     if (w > (UINT)avail) { h = (UINT)((double)h * avail / w); w = (UINT)avail; }
     if (!w || !h) return FALSE;
 
-    V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
-    MdItem* it = &V.items[V.nItems++];
-    ZeroMemory(it, sizeof(*it));
+    MdItem* it = ItemAlloc();
+    if (!it) return FALSE;
     it->type = ITM_IMAGE;
     it->rc.left = x0; it->rc.top = *y;
     it->rc.right = x0 + (int)w; it->rc.bottom = *y + (int)h;
@@ -1103,9 +1129,8 @@ static BOOL LayoutMathParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) 
     if (!mr->math) mr->math = Math_Build(mr->text);
     if (!mr->math) return FALSE;
     Math_Measure(mr->math, hdc, &V.fonts);
-    V.items = (MdItem*)realloc(V.items, ((size_t)V.nItems + 1) * sizeof(MdItem));
-    MdItem* it = &V.items[V.nItems++];
-    ZeroMemory(it, sizeof(*it));
+    MdItem* it = ItemAlloc();
+    if (!it) return FALSE;
     it->type = ITM_MATH;
     int cx = x0 + (avail - Math_Width(mr->math)) / 2;
     if (cx < x0) cx = x0;
@@ -1270,6 +1295,10 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
     HPEN ulPen = CreatePen(PS_SOLID, 1, th->link);
     HPEN strikePen = CreatePen(PS_SOLID, 1, th->fgMuted);
     HPEN framePen = CreatePen(PS_SOLID, 1, th->codeBorder);
+    HBRUSH codeBgBr = CreateSolidBrush(th->codeBg);
+    HBRUSH quoteBr = CreateSolidBrush(th->quoteBar);
+    HBRUSH hruleBr = CreateSolidBrush(th->hrule);
+    HBRUSH canvasBr = CreateSolidBrush(th->selBg);
 
     for (int i = 0; i < V.nItems; i++) {
         MdItem* it = &V.items[i];
@@ -1278,16 +1307,15 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
             case ITM_RECT: {
                 HBRUSH br = NULL;
                 switch (it->flag) {
-                    case RCT_CODEBG: case RCT_TABLEHEAD: br = CreateSolidBrush(th->codeBg); break;
-                    case RCT_QUOTEBAR: br = CreateSolidBrush(th->quoteBar); break;
-                    case RCT_HRULE: br = CreateSolidBrush(th->hrule); break;
-                    case RCT_CANVAS: br = CreateSolidBrush(th->selBg); break;
+                    case RCT_CODEBG: case RCT_TABLEHEAD: br = codeBgBr; break;
+                    case RCT_QUOTEBAR: br = quoteBr; break;
+                    case RCT_HRULE: br = hruleBr; break;
+                    case RCT_CANVAS: br = canvasBr; break;
                 }
                 if (br) {
                     RECT rc = it->rc;
                     OffsetRect(&rc, 0, -V.scrollY);
                     FillRect(hdc, &rc, br);
-                    DeleteObject(br);
                 }
                 break;
             }
@@ -1359,9 +1387,7 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                         if ((run->style & STY_CODE) && it->role == ROLE_BODY) {
                             RECT chip = { fx - 3, baseY - ln->asc,
                                           fx + fr->w + 3, baseY - ln->asc + ln->h };
-                            HBRUSH br = CreateSolidBrush(th->codeBg);
-                            FillRect(hdc, &chip, br);
-                            DeleteObject(br);
+                            FillRect(hdc, &chip, codeBgBr);
                             SetTextColor(hdc, th->codeFg);
                         } else if (run->style & STY_LINK) {
                             SetTextColor(hdc, th->link);
@@ -1400,6 +1426,10 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
     DeleteObject(ulPen);
     DeleteObject(strikePen);
     DeleteObject(framePen);
+    DeleteObject(codeBgBr);
+    DeleteObject(quoteBr);
+    DeleteObject(hruleBr);
+    DeleteObject(canvasBr);
 }
 
 static void PaintScrollbar(HDC hdc, const MdTheme* th) {
@@ -1423,6 +1453,34 @@ static void PaintScrollbar(HDC hdc, const MdTheme* th) {
     (void)th;
 }
 
+static struct {
+    HDC dc; HBITMAP bmp; HBITMAP defBmp; int w, h;
+} s_mem;
+
+static void MemFree(void) {
+    if (s_mem.dc) {
+        if (s_mem.bmp) {
+            SelectObject(s_mem.dc, s_mem.defBmp);
+            DeleteObject(s_mem.bmp);
+        }
+        DeleteDC(s_mem.dc);
+    }
+    ZeroMemory(&s_mem, sizeof(s_mem));
+}
+
+static HDC MemDCFor(HDC src, int w, int h) {
+    if (s_mem.dc && s_mem.w == w && s_mem.h == h) return s_mem.dc;
+    MemFree();
+    s_mem.dc = CreateCompatibleDC(src);
+    if (!s_mem.dc) return NULL;
+    s_mem.defBmp = (HBITMAP)GetCurrentObject(s_mem.dc, OBJ_BITMAP);
+    s_mem.bmp = CreateCompatibleBitmap(src, w, h);
+    if (!s_mem.bmp) { DeleteDC(s_mem.dc); s_mem.dc = NULL; return NULL; }
+    SelectObject(s_mem.dc, s_mem.bmp);
+    s_mem.w = w; s_mem.h = h;
+    return s_mem.dc;
+}
+
 static void Paint(void) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(V.hwnd, &ps);
@@ -1431,9 +1489,8 @@ static void Paint(void) {
     int w = rc.right, h = rc.bottom;
     if (w <= 0 || h <= 0) { EndPaint(V.hwnd, &ps); return; }
 
-    HDC mem = CreateCompatibleDC(hdc);
-    HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
-    HBITMAP ob = (HBITMAP)SelectObject(mem, bmp);
+    HDC mem = MemDCFor(hdc, w, h);
+    if (!mem) { EndPaint(V.hwnd, &ps); return; }
 
     MdTheme th;
     MdTheme_Build(&th);
@@ -1447,9 +1504,6 @@ static void Paint(void) {
     PaintScrollbar(mem, &th);
 
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
-    SelectObject(mem, ob);
-    DeleteObject(bmp);
-    DeleteDC(mem);
     EndPaint(V.hwnd, &ps);
 }
 
@@ -1505,14 +1559,18 @@ static void OpenLink(const wchar_t* href) {
         ShellExecuteW(V.hwnd, L"open", href, NULL, NULL, SW_SHOWNORMAL);
         return;
     }
-    wchar_t* full = ResolveLocalHref(href);
-    if (full) ShellExecuteW(V.hwnd, L"open", full, NULL, NULL, SW_SHOWNORMAL);
+    wchar_t full[MAX_PATH];
+    if (ResolveLocalHref(href, full, MAX_PATH))
+        ShellExecuteW(V.hwnd, L"open", full, NULL, NULL, SW_SHOWNORMAL);
 }
 
 static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_ERASEBKGND:
             return 1;
+        case WM_DESTROY:
+            MemFree();
+            return 0;
         case WM_PAINT:
             Paint();
             return 0;
@@ -1625,10 +1683,15 @@ BOOL MdView_IsVisible(void) {
 }
 
 static void LoadContent(int index) {
+    if (index >= 0 && index < g_docCount && V.docIdx == index &&
+        V.root && V.modGen == g_docs[index].modGen)
+        return;
+    s_imgGen++;
     if (V.root) { BlkFree(V.root); V.root = NULL; }
     ItemResetAll();
     V.scrollY = 0;
     V.docIdx = index;
+    V.modGen = (index >= 0 && index < g_docCount) ? g_docs[index].modGen : 0;
 
     V.baseDir[0] = L'\0';
     if (!g_docs[index].isNew && g_docs[index].path[0]) {
@@ -1645,6 +1708,7 @@ static void LoadContent(int index) {
         free(utf8);
     }
     LayoutAll();
+    ImgSweep();
 }
 
 void MdView_OnActivate(void) {
@@ -1738,6 +1802,10 @@ void MdView_OnZoom(void) {
 void MdView_RefreshIfActive(int index) {
     if (MdView_IsVisible() && index == g_curDoc && V.docIdx == index)
         LoadContent(index);
+}
+
+void MdView_Reset(void) {
+    V.docIdx = -1;
 }
 
 BOOL MdView_PrintPages(HDC hdc, int pw, int ph) {

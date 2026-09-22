@@ -91,12 +91,11 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
         int segW = TlSegW(hdc, f, s);
         COLORREF pc = TlColor(th, i);
 
-        HPEN seg = CreatePen(PS_SOLID, UI_Scale(3), pc);
+        HPEN seg = MerPenC(PS_SOLID, UI_Scale(3), pc);
         HPEN op = (HPEN)SelectObject(hdc, seg);
         MoveToEx(hdc, x, axisY, NULL);
         LineTo(hdc, x + segW, axisY);
         SelectObject(hdc, op);
-        DeleteObject(seg);
 
         {
             HFONT of = (HFONT)SelectObject(hdc, f->bold);
@@ -109,7 +108,7 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
         }
 
         int ex = x + TextW(hdc, f->bold, s->title) / 2 + UI_Scale(12);
-        HBRUSH dotBr = CreateSolidBrush(pc);
+        HBRUSH dotBr = MerBrushC(pc);
         for (int j = 0; j < s->n; j++) {
             TlEv* ev = &s->ev[j];
             int bw = TlEvBlockW(hdc, f, ev);
@@ -117,7 +116,7 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
             int dotX = ex + bw / 2;
             BOOL up = (j % 2 == 0);
 
-            HPEN st = CreatePen(PS_SOLID, UI_Scale(2), pc);
+            HPEN st = MerPenC(PS_SOLID, UI_Scale(2), pc);
             HPEN op2 = (HPEN)SelectObject(hdc, st);
             if (up) {
                 MoveToEx(hdc, dotX, axisY - dotR, NULL);
@@ -127,15 +126,13 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
                 LineTo(hdc, dotX, axisY + stem);
             }
             SelectObject(hdc, op2);
-            DeleteObject(st);
 
-            HPEN np = CreatePen(PS_SOLID, 1, th->bg);
+            HPEN np = MerPenC(PS_SOLID, 1, th->bg);
             HPEN op3 = (HPEN)SelectObject(hdc, np);
             HBRUSH ob = (HBRUSH)SelectObject(hdc, dotBr);
             Ellipse(hdc, dotX - dotR, axisY - dotR, dotX + dotR, axisY + dotR);
             SelectObject(hdc, ob);
             SelectObject(hdc, op3);
-            DeleteObject(np);
 
             int tx = dotX - bw / 2 + UI_Scale(8) - UI_Scale(0);
             if (up) {
@@ -167,7 +164,6 @@ static void TlDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
             }
             ex += bw + evGap;
         }
-        DeleteObject(dotBr);
         x += segW + segGap;
     }
 }
@@ -221,15 +217,13 @@ static void JrnDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
         for (int j = 0; j < p->secs[i].n; j++) {
             JTask* t = &p->secs[i].t[j];
             int cy = y + UI_Scale(12);
-            HBRUSH br = CreateSolidBrush(JrnScoreColor(th, t->score));
-            HPEN np = CreatePen(PS_SOLID, 1, th->bg);
+            HBRUSH br = MerBrushC(JrnScoreColor(th, t->score));
+            HPEN np = MerPenC(PS_SOLID, 1, th->bg);
             HPEN op = (HPEN)SelectObject(hdc, np);
             HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
             Ellipse(hdc, cx, cy - UI_Scale(11), cx + UI_Scale(22), cy + UI_Scale(11));
             SelectObject(hdc, ob);
             SelectObject(hdc, op);
-            DeleteObject(np);
-            DeleteObject(br);
             wchar_t num[8];
             _snwprintf(num, 7, L"%d", t->score);
             SetTextColor(hdc, RGB(255, 255, 255));
@@ -343,10 +337,8 @@ static void GanDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
         COLORREF clr = t->crit ? RGB(224,108,117) :
                        t->done ? th->fgMuted :
                        t->active ? th->link : MerPal(th, 0);
-        HBRUSH br = CreateSolidBrush(clr);
         RECT bar = { x1, ry + rowH / 2 - UI_Scale(7), x2, ry + rowH / 2 + UI_Scale(7) };
-        FillRect(hdc, &bar, br);
-        DeleteObject(br);
+        FillRect(hdc, &bar, MerBrushC(clr));
         row++;
     }
 }
@@ -410,7 +402,7 @@ static void XyDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
         XYSeries* s = &p->ser[i];
         COLORREF clr = MerPal(th, i);
         if (s->isBar) {
-            HBRUSH br = CreateSolidBrush(clr);
+            HBRUSH br = MerBrushC(clr);
             for (int j = 0; j < s->n && j < nCats; j++) {
                 double hv = (s->vals[j] - p->yMin) / (p->yMax - p->yMin);
                 if (hv < 0) hv = 0;
@@ -421,10 +413,9 @@ static void XyDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
                 RECT bar = { x, B2 - bh, (int)(x + bw), B2 };
                 FillRect(hdc, &bar, br);
             }
-            DeleteObject(br);
             barIdx++;
         } else {
-            HPEN lp = CreatePen(PS_SOLID, 2, clr);
+            HPEN lp = MerPenC(PS_SOLID, 2, clr);
             HPEN op2 = (HPEN)SelectObject(hdc, lp);
             for (int j = 0; j < s->n && j < nCats; j++) {
                 double vv = (s->vals[j] - p->yMin) / (p->yMax - p->yMin);
@@ -436,8 +427,7 @@ static void XyDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
                 else LineTo(hdc, cx, cy);
             }
             SelectObject(hdc, op2);
-            DeleteObject(lp);
-            HBRUSH mb = CreateSolidBrush(clr);
+            HBRUSH mb = MerBrushC(clr);
             for (int j = 0; j < s->n && j < nCats; j++) {
                 double vv = (s->vals[j] - p->yMin) / (p->yMax - p->yMin);
                 if (vv < 0) vv = 0;
@@ -445,14 +435,13 @@ static void XyDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f,
                 int cx = (int)(L + catW * (j + 0.5));
                 int cy = B2 - (int)(vv * H);
                 HBRUSH ob2 = (HBRUSH)SelectObject(hdc, mb);
-                HPEN np = CreatePen(PS_SOLID, 1, th->bg);
+                HPEN np = MerPenC(PS_SOLID, 1, th->bg);
                 HPEN op3 = (HPEN)SelectObject(hdc, np);
                 Ellipse(hdc, cx - UI_Scale(4), cy - UI_Scale(4), cx + UI_Scale(4), cy + UI_Scale(4));
                 SelectObject(hdc, op3);
                 SelectObject(hdc, ob2);
-                DeleteObject(np);
             }
-            DeleteObject(mb);
+
         }
     }
 }
@@ -618,7 +607,7 @@ static void GitDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
         int prev = -1;
         for (int j = i - 1; j >= 0; j--)
             if (g->cs[j].lane == g->cs[i].lane && g->cs[j].mergeFrom < 0) { prev = j; break; }
-        HPEN cp = CreatePen(PS_SOLID, 2, MerPal(th, g->cs[i].lane));
+        HPEN cp = MerPenC(PS_SOLID, 2, MerPal(th, g->cs[i].lane));
         HPEN op2 = (HPEN)SelectObject(hdc, cp);
         if (prev >= 0) {
             MoveToEx(hdc, GIT_X(g->cs[prev].seq), GIT_Y(g->cs[prev].lane), NULL);
@@ -629,7 +618,7 @@ static void GitDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
             for (int j = i - 1; j >= 0; j--)
                 if (g->cs[j].lane == g->cs[i].mergeFrom) { src = j; break; }
             if (src >= 0) {
-                HPEN mp = CreatePen(PS_DASH, 2, MerPal(th, g->cs[i].mergeFrom));
+                HPEN mp = MerPenC(PS_DASH, 2, MerPal(th, g->cs[i].mergeFrom));
                 HPEN op3 = (HPEN)SelectObject(hdc, mp);
                 MoveToEx(hdc, GIT_X(g->cs[src].seq), GIT_Y(g->cs[src].lane), NULL);
                 int mx = (GIT_X(g->cs[src].seq) + x) / 2;
@@ -637,23 +626,19 @@ static void GitDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
                 LineTo(hdc, mx, y);
                 LineTo(hdc, x, y);
                 SelectObject(hdc, op3);
-                DeleteObject(mp);
             }
         }
         SelectObject(hdc, op2);
-        DeleteObject(cp);
     }
     for (int i = 0; i < g->n; i++) {
         int x = GIT_X(g->cs[i].seq), y = GIT_Y(g->cs[i].lane);
-        HBRUSH br = CreateSolidBrush(MerPal(th, g->cs[i].lane));
-        HPEN np = CreatePen(PS_SOLID, 2, th->bg);
+        HBRUSH br = MerBrushC(MerPal(th, g->cs[i].lane));
+        HPEN np = MerPenC(PS_SOLID, 2, th->bg);
         HPEN op2 = (HPEN)SelectObject(hdc, np);
         HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
         Ellipse(hdc, x - UI_Scale(7), y - UI_Scale(7), x + UI_Scale(7), y + UI_Scale(7));
         SelectObject(hdc, ob);
         SelectObject(hdc, op2);
-        DeleteObject(np);
-        DeleteObject(br);
         SetTextColor(hdc, th->fgMuted);
         HFONT of = (HFONT)SelectObject(hdc, f->sm);
         TextOutW(hdc, x - UI_Scale(10), y + UI_Scale(9), g->cs[i].id, (int)wcslen(g->cs[i].id));
@@ -663,9 +648,7 @@ static void GitDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
         int x = GIT_X(g->bs[b2].firstSeq);
         int y = GIT_Y(g->bs[b2].lane) - UI_Scale(24);
         RECT tag = { x - UI_Scale(30), y, x + UI_Scale(60), y + UI_Scale(18) };
-        HBRUSH tb = CreateSolidBrush(MerPal(th, g->bs[b2].lane));
-        FillRect(hdc, &tag, tb);
-        DeleteObject(tb);
+        FillRect(hdc, &tag, MerBrushC(MerPal(th, g->bs[b2].lane)));
         RECT trc = tag;
         InflateRect(&trc, -UI_Scale(2), 0);
         SetTextColor(hdc, RGB(255, 255, 255));

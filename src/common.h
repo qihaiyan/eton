@@ -53,6 +53,7 @@ typedef struct {
     LangID lang;
     FILETIME ftWrite;
     BOOL previewOn;
+    unsigned modGen;
 } Doc;
 
 extern HINSTANCE g_hInst;
@@ -63,6 +64,7 @@ extern Doc g_docs[MAX_DOCS];
 extern int g_docCount;
 extern int g_curDoc;
 extern HFONT g_hFont;
+extern int g_fontGen;
 extern int g_fontSize;
 extern BOOL g_wordWrap;
 extern BOOL g_showGutter;
@@ -75,6 +77,7 @@ extern COLORREF g_clrBg, g_clrFg, g_clrSelBg, g_clrGutterBg, g_clrGutterFg,
                g_clrStatusBg, g_clrStatusFg;
 extern BOOL g_suppressDirty;
 extern BOOL g_draftsDirty;
+extern BOOL g_sessionDirty;
 extern BOOL g_mdSplit;
 extern BOOL g_mdSyncLock;
 
@@ -112,16 +115,11 @@ void OpenFileByPath(const wchar_t* path);
 
 const wchar_t* EncodingName(Encoding e);
 Encoding DetectEncoding(const BYTE* data, DWORD size, BOOL* hasBom);
-wchar_t* LoadFileToWStr(const wchar_t* path, Encoding enc, DWORD* outLenChars, int* outEol);
-char* LoadFileToUtf8(const wchar_t* path, Encoding* detectedEnc, int* outEol);
-BOOL SaveUtf8ToFile(const wchar_t* path, const char* text, DWORD len, Encoding enc, int eol);
 BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
                      Encoding* outEnc, int* outEol,
                      IoProgressFn progress, void* ctx);
 BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
                        IoProgressFn progress, void* ctx);
-BOOL HasUnsupportedForAnsi(const wchar_t* text, DWORD len);
-wchar_t* ApplyEol(const wchar_t* text, DWORD len, int eol, DWORD* outLen);
 
 extern wchar_t g_findText[512];
 extern wchar_t g_replText[512];
@@ -190,6 +188,8 @@ void MdView_OnDpiChanged(void);
 void MdView_OnThemeChange(void);
 void MdView_OnZoom(void);
 void MdView_RefreshIfActive(int index);
+void MdView_Reset(void);
+void Mermaid_FontsChanged(void);
 void MdView_SyncScrollFromEdit(double frac);
 double MdView_GetScrollFraction(void);
 void MdTheme_Build(MdTheme* th);
@@ -202,6 +202,8 @@ BOOL MdView_PrintPages(HDC hdc, int printableW, int printableH);
 
 
 void ShowError(const wchar_t* msg);
+int  WFmtV(wchar_t* buf, int cch, const wchar_t* fmt, ...);
+#define WFmt(buf, ...) WFmtV((buf), (int)(sizeof(buf) / sizeof(wchar_t)), __VA_ARGS__)
 void AddRecent(const wchar_t* path);
 void RefreshRecentMenu(void);
 void ApplyTitleBarTheme(HWND hwnd);

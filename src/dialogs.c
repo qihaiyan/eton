@@ -255,7 +255,7 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
                 SendMessage(hed, SCI_SETTARGETEND, (WPARAM)SendMessage(hed, SCI_GETLENGTH, 0, 0), 0);
                 pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8find);
             }
-            wchar_t st[64]; wsprintf(st, T(STR_REPLACED_N), count);
+            wchar_t st[64]; WFmt(st, T(STR_REPLACED_N), count);
             SetDlgItemTextW(hdlg, IDC_FIND_STATUS, st);
             Find_MarkAll(hed, L"", FALSE, FALSE, FALSE);
             Editor_MarkDirty(g_curDoc, TRUE);
@@ -282,7 +282,7 @@ static INT_PTR CALLBACK GotoProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         I18n_ApplyDialog(hdlg, IDD_GOTO);
         hed = Editor_ActiveEdit();
         int total = hed ? (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0) : 0;
-        wchar_t lbl[64]; wsprintf(lbl, T(STR_GOTO_LBL_FMT), total);
+        wchar_t lbl[64]; WFmt(lbl, T(STR_GOTO_LBL_FMT), total);
         SetDlgItemTextW(hdlg, IDC_GOTO_LABEL, lbl);
         return TRUE;
     }

@@ -44,6 +44,7 @@ static void RecreateTabFont(void) {
     g_hFont = CreateFontW(h, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                           DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
+    g_fontGen++;
 }
 
 void Editor_SetFont(void) {
@@ -262,34 +263,38 @@ static BOOL DiskWriteTime(const wchar_t* path, FILETIME* ft) {
 }
 
 static BOOL ConfirmAnsiOk(HWND hed) {
-    char buf[64 * 1024 + 8];
-    wchar_t w[64 * 1024];
-    char probe[128 * 1024 + 8];
+    /* 约 256KB，放堆上，避免深调用链下撑爆 1MB 默认栈 */
+    enum { ANSI_BUF = 64 * 1024, ANSI_PROBE = 128 * 1024 + 8 };
+    char* buf = (char*)malloc(ANSI_BUF + 8);
+    wchar_t* w = (wchar_t*)malloc((size_t)ANSI_BUF * sizeof(wchar_t));
+    char* probe = (char*)malloc(ANSI_PROBE);
+    if (!buf || !w || !probe) { free(buf); free(w); free(probe); return TRUE; }
     Sci_Position total = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
     Sci_Position pos = 0;
     BOOL bad = FALSE;
     while (pos < total && !bad) {
         Sci_Position take = total - pos;
-        if (take > (Sci_Position)(sizeof(buf) - 8)) take = sizeof(buf) - 8;
+        if (take > (Sci_Position)ANSI_BUF) take = ANSI_BUF;
         struct Sci_TextRangeFull tr;
         tr.chrg.cpMin = pos; tr.chrg.cpMax = pos + take; tr.lpstrText = buf;
         SendMessage(hed, SCI_GETTEXTRANGEFULL, 0, (LPARAM)&tr);
         if (pos + take < total) {
             while (take > 0 && buf[take-1] != '\n') take--;
             if (take == 0) {
-                take = (total - pos < (Sci_Position)(sizeof(buf) - 8)) ? total - pos : (Sci_Position)(sizeof(buf) - 8);
+                take = (total - pos < (Sci_Position)ANSI_BUF) ? total - pos : (Sci_Position)ANSI_BUF;
                 while (take > 0 && ((unsigned char)buf[take-1] & 0xC0) == 0x80) take--;
                 if (take > 0 && (unsigned char)buf[take-1] >= 0xC0) take--;
             }
         }
         pos += take;
-        int n = (take > 0) ? MultiByteToWideChar(CP_UTF8, 0, buf, (int)take, w, 64 * 1024) : 0;
+        int n = (take > 0) ? MultiByteToWideChar(CP_UTF8, 0, buf, (int)take, w, ANSI_BUF) : 0;
         if (n > 0) {
             BOOL used = FALSE;
-            WideCharToMultiByte(CP_ACP, 0, w, n, probe, sizeof(probe), "?", &used);
+            WideCharToMultiByte(CP_ACP, 0, w, n, probe, ANSI_PROBE, "?", &used);
             if (used) bad = TRUE;
         }
     }
+    free(buf); free(w); free(probe);
     if (!bad) return TRUE;
     int r = MessageBoxW(g_hwndMain, T(STR_MSG_ANSI_WARN), T(STR_TITLE_SAVE),
                         MB_YESNO | MB_ICONWARNING);
@@ -302,7 +307,7 @@ static BOOL ConfirmOverwriteOk(Doc* d) {
     if (!DiskWriteTime(d->path, &cur)) return TRUE;
     if (CompareFileTime(&cur, &d->ftWrite) == 0) return TRUE;
     wchar_t msg[400];
-    wsprintf(msg, T(STR_MSG_FILE_CHANGED_OVERWRITE), d->title);
+    WFmt(msg, T(STR_MSG_FILE_CHANGED_OVERWRITE), d->title);
     return MessageBoxW(g_hwndMain, msg, T(STR_TITLE_SAVE),
                        MB_YESNO | MB_ICONWARNING) == IDYES;
 }
@@ -318,7 +323,7 @@ void Editor_UpdateTitle(int index) {
         PathStripPathW(nm);
         wcscpy_s(base, 256, nm);
     }
-    if (d->dirty) wsprintf(d->title, L"%s *", base);
+    if (d->dirty) WFmt(d->title, L"%s *", base);
     else wcscpy_s(d->title, 256, base);
 }
 
@@ -351,6 +356,7 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     d->draft[0] = L'\0';
     d->lang = LANG_NONE;
     d->previewOn = FALSE;
+    d->modGen = 0;
     if (isNew) {
         d->path[0] = L'\0';
         wcscpy_s(d->baseTitle, 256, title ? title : T(STR_UNTITLED));
@@ -363,6 +369,7 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
 
     g_docCount++;
     Editor_UpdateTitle(idx);
+    g_sessionDirty = TRUE;
     return idx;
 }
 
@@ -403,7 +410,7 @@ static void ProgressBegin(StrId verb, const wchar_t* path) {
     wchar_t name[MAX_PATH];
     wcscpy_s(name, MAX_PATH, path);
     PathStripPathW(name);
-    wsprintf(label, L"%s %s", T(verb), name);
+    WFmt(label, L"%s %s", T(verb), name);
     s_progCancel = FALSE;
     s_hwndProg = CreateDialogParamW(g_hInst, MAKEINTRESOURCEW(IDD_PROGRESS),
                                     g_hwndMain, ProgressProc, 0);
@@ -494,7 +501,7 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
         char* bak = NULL; DWORD bakLen = 0;
         BOOL have = Session_AutoBackupRead(path, &bak, &bakLen);
         wchar_t msg[600];
-        wsprintf(msg, T(STR_MSG_AUTOBACKUP), d->title);
+        WFmt(msg, T(STR_MSG_AUTOBACKUP), d->title);
         int r = MessageBoxW(g_hwndMain, msg, T(STR_TITLE_SAVE), MB_YESNO | MB_ICONQUESTION);
         if (r == IDYES && have) {
             Editor_SetText(index, bak);
@@ -522,7 +529,6 @@ void Editor_Activate(int index) {
     MdView_OnActivate();
     InvalidateRect(g_hwndTab, NULL, FALSE);
     Editor_UpdateStatus();
-    Session_Save();
 }
 
 void Editor_ApplyWrap(int index) {
@@ -677,6 +683,7 @@ void Editor_OnNotify(LPARAM lp) {
         }
     } else if (scn->nmhdr.code == SCN_MODIFIED) {
         if (scn->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) {
+            g_docs[idx].modGen++;
             if (!g_suppressDirty) {
                 Editor_MarkDirty(idx, TRUE);
                 Editor_UpdateStatus();
@@ -764,6 +771,8 @@ BOOL Editor_SaveDocAs(int index) {
         InvalidateRect(g_hwndTab, NULL, FALSE);
         Session_DiscardDraft(index);
         Session_SaveDrafts();
+        MdView_Reset();
+        g_sessionDirty = TRUE;
     }
     return ok;
 }
@@ -772,7 +781,7 @@ void Editor_CloseDoc(int index) {
     if (index < 0 || index >= g_docCount) return;
     if (!g_docs[index].isNew && g_docs[index].dirty) {
         wchar_t msg[300];
-        wsprintf(msg, T(STR_MSG_FILE_MODIFIED), g_docs[index].title);
+        WFmt(msg, T(STR_MSG_FILE_MODIFIED), g_docs[index].title);
         int r = MessageBoxW(g_hwndMain, msg, T(STR_APP_TITLE), MB_YESNOCANCEL | MB_ICONQUESTION);
         if (r == IDCANCEL) return;
         if (r == IDYES) { if (!Editor_SaveDoc(index, FALSE)) return; }
@@ -784,6 +793,8 @@ void Editor_CloseDoc(int index) {
     DestroyWindow(g_docs[index].hwndEdit);
     for (int i = index; i < g_docCount - 1; i++) g_docs[i] = g_docs[i + 1];
     g_docCount--;
+    MdView_Reset();
+    g_sessionDirty = TRUE;
     if (g_docCount == 0) {
         int ni = Editor_NewDoc(NULL, T(STR_UNTITLED), TRUE);
         Editor_Activate(ni);
@@ -836,14 +847,14 @@ void Editor_UpdateStatus(void) {
 
     wchar_t s1[64], s2[32], s3[32], s4[64], s5[64];
     if (selStart != selEnd)
-        wsprintf(s1, T(STR_STATUS_SEL_CHARS), (int)(selEnd - selStart));
+        WFmt(s1, T(STR_STATUS_SEL_CHARS), (int)(selEnd - selStart));
     else
-        wsprintf(s1, T(STR_STATUS_CHARS), (int)len);
-    wsprintf(s2, T(STR_STATUS_LN), line + 1, totalLines);
-    wsprintf(s3, T(STR_STATUS_COL), col);
-    wsprintf(s4, L"%s", EncodingName(d->enc));
+        WFmt(s1, T(STR_STATUS_CHARS), (int)len);
+    WFmt(s2, T(STR_STATUS_LN), line + 1, totalLines);
+    WFmt(s3, T(STR_STATUS_COL), col);
+    WFmt(s4, L"%s", EncodingName(d->enc));
     const wchar_t* eolname = d->eol == 0 ? L"CRLF" : (d->eol == 1 ? L"LF" : L"CR");
-    wsprintf(s5, L"%s  |  %d%%", eolname, g_fontSize * 10);
+    WFmt(s5, L"%s  |  %d%%", eolname, g_fontSize * 10);
     StatusBar_SetText(0, s1);
     StatusBar_SetText(1, s2);
     StatusBar_SetText(2, s3);
@@ -862,7 +873,7 @@ void Editor_OnLanguageChanged(void) {
         } else if (swscanf(d->baseTitle, L"未命名 %d", &n) == 1 ||
                    swscanf(d->baseTitle, L"Untitled %d", &n) == 1) {
             wchar_t t[64];
-            wsprintf(t, T(STR_UNTITLED_N), n);
+            WFmt(t, T(STR_UNTITLED_N), n);
             wcscpy_s(d->baseTitle, 256, t);
         } else {
             continue;

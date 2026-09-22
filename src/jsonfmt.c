@@ -277,7 +277,7 @@ void Json_FormatActiveDoc(BOOL minify) {
 
     if (end - start > (Sci_Position)(100 * 1024 * 1024)) {
         wchar_t msg[128];
-        wsprintf(msg, T(STR_MSG_JSON_BIG), 100);
+        WFmt(msg, T(STR_MSG_JSON_BIG), 100);
         MessageBoxW(g_hwndMain, msg,
                     minify ? T(STR_JSON_TITLE_MIN) : T(STR_JSON_TITLE_FMT), MB_ICONINFORMATION);
         return;
