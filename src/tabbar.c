@@ -143,6 +143,17 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         return 0;
     }
+    if (msg == WM_SIZE) {
+        if (s_tip) {
+            TOOLINFO ti; memset(&ti, 0, sizeof(ti));
+            ti.cbSize = sizeof(ti);
+            ti.hwnd = hwnd;
+            ti.uId = 0;
+            GetClientRect(hwnd, &ti.rect);
+            SendMessage(s_tip, TTM_NEWTOOLRECT, 0, (LPARAM)&ti);
+        }
+        return 0;
+    }
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps; HDC hdc = BeginPaint(hwnd, &ps);
         RECT rc; GetClientRect(hwnd, &rc);

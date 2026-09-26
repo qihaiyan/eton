@@ -14,7 +14,7 @@
 #pragma comment(lib, "comdlg32.lib")
 
 HINSTANCE g_hInst;
-HWND g_hwndMain, g_hwndTab, g_hwndStatus;
+HWND g_hwndMain, g_hwndTab, g_hwndTool, g_hwndStatus;
 UINT g_dpi = 96;
 
 int UI_Scale(int px) {
@@ -327,6 +327,7 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             MdView_OnThemeChange();
             ApplyTitleBarTheme(hwnd);
             InvalidateRect(g_hwndTab, NULL, FALSE);
+            InvalidateRect(g_hwndTool, NULL, FALSE);
             InvalidateRect(g_hwndStatus, NULL, FALSE);
             InvalidateRect(hwnd, NULL, TRUE);
             ScrollBars_Repaint();
@@ -458,6 +459,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ScrollBars_Create(hwnd);
             Editor_Init();
             SetMenu(hwnd, I18n_BuildMainMenu());
+            Toolbar_Register();
+            g_hwndTool = CreateWindowExW(0, L"ETONToolbar", NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, g_hInst, NULL);
             g_hwndTab = CreateWindowExW(0, L"NPPTabBar", NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, g_hInst, NULL);
             StatusBar_Register();
             g_hwndStatus = CreateWindowExW(0, L"ETONStatus", NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, g_hInst, NULL);

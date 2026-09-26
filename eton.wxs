@@ -30,6 +30,7 @@
     <Feature Id="Main" Title="ETON" Level="1">
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="ShellIntegration" />
     </Feature>
 
     <Component Id="MainExecutable" Directory="INSTALLFOLDER">
@@ -44,6 +45,12 @@
                 WorkingDirectory="INSTALLFOLDER" />
       <RemoveFolder Id="RemoveAppMenuDir" Directory="AppMenuDir" On="uninstall" />
       <RegistryValue Root="HKLM" Key="Software\eton" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ShellIntegration" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKCR" Key="*\shell\EditWithEton" Name="MUIVerb" Type="string" Value="用 ETON 编辑" />
+      <RegistryValue Root="HKCR" Key="*\shell\EditWithEton" Name="Icon" Type="string" Value="[INSTALLFOLDER]eton.exe" />
+      <RegistryValue Root="HKCR" Key="*\shell\EditWithEton\command" Type="string" Value="&quot;[INSTALLFOLDER]eton.exe&quot; &quot;%1&quot;" KeyPath="yes" />
     </Component>
   </Package>
 </Wix>

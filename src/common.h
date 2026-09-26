@@ -58,7 +58,7 @@ typedef struct {
 } Doc;
 
 extern HINSTANCE g_hInst;
-extern HWND g_hwndMain, g_hwndTab, g_hwndStatus;
+extern HWND g_hwndMain, g_hwndTab, g_hwndTool, g_hwndStatus;
 extern UINT g_dpi;
 int UI_Scale(int px);
 extern Doc g_docs[MAX_DOCS];
@@ -217,6 +217,9 @@ void ApplyTitleBarTheme(HWND hwnd);
 void TabBar_Register(void);
 void TabBar_ApplyTheme(void);
 int  TabBar_HitTestPublic(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow);
+
+void Toolbar_Register(void);
+void Toolbar_UpdateStates(void);
 
 void StatusBar_Register(void);
 void StatusBar_SetParts(const int* rightEdges, int n);

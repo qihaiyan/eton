@@ -1,5 +1,6 @@
 #include "common.h"
 
+static const int TOOLBAR_HEIGHT_96 = 32;
 static const int TAB_HEIGHT_96 = 22;
 static const int EDIT_TOP_PAD_96 = 4;
 static const int STATUS_HEIGHT_96 = 22;
@@ -49,13 +50,8 @@ static void RecreateTabFont(void) {
 
 void Editor_SetFont(void) {
     RecreateTabFont();
-    for (int i = 0; i < g_docCount; i++) {
-        if (g_docs[i].hwndEdit) {
-            SendMessage(g_docs[i].hwndEdit, SCI_STYLESETSIZE, STYLE_DEFAULT, g_fontSize);
-            SendMessage(g_docs[i].hwndEdit, SCI_STYLESETFONT, STYLE_DEFAULT, (LPARAM)"Consolas");
-            SendMessage(g_docs[i].hwndEdit, SCI_STYLECLEARALL, 0, 0);
-        }
-    }
+    for (int i = 0; i < g_docCount; i++)
+        if (g_docs[i].hwndEdit) Editor_ApplyTheme(i);
     Editor_Layout();
 }
 
@@ -577,13 +573,15 @@ void Editor_ComputeGutterWidth(int index) {
 void Editor_Layout(void) {
     RECT rc; GetClientRect(g_hwndMain, &rc);
     int cx = rc.right, cy = rc.bottom;
+    int toolH = UI_Scale(TOOLBAR_HEIGHT_96);
     int tabH = UI_Scale(TAB_HEIGHT_96);
     int statusH = UI_Scale(STATUS_HEIGHT_96);
 
-    SetWindowPos(g_hwndTab, NULL, 0, 0, cx, tabH, SWP_NOZORDER);
+    SetWindowPos(g_hwndTool, NULL, 0, 0, cx, toolH, SWP_NOZORDER);
+    SetWindowPos(g_hwndTab, NULL, 0, toolH, cx, tabH, SWP_NOZORDER);
     SetWindowPos(g_hwndStatus, NULL, 0, cy - statusH, cx, statusH, SWP_NOZORDER);
 
-    int top = tabH + UI_Scale(EDIT_TOP_PAD_96);
+    int top = toolH + tabH + UI_Scale(EDIT_TOP_PAD_96);
     int bottom = cy - statusH;
     int h = bottom - top;
 
@@ -628,12 +626,8 @@ void Editor_Zoom(int delta) {
     g_fontSize += delta;
     if (g_fontSize < 6) g_fontSize = 6;
     if (g_fontSize > 48) g_fontSize = 48;
-    for (int i = 0; i < g_docCount; i++) {
-        if (g_docs[i].hwndEdit) {
-            SendMessage(g_docs[i].hwndEdit, SCI_STYLESETSIZE, STYLE_DEFAULT, g_fontSize);
-            SendMessage(g_docs[i].hwndEdit, SCI_STYLECLEARALL, 0, 0);
-        }
-    }
+    for (int i = 0; i < g_docCount; i++)
+        if (g_docs[i].hwndEdit) Editor_ApplyTheme(i);
     MdView_OnZoom();
     Editor_UpdateStatus();
 }
@@ -829,6 +823,7 @@ HWND Editor_ActiveEdit(void) {
 }
 
 void Editor_UpdateStatus(void) {
+    Toolbar_UpdateStates();
     if (g_curDoc < 0 || g_curDoc >= g_docCount) {
         StatusBar_SetText(0, L"");
         ScrollBars_Update();
