@@ -167,6 +167,7 @@ typedef enum {
     STR_ITEM_MDSPLIT,
     STR_ITEM_EXPHTML,
     STR_ITEM_EXPPDF,
+    STR_ITEM_EXPDOCX,
 
     STR_COUNT
 } StrId;

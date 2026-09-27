@@ -1,42 +1,6 @@
 #include "common.h"
 #include "md4c.h"
 
-enum { STY_BOLD = 1, STY_EM = 2, STY_CODE = 4, STY_STRIKE = 8,
-       STY_LINK = 16, STY_IMG = 32, STY_BR = 64,
-       STY_MATH = 128, STY_MATHDISP = 256 };
-
-typedef struct MdRun {
-    wchar_t* text;
-    unsigned style;
-    wchar_t* href;      /* 链接目标；图片运行为图片源 */
-    wchar_t* link;      /* 包裹图片的链接目标（<a><img/></a>），点击用 */
-    int imgW;           /* HTML width 属性（96dpi 像素），0 = 自然尺寸 */
-    MathBox* math;
-} MdRun;
-
-typedef struct MdBlock MdBlock;
-
-typedef enum {
-    MDB_P, MDB_H, MDB_CODE, MDB_HTML, MDB_HR,
-    MDB_QUOTE, MDB_UL, MDB_OL, MDB_LI, MDB_TABLE
-} MdBlockType;
-
-struct MdBlock {
-    int type;
-    MdRun* runs; int nRuns, capRuns;
-    int level;
-    wchar_t* code; int codeLen;
-    char fenceLang[24];
-    MermaidDiagram* diag;
-    BOOL isTask; wchar_t taskMark;
-    int itemNum; wchar_t itemDelim;
-    BOOL tight;
-    int nCols, nRows;
-    int* aligns;
-    MdBlock** cells;
-    MdBlock** children; int nChildren, capChildren;
-};
-
 typedef enum { ITM_LINES, ITM_RECT, ITM_FRAME, ITM_DIAGRAM, ITM_IMAGE, ITM_MATH } MdItemType;
 enum { RCT_CODEBG = 0, RCT_QUOTEBAR, RCT_HRULE, RCT_TABLEHEAD, RCT_CANVAS };
 
@@ -2295,6 +2259,38 @@ static void LoadContentEx(int index, BOOL force) {
 
 static void LoadContent(int index) {
     LoadContentEx(index, FALSE);
+}
+
+/* ---- docx 导出所需的模型访问 ---- */
+
+const MdBlock* MdView_EnsureDocModel(void) {
+    if (!V.hwnd || g_curDoc < 0 || g_curDoc >= g_docCount) return NULL;
+    int saveScroll = V.scrollY;
+    LoadContent(g_curDoc);          /* 幂等：内容未变时直接复用 */
+    V.scrollY = saveScroll;
+    return V.root;
+}
+
+const MdFonts* MdView_DocFonts(HDC hdc) {
+    FontsEnsure(hdc);
+    return V.fontsOk ? &V.fonts : NULL;
+}
+
+BOOL MdView_ResolveImage(const wchar_t* href, wchar_t* out, int cch) {
+    out[0] = L'\0';
+    if (!href || !*href) return FALSE;
+    if (_wcsnicmp(href, L"http://", 7) == 0 || _wcsnicmp(href, L"https://", 8) == 0)
+        return MdImg_CachePath(href, out, cch) &&
+               GetFileAttributesW(out) != INVALID_FILE_ATTRIBUTES;
+    return ResolveLocalHref(href, out, cch);
+}
+
+BOOL MdView_ImageSize(const wchar_t* full, UINT* w, UINT* h) {
+    ImgEnt* e = ImgGet(full);
+    if (!e) return FALSE;
+    *w = e->w;
+    *h = e->h;
+    return TRUE;
 }
 
 void MdView_OnActivate(void) {

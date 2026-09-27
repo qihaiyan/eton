@@ -124,6 +124,8 @@ static void UpdateMenuChecks(void) {
                                             : MF_BYCOMMAND | MF_GRAYED);
     EnableMenuItem(m, IDM_EXPORT_PDF, isMd ? MF_BYCOMMAND | MF_ENABLED
                                            : MF_BYCOMMAND | MF_GRAYED);
+    EnableMenuItem(m, IDM_EXPORT_DOCX, isMd ? MF_BYCOMMAND | MF_ENABLED
+                : MF_BYCOMMAND | MF_GRAYED);
     Encoding e = (g_curDoc >= 0) ? g_docs[g_curDoc].enc : ENC_UTF8;
     LangID lg = (g_curDoc >= 0) ? g_docs[g_curDoc].lang : LANG_NONE;
     int eol = (g_curDoc >= 0) ? g_docs[g_curDoc].eol : 0;
@@ -362,6 +364,9 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             break;
         case IDM_EXPORT_PDF:
             MdExport_Pdf();
+            break;
+        case IDM_EXPORT_DOCX:
+            MdExport_Docx();
             break;
         case IDM_FINDNEXT: FindNextAccel(hwnd, TRUE); break;
         case IDM_FINDPREV: FindNextAccel(hwnd, FALSE); break;

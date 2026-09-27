@@ -22,6 +22,8 @@ static const TbBtn kBtns[] = {
     { IDM_WRAP,    STR_ITEM_WRAP,      11 },
     { IDM_VIEW_MD, STR_ITEM_MDPREVIEW, 12 },
     { IDM_VIEW_MDSPLT, STR_ITEM_MDSPLIT, 13 },
+    { 0,           0,                  -1 },
+    { IDM_EXPORT_DOCX, STR_ITEM_EXPDOCX, 14 },
 };
 #define BTN_N ((int)(sizeof(kBtns) / sizeof(kBtns[0])))
 
@@ -61,6 +63,9 @@ static BOOL BtnEnabled(int i) {
     HWND hed = Editor_ActiveEdit();
     if (!hed) return FALSE;
     switch (kBtns[i].cmd) {
+    case IDM_EXPORT_DOCX:
+        return g_curDoc >= 0 && g_curDoc < g_docCount &&
+               g_docs[g_curDoc].lang == LANG_MD;
     case IDM_UNDO:  return SendMessage(hed, SCI_CANUNDO, 0, 0) != 0;
     case IDM_REDO:  return SendMessage(hed, SCI_CANREDO, 0, 0) != 0;
     case IDM_CUT:
@@ -80,7 +85,9 @@ static BOOL BtnChecked(int i) {
 }
 
 void Toolbar_UpdateStates(void) {
-    unsigned h = 7;
+    BOOL mdDoc = (g_curDoc >= 0 && g_curDoc < g_docCount &&
+                  g_docs[g_curDoc].lang == LANG_MD);
+    unsigned h = mdDoc ? 7 : 3;
     for (int i = 0; i < BTN_N; i++) {
         if (kBtns[i].icon < 0) continue;
         h = h * 31u + (unsigned)(BtnEnabled(i)) * 3u + (unsigned)(BtnChecked(i)) * 5u;
@@ -94,7 +101,7 @@ void Toolbar_UpdateStates(void) {
 #define CLR_GRAY ((COLORREF)-1)
 
 static void TbDrawIcon(HDC hdc, const RECT* r, int icon, BOOL en) {
-    static const struct { COLORREF m, a; } kClr[14] = {
+    static const struct { COLORREF m, a; } kClr[15] = {
         { RGB(96,164,222),  CLR_GRAY       },
         { RGB(230,178,72),  RGB(230,178,72)},
         { RGB(96,164,222),  CLR_GRAY       },
@@ -109,6 +116,7 @@ static void TbDrawIcon(HDC hdc, const RECT* r, int icon, BOOL en) {
         { RGB(177,144,250), RGB(177,144,250)},
         { RGB(75,200,170),  RGB(75,200,170)},
         { RGB(75,200,170),  CLR_GRAY       },
+        { RGB(96,164,222),  RGB(230,178,72)},
     };
     double sz = UI_Scale(16);
     double ox = r->left + (r->right - r->left - sz) / 2.0;
@@ -237,6 +245,18 @@ static void TbDrawIcon(HDC hdc, const RECT* r, int icon, BOOL en) {
         Ellipse(hdc, X(10.3), Y(7.5), X(11.7), Y(8.9));
         break;
     }
+    case 14:
+        Rectangle(hdc, X(2.5), Y(2), X(9.5), Y(10));
+        SelectObject(hdc, pa);
+        MoveToEx(hdc, X(4.5), Y(4.8), NULL); LineTo(hdc, X(7.5), Y(4.8));
+        MoveToEx(hdc, X(4.5), Y(7.0), NULL); LineTo(hdc, X(7.5), Y(7.0));
+        MoveToEx(hdc, X(5.5), Y(12.5), NULL); LineTo(hdc, X(11.5), Y(12.5));
+        {
+            POINT tri[3] = { {X(11.2), Y(10.1)}, {X(14.0), Y(12.5)}, {X(11.2), Y(14.9)} };
+            Polygon(hdc, tri, 3);
+        }
+        SelectObject(hdc, pm);
+        break;
     }
     SelectObject(hdc, op);
     SelectObject(hdc, ob);
@@ -262,6 +282,26 @@ static void SetTip(int i) {
     ti.uId = 0;
     ti.lpszText = s_tipText;
     SendMessage(s_tip, TTM_UPDATETIPTEXT, 0, (LPARAM)&ti);
+}
+
+/* 导出下拉：HTML / PDF / Word 三选 */
+static void ShowExportMenu(HWND hwnd, int btnIndex) {
+    RECT rc; GetClientRect(hwnd, &rc);
+    RECT rects[BTN_N]; TbRects(rc, rects);
+    POINT pt = { rects[btnIndex].left, rects[btnIndex].bottom + 1 };
+    ClientToScreen(hwnd, &pt);
+    HMENU m = CreatePopupMenu();
+    UINT on = MF_STRING;
+    I18n_OwnerAppend(m, on, IDM_EXPORT_HTML, T(STR_ITEM_EXPHTML));
+    I18n_OwnerAppend(m, on, IDM_EXPORT_PDF,  T(STR_ITEM_EXPPDF));
+    I18n_OwnerAppend(m, on, IDM_EXPORT_DOCX, T(STR_ITEM_EXPDOCX));
+    I18n_ApplyMenuTheme(m);
+    /* owner 必须是主窗口：owner-drawn 菜单的 WM_MEASUREITEM/WM_DRAWITEM
+       由主窗口过程绘制（工具栏不处理，传自己会导致菜单空白） */
+    int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_LEFTBUTTON,
+                             pt.x, pt.y, 0, g_hwndMain, NULL);
+    DestroyMenu(m);
+    if (cmd) PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
 }
 
 static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -357,8 +397,12 @@ static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             int clicked = (i == s_pressBtn && i >= 0) ? i : -1;
             s_pressBtn = -1;
             InvalidateRect(hwnd, NULL, FALSE);
-            if (clicked >= 0 && BtnEnabled(clicked))
-                PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(kBtns[clicked].cmd, 0), 0);
+            if (clicked >= 0 && BtnEnabled(clicked)) {
+                if (kBtns[clicked].cmd == IDM_EXPORT_DOCX)
+                    ShowExportMenu(hwnd, clicked);
+                else
+                    PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(kBtns[clicked].cmd, 0), 0);
+            }
         }
         return 0;
     }

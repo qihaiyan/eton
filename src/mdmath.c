@@ -12,26 +12,6 @@ static int MbFontH(HDC hdc, HFONT f) {
 }
 #define FontH(hdc, f) MbFontH(hdc, f)
 
-typedef enum {
-    MB_ROW,
-    MB_GLYPHS,
-    MB_FRAC,
-    MB_SCRIPT,
-    MB_RADICAL,
-    MB_BIGOP
-} MbKind;
-
-struct MathBox {
-    MbKind kind;
-    int w, h, asc;
-    MathBox** kids; int nKids;
-    wchar_t* text;
-    int level;
-    BOOL italic;
-    int spaceAfter;
-    int raiseY;
-};
-
 static MathBox* MbNew(MbKind k) {
     MathBox* b = (MathBox*)calloc(1, sizeof(MathBox));
     if (b) b->kind = k;

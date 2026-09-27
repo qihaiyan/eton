@@ -168,7 +168,62 @@ SIZE  Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f);
 void  Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
                    const MdFonts* f, const MdTheme* th);
 
+/* ---- Markdown 文档模型（mdview 解析，mdview/docx 共用） ---- */
+
+enum { STY_BOLD = 1, STY_EM = 2, STY_CODE = 4, STY_STRIKE = 8,
+       STY_LINK = 16, STY_IMG = 32, STY_BR = 64,
+       STY_MATH = 128, STY_MATHDISP = 256 };
+
+typedef struct MdRun {
+    wchar_t* text;
+    unsigned style;
+    wchar_t* href;      /* 链接目标；图片运行为图片源 */
+    wchar_t* link;      /* 包裹图片的链接目标（<a><img/></a>），点击用 */
+    int imgW;           /* HTML width 属性（96dpi 像素），0 = 自然尺寸 */
+    struct MathBox* math;
+} MdRun;
+
+typedef struct MdBlock MdBlock;
+
+typedef enum {
+    MDB_P, MDB_H, MDB_CODE, MDB_HTML, MDB_HR,
+    MDB_QUOTE, MDB_UL, MDB_OL, MDB_LI, MDB_TABLE
+} MdBlockType;
+
+struct MdBlock {
+    int type;
+    MdRun* runs; int nRuns, capRuns;
+    int level;
+    wchar_t* code; int codeLen;
+    char fenceLang[24];
+    MermaidDiagram* diag;
+    BOOL isTask; wchar_t taskMark;
+    int itemNum; wchar_t itemDelim;
+    BOOL tight;
+    int nCols, nRows;
+    int* aligns;
+    MdBlock** cells;
+    MdBlock** children; int nChildren, capChildren;
+};
+
+/* ---- 公式模型（mdmath 解析，mdmath/docx 共用；docx 据此生成 OMML） ---- */
+
+typedef enum {
+    MB_ROW, MB_GLYPHS, MB_FRAC, MB_SCRIPT, MB_RADICAL, MB_BIGOP
+} MbKind;
+
 typedef struct MathBox MathBox;
+struct MathBox {
+    MbKind kind;
+    int w, h, asc;
+    struct MathBox** kids; int nKids;
+    wchar_t* text;
+    int level;
+    BOOL italic;
+    int spaceAfter;
+    int raiseY;
+};
+
 MathBox* Math_Build(const wchar_t* latex);
 void  Math_Free(MathBox* b);
 void  Math_Measure(MathBox* b, HDC hdc, const MdFonts* f);
@@ -177,6 +232,12 @@ void  Math_Draw(const MathBox* b, HDC hdc, int x, int yBase,
 int   Math_Width(const MathBox* b);
 int   Math_Height(const MathBox* b);
 int   Math_Ascent(const MathBox* b);
+
+/* docx 导出所需的模型访问（mdview.c 提供） */
+const MdBlock* MdView_EnsureDocModel(void);
+const MdFonts* MdView_DocFonts(HDC hdc);
+BOOL MdView_ResolveImage(const wchar_t* href, wchar_t* out, int cch);
+BOOL MdView_ImageSize(const wchar_t* full, UINT* w, UINT* h);
 
 void MdView_Register(void);
 void MdView_Create(HWND parent);
@@ -204,6 +265,7 @@ double Editor_SyncScrollFromPreview(double frac);
 
 void MdExport_Html(void);
 void MdExport_Pdf(void);
+void MdExport_Docx(void);
 BOOL MdView_PrintPages(HDC hdc, int printableW, int printableH);
 
 

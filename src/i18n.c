@@ -168,6 +168,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"并排预览(&S)\tShift+F12",
         L"导出 HTML(&E)...",
         L"导出 PDF（打印）(&R)...",
+        L"导出 Word 文档(&W)...",
     },
 
     {
@@ -332,6 +333,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Split &Preview\tShift+F12",
         L"Export &HTML...",
         L"Export PDF (P&rint)...",
+        L"Export &Word (.docx)...",
     },
 };
 
@@ -570,6 +572,7 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mFile, STR_ITEM_CLOSE_ALL, IDM_CLOSE_ALL);
     AddIt(mFile, STR_ITEM_EXPHTML, IDM_EXPORT_HTML);
     AddIt(mFile, STR_ITEM_EXPPDF, IDM_EXPORT_PDF);
+    AddIt(mFile, STR_ITEM_EXPDOCX, IDM_EXPORT_DOCX);
     AddSep(mFile);
     g_hMenuRecent = CreatePopupMenu();
     I18n_ApplyMenuTheme(g_hMenuRecent);
