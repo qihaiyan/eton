@@ -1,12 +1,14 @@
 # ETON
 
-一个用 **原生 Win32 C API**（不依赖 MFC / Qt / .NET / Electron）实现的、类 Notepad++ 的 Windows 文本编辑器。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-软件大小只有2M。
+A Notepad++-style text editor for Windows built with the **native Win32 C API** (no MFC / Qt / .NET / Electron).
 
-- 源码可直接用 Visual Studio 生成工具（MSVC）编译为单个 `eton.exe`
-- 静态链接运行库（`/MT`）+ Scintilla + Lexilla，编译产物仅依赖系统 DLL，可直接拷贝到其他 Windows 机器运行
-- 内嵌 Common Controls v6 清单，自动获得系统主题（含暗色标题栏/控件）
+The whole program is only 2 MB.
+
+- Builds directly with Visual Studio Build Tools (MSVC) into a single `eton.exe`
+- Statically linked CRT (`/MT`) + Scintilla + Lexilla — the binary only depends on system DLLs and can be copied to any Windows machine and run
+- Embeds a Common Controls v6 manifest and automatically picks up the system theme (including a dark title bar/controls)
 
 <a href="https://get.microsoft.com/installer/download/9p1bnmg6qkf8?referrer=appbadge" target="_self" >
 	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
@@ -16,100 +18,103 @@
 
 ---
 
-## 功能特性
+## Features
 
-| 类别 | 说明 |
+| Category | Description |
 | --- | --- |
-| 多标签 | 自定义标签栏，可同时编辑多个文件 |
-| 界面语言 | 简体中文 / English 双语界面，未选择过时首次启动跟随系统 UI 语言 |
-| 语法高亮 | 10 种语言：C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL / Markdown；按扩展名自动识别，也可在语言菜单手动切换；语法语言下显示代码折叠边距|
-| Markdown 预览 | F12 在当前标签内切换 编辑 ↔ 渲染视图，Shift+F12 并排分屏（左编辑右预览，双向同步滚动）；**Mermaid 13 个图族原生绘制**（流程图/时序图/状态图/类图/ER 图/饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph），未识别图族回退为源码显示并提示；**数学公式**（`$..$` 行内与 `$$..$$` 块级，分式/根号/上下标/希腊字母/求和积分等 LaTeX 子集，Cambria Math 字体排版）；**图片内嵌**；导出 **HTML**与 **PDF**（打印对话框分页渲染）；配色跟随亮/暗主题，字号跟随编辑器缩放 |
-| 多编码 | ANSI(系统代码页) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE，打开时自动探测 BOM，状态栏显示当前编码；另存 ANSI 时若内容含无法表示的字符会提示乱码风险 |
-| 行尾转换 | CRLF / LF / CR，可一键"转换为…"；新文档及探测不到行尾的文件默认 Unix (LF)，打开已有文件时按内容自动探测并保持 |
-| JSON 工具 | 编辑菜单：JSON 格式化/压缩；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
-| 查找 / 替换 / 转到 | 非模态查找对话框；支持区分大小写、全词匹配、正则表达式、向上/向下、循环查找；命中项全部高亮显示；`替换` 支持单个替换与全部替换；`转到行` |
-| 书签 | 切换当前行书签、在书签间跳转，书签行整行高亮 |
-| 最近文件 | 自动记录最近打开的文件，菜单可一键重新打开 |
-| 行号槽 | Scintilla 内建行号 margin，随编辑区滚动实时同步；当前行自动高亮 |
-| 缩放 | 放大 / 缩小 / 复位，状态栏显示缩放比例 |
-| 自动换行 | 视图菜单可切换软换行 |
-| 状态栏 | 实时显示 字符数 / 行 / 列 / 编码 / 行尾 / 缩放 |
-| 主题 | 亮色与暗色两套配色，标题栏、菜单（含下拉/右键弹窗）、对话框、标签栏、编辑区、滚动条、状态栏全部跟随 |
-| 设置记忆 | 主题 / 自动换行 / 行号 / 字号 / 界面语言随退出保存、启动恢复 |
-| 启动参数 | 可 `eton.exe 文件1 文件2 …` 直接打开多个文件 |
-| 文件拖放 | 从资源管理器拖文件到窗口即可打开，支持一次拖入多个；已打开的文件切换到对应标签，目录自动忽略 |
-| 会话恢复 | 按原顺序记住上次的全部标签及激活标签，下次启动自动恢复；已删除的文件自动跳过 |
-| 窗口位置 | 退出时记住窗口位置/大小与最大化状态，下次启动原样恢复；首次运行居中显示 |
-| 草稿与备份 | 未命名文档内容每 10 秒保存草稿，崩溃后可恢复；已保存文件的未保存修改也每 10 秒自动备份，异常退出后再次打开该文件时询问是否恢复；关闭标签或保存后备份自动清除 |
-| 外部修改检测 | 保存前检测文件是否被其他程序修改并提示覆盖风险；切回窗口时检测磁盘变化并询问是否重新加载 |
-| 大文件支持 | 流式加载/保存，可打开最高 1 GB 的文件，大文件加载/保存带进度框可取消；超过 1 GB 拒绝打开并提示；JSON 格式化等整篇内存操作对超过 100 MB 的文档禁用 |
+| Multi-tab | Custom-drawn tab bar; edit multiple files at once |
+| UI language | Simplified Chinese / English UI; follows the system UI language on first launch |
+| Syntax highlighting | 10 languages: C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL / Markdown; auto-detected by extension and switchable from the language menu; code-folding margin shown for lexer languages |
+| Markdown preview | F12 toggles edit ↔ rendered view in the current tab; Shift+F12 side-by-side split (editor left, preview right, two-way synced scrolling); **13 Mermaid diagram families rendered natively** (flowchart / sequence / state / class / ER / pie / quadrant / timeline / journey / gantt / xychart / mindmap / gitGraph), unrecognized families fall back to source view with a hint; **math formulas** (`$..$` inline and `$$..$$` block — a LaTeX subset: fractions, roots, sub/superscripts, Greek letters, sums/integrals, typeset in Cambria Math); **embedded images**; export to **HTML** and **PDF** (paginated via the print dialog); colors follow the light/dark theme, font size follows editor zoom |
+| Multi-encoding | ANSI (system code page) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE; BOM auto-detected on open; current encoding shown in the status bar; warns about potential mojibake when saving ANSI content that cannot be represented |
+| Line endings | CRLF / LF / CR with one-click "Convert to…"; new documents and undetectable files default to Unix (LF); existing files keep their detected ending |
+| JSON tools | Edit menu: JSON format / minify; applies to the selection when there is one; indentation and EOL follow document settings; on parse failure, reports line/column and jumps to the offending character |
+| Find / Replace / Go to | Non-modal find dialog; case sensitivity, whole word, regular expressions, up/down, wrap-around search; all matches highlighted; Replace supports single and replace-all; Go to line |
+| Bookmarks | Toggle a bookmark on the current line, jump between bookmarks, whole-line highlight |
+| Recent files | Recently opened files tracked automatically; reopen with one click from the menu |
+| Line-number gutter | Scintilla's built-in line-number margin, synced live while scrolling; current line highlighted |
+| Zoom | Zoom in / out / reset; ratio shown in the status bar |
+| Word wrap | Toggle soft wrap from the View menu |
+| Status bar | Live characters / line / column / encoding / EOL / zoom |
+| Themes | Light and dark color schemes; title bar, menus (dropdowns and context menus), dialogs, tab bar, editor, scrollbars and status bar all follow |
+| Persistent settings | Theme / word wrap / line numbers / font size / UI language saved on exit and restored on launch |
+| Command line | `eton.exe file1 file2 …` opens multiple files directly |
+| Drag & drop | Drop files from Explorer onto the window, several at once; already-open files switch to their tab; directories are ignored |
+| Session restore | Remembers all tabs and the active tab in original order; deleted files are skipped automatically |
+| Window position | Window position/size and maximized state are remembered on exit and restored on next launch; centered on first run |
+| Drafts & backups | Untitled documents are saved as drafts every 10 seconds and recoverable after a crash; unsaved changes of saved files are also backed up every 10 seconds — after an abnormal exit, reopening the file asks whether to restore; backups are cleared on tab close or save |
+| External change detection | Detects whether the file was modified by another program before saving and warns about overwrite risk; detects on-disk changes when the window regains focus and asks whether to reload |
+| Large files | Streamed load/save up to 1 GB with a cancellable progress dialog; files over 1 GB are rejected with a message; whole-document in-memory operations such as JSON formatting are disabled above 100 MB |
 
 ---
 
-## 项目结构
+## Project layout
 
 ```
 eton/
-├── build.bat          # 编译脚本：直接运行为交互模式；"build.bat auto" 为无交互模式（自动化/CI）
-├── app.rc             # 将 app.manifest 编为 RT_MANIFEST 资源（视觉样式用）
-├── app.manifest       # Common-Controls v6 清单（主题/暗色）+ Per-Monitor V2 DPI 感知
-├── eton.exe           # 编译产物（单文件可移植）
-├── eton.wxs           # MSI 安装包定义（WiX v7；CI 按发布标签构建）
-├── msix/              # MSIX 打包：pack-msix.ps1 + AppxManifest.template.xml
-├── deps/              # Scintilla + Lexilla + MD4C 依赖（内置，编译不再依赖外部目录）
-│   ├── scintilla/     #   libscintilla.lib + 头文件
-│   ├── lexilla/       #   liblexilla.lib + 头文件
-│   ├── md4c/          #   MD4C 0.5.3（Markdown 解析器，MIT）源码 md4c.c/md4c.h 等
-│   └── mermaid/       #   mermaid.min.js（导出 HTML 时内嵌；CDN 回退）
+├── build.bat          # Build script: run directly for interactive mode; "build.bat auto" for non-interactive (automation/CI)
+├── app.rc             # Compiles app.manifest into an RT_MANIFEST resource (for visual styles)
+├── app.manifest       # Common-Controls v6 manifest (theming/dark) + Per-Monitor V2 DPI awareness
+├── eton.exe           # Build output (single portable file)
+├── eton.wxs           # MSI installer definition (WiX v7; CI builds on release tags)
+├── msix/              # MSIX packaging: pack-msix.ps1 + AppxManifest.template.xml
+├── deps/              # Bundled Scintilla + Lexilla + MD4C (no external directories needed)
+│   ├── scintilla/     #   libscintilla.lib + headers
+│   ├── lexilla/       #   liblexilla.lib + headers
+│   ├── md4c/          #   MD4C 0.5.3 (Markdown parser, MIT) — md4c.c/md4c.h etc.
+│   └── mermaid/       #   mermaid.min.js (embedded when exporting HTML; CDN fallback)
 ├── res/
-│   ├── app.png        # 程序图标源图（1080×1080）
-│   ├── app.ico        # 程序图标（由 app.png 生成，16–256px 多尺寸）
-│   └── make_ico.py    # 从 app.png 生成 app.ico 的脚本（可选，需 Pillow）
+│   ├── app.png        # Icon source image (1080×1080)
+│   ├── app.ico        # Program icon (generated from app.png, 16–256px multi-size)
+│   └── make_ico.py    # Script to generate app.ico from app.png (optional, needs Pillow)
 └── src/
-    ├── common.h       # 全局结构、枚举、跨模块函数声明（含 resource.h、i18n.h）
-    ├── resource.h     # 菜单/命令/控件/对话框 的所有 ID 常量
-    ├── i18n.h         # 界面多语言：字符串 ID 枚举与接口
-    ├── i18n.c         # 中/英文字符串表、T() 取词、主菜单构建、对话框文字覆盖
-    ├── version.h      # 版本号定义（VERSIONINFO 资源用；CI 按发布标签生成）
-    ├── eton.rc        # 加速键、对话框、图标、版本信息资源（菜单由代码构建）
-    ├── main.c         # 程序入口、主窗口过程、命令分发、最近文件、拖放、界面语言切换
-    ├── editor.c       # 多标签/文档管理、Scintilla 控件、缩放、词法器
-    ├── tabbar.c       # 自绘标签栏（绘制与点击处理）
-    ├── session.c      # 会话/草稿持久化与恢复（含界面语言选择）
-    ├── fileio.c       # 编码探测、读写、行尾规范化、UTF-8 转换
-    ├── jsonfmt.c      # JSON 校验 + 格式化/压缩（单遍解析，RFC 8259）
-    ├── mdview.c       # Markdown 原生预览视图（MD4C 解析 → 块树 → 排版 → GDI 绘制；分屏/滚动同步）
-    ├── mermaid.c      # Mermaid 原生渲染（13 图族：解析 + 布局 + GDI 绘制）
-    ├── mdmath.c       # 数学公式排版（LaTeX 子集 → MathBox 盒树 → GDI 绘制）
-    ├── mdexport.c     # 导出 HTML（内嵌 mermaid.js/MathJax）/ PDF（打印分页）
-    └── dialogs.c      # 查找/替换/转到/关于/打开编码 对话框
+    ├── common.h       # Global structs, enums, cross-module declarations (includes resource.h, i18n.h)
+    ├── resource.h     # All ID constants for menus/commands/controls/dialogs
+    ├── i18n.h         # UI localization: string-ID enum and interface
+    ├── i18n.c         # Chinese/English string tables, T() lookup, main-menu building, dialog text overrides
+    ├── version.h      # Version defines (for the VERSIONINFO resource; CI generates from release tags)
+    ├── eton.rc        # Accelerators, dialogs, icons, version info (menus are built in code)
+    ├── main.c         # Entry point, main window proc, command dispatch, recent files, drag & drop, UI-language switching
+    ├── editor.c       # Multi-tab/document management, Scintilla controls, zoom, lexers
+    ├── tabbar.c       # Custom-drawn tab bar (painting and click handling)
+    ├── session.c      # Session/draft persistence and restore (incl. UI-language choice)
+    ├── fileio.c       # Encoding detection, read/write, EOL normalization, UTF-8 conversion
+    ├── jsonfmt.c      # JSON validation + format/minify (single-pass parse, RFC 8259)
+    ├── statusbar.c    # Status bar (characters / line / column / encoding / EOL / zoom)
+    ├── scrollbar.c    # Custom-drawn scrollbars
+    ├── mdview.c       # Native Markdown preview view (MD4C parse → block tree → layout → GDI drawing; split view & scroll sync)
+    ├── mdimg.c        # Remote image download & caching for the Markdown preview (WinHTTP)
+    ├── mermaid.c      # Native Mermaid rendering (13 diagram families: parse + layout + GDI drawing)
+    ├── mdmath.c       # Math typesetting (LaTeX subset → MathBox box tree → GDI drawing)
+    ├── mdexport.c     # Export HTML (embedded mermaid.js/MathJax) / PDF (print pagination)
+    └── dialogs.c      # Find / Replace / Go to / About / Open-encoding dialogs
 ```
 
-> 编译依赖已内置：`deps/scintilla/libscintilla.lib` + `deps/lexilla/liblexilla.lib`（预编译的静态库及头文件随项目分发，无需外部目录）。
+> Build dependencies are bundled: `deps/scintilla/libscintilla.lib` + `deps/lexilla/liblexilla.lib` (prebuilt static libraries and headers ship with the project — no external directories needed).
 
 ---
 
-## 编译
+## Building
 
-### 前置条件
-- **Visual Studio 生成工具（Build Tools for Visual Studio）** 或完整版 Visual Studio，包含 MSVC 与 Windows SDK。
-- 本机验证环境：Visual Studio 生成工具 2026（v19.x，`vcvarsall.bat x64`），Windows SDK。
+### Prerequisites
+- **Build Tools for Visual Studio** or full Visual Studio, with MSVC and the Windows SDK.
+- Verified environment: Visual Studio Build Tools 2026 (v19.x, `vcvarsall.bat x64`), Windows SDK.
 
-### 方式一：双击脚本（最简单）
-直接双击 `build.bat`（或在命令行运行）。脚本会：
-1. 自动定位 MSVC 环境：优先用环境变量 `VCVARS` 指定的 `vcvarsall.bat`，其次用 `vswhere` 查找（支持任意盘符 / 版本 / 发行版，含 Build Tools），最后回退扫描常见安装路径；
-2. 调用 `vcvarsall.bat x64` 初始化 MSVC 环境；
-3. 用 `rc.exe` 编译资源 `eton.rc` → `build\eton.res`；
-4. 用 `cl.exe` 编译全部 `.c`（含 `deps\md4c\md4c.c`）并链接为 `eton.exe`（含 Scintilla + Lexilla 静态库）。
+### Option 1: run the script (simplest)
+Double-click `build.bat` (or run it from a terminal). The script:
+1. Locates the MSVC environment: uses the `VCVARS` environment variable pointing to `vcvarsall.bat` first, then `vswhere` (any drive / version / edition, including Build Tools), and finally falls back to scanning common install paths;
+2. Initializes the MSVC environment via `vcvarsall.bat x64`;
+3. Compiles resources with `rc.exe`: `eton.rc` → `build\eton.res`;
+4. Compiles all `.c` files (including `deps\md4c\md4c.c`) with `cl.exe` and links `eton.exe` (with the Scintilla + Lexilla static libraries).
 
-自动化 / CI 场景用无交互模式：`build.bat auto`——不暂停，成功输出 `BUILD_OK` 且退出码为 0，失败输出 `RCFAIL` / `CLFAIL` / `VCVARSFAIL` 且退出码非 0。
+For automation / CI use non-interactive mode: `build.bat auto` — no pause; prints `BUILD_OK` and exits 0 on success, prints `RCFAIL` / `CLFAIL` / `VCVARSFAIL` and exits non-zero on failure.
 
-> 极少数情况下脚本找不到 MSVC 时，会提示设置环境变量 `VCVARS` 指向 `vcvarsall.bat` 后重试，例如：
+> In rare cases where the script cannot find MSVC, it asks you to set the `VCVARS` environment variable to your `vcvarsall.bat` and retry, e.g.:
 > `set VCVARS=C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvarsall.bat`
 
-### 方式二：开发者命令提示符
-1. 打开 "Developer Command Prompt for VS" 或手动执行 `vcvarsall.bat x64`；
-2. 进入项目目录，执行：
+### Option 2: developer command prompt
+1. Open the "Developer Command Prompt for VS" or run `vcvarsall.bat x64` manually;
+2. From the project directory, run:
 
 ```bat
 rc /nologo /fo build\eton.res src\eton.rc
@@ -117,92 +122,92 @@ rc /nologo /fo build\app.res app.rc
 cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
    /I"deps\scintilla" /I"deps\lexilla" /I"deps\md4c" ^
    /Fo"build/" /Fe:eton.exe ^
-   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c src\i18n.c src\mdview.c src\mermaid.c deps\md4c\md4c.c build\eton.res build\app.res ^
+   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c src\i18n.c src\statusbar.c src\scrollbar.c src\mdview.c src\mdimg.c src\mermaid.c src\mdmath.c src\mdexport.c deps\md4c\md4c.c deps\md4c\md4c-html.c deps\md4c\entity.c build\eton.res build\app.res ^
    /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /LIBPATH:"deps\scintilla" /LIBPATH:"deps\lexilla" ^
    libscintilla.lib liblexilla.lib ^
-   user32.lib gdi32.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib
+   user32.lib gdi32.lib gdiplus.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib advapi32.lib winhttp.lib
 ```
 
-### 关于编译告警
-本项目编译**无告警**。清单（含 Common-Controls v6 视觉样式）通过 `app.rc` + `app.manifest` 作为 `RT_MANIFEST` 资源编译进 exe（`/MANIFEST:NO` 关闭链接器自带的清单生成，因此**不依赖 `mt.exe`**），既干净又可移植。
+### About build warnings
+This project compiles with **zero warnings**. The manifest (including Common-Controls v6 visual styles) is compiled into the exe via `app.rc` + `app.manifest` as an `RT_MANIFEST` resource (`/MANIFEST:NO` disables the linker's own manifest generation, so **`mt.exe` is not needed**) — clean and portable.
 
-### 关键编译选项说明
-- `/utf-8`：源码按 UTF-8 读取，避免中文与 `C4819` 编码告警。
-- `/MT`：静态链接 C 运行库，生成的 exe 不依赖 `VCRUNTIME*.dll` / `MSVCP*.dll`，便于分发。
-- `/DUNICODE /D_UNICODE`：使用宽字符（Unicode）API。
-- `libscintilla.lib` + `liblexilla.lib`：Scintilla 编辑器内核 + Lexilla 词法器，静态链接进 exe。
-- `app.rc` + `app.manifest`（`RT_MANIFEST` 资源 ID 1）：让程序启用系统视觉样式（主题）与 Per-Monitor V2 DPI 感知（高缩放比下文字清晰、跨屏拖动自动重排），无需 `mt.exe`。
+### Key compiler options
+- `/utf-8`: read sources as UTF-8, avoiding Chinese-text issues and `C4819` warnings.
+- `/MT`: statically link the C runtime so the exe does not depend on `VCRUNTIME*.dll` / `MSVCP*.dll` — easy distribution.
+- `/DUNICODE /D_UNICODE`: use wide-character (Unicode) APIs.
+- `libscintilla.lib` + `liblexilla.lib`: Scintilla editing core + Lexilla lexers, statically linked into the exe.
+- `app.rc` + `app.manifest` (`RT_MANIFEST` resource ID 1): enables system visual styles (themes) and Per-Monitor V2 DPI awareness (crisp text at high scaling, automatic re-layout when dragged across screens) without `mt.exe`.
 
 ---
 
-## 打包（安装包）
+## Packaging (installers)
 
-程序本身免安装（单文件 `eton.exe` 可直接拷贝运行）。需要安装包时用以下两种形式，均在 `build.bat` 成功之后进行。
+The program itself needs no installation (single-file `eton.exe` can be copied and run directly). When you need an installer, use the following form after a successful `build.bat`.
 
-### MSI（WiX，本机 / CI）
+### MSI (WiX, local / CI)
 
 ```bat
 dotnet tool install --global wix
 wix build -arch x64 eton.wxs -d Version=0.0.1 -acceptEula wix7 -o eton-0.0.1-x64.msi
 ```
 
-- 需要 .NET SDK 与 WiX v7 CLI（上面的 `dotnet tool install` 一次性安装）。
-- 版本号为**三段式**（如 `0.0.1`），安装到 Program Files 并创建开始菜单快捷方式，per-machine 范围。
-- 发布 GitHub Release（tag `v0.0.1`）时 CI 自动构建 exe + MSI 并附加到 Release；配置了签名证书 secrets 时自动用 signtool 签名。本地分发的 MSI 建议自签：
-  `signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f 证书.pfx /p 密码 eton-0.0.1-x64.msi`
+- Requires the .NET SDK and the WiX v7 CLI (the `dotnet tool install` above is one-time).
+- The version is **three-segment** (e.g. `0.0.1`); installs into Program Files and creates a Start Menu shortcut, per-machine scope.
+- Publishing a GitHub Release (tag `v0.0.1`) triggers CI to build the exe + MSI automatically and attach them to the Release; with signing-certificate secrets configured, signtool signs automatically. For locally distributed MSIs, self-signing is recommended:
+  `signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f cert.pfx /p password eton-0.0.1-x64.msi`
 
 ---
 
-## 使用
+## Usage
 
-启动后：
-- **新建 / 打开 / 保存 / 关闭**：文件菜单或工具栏，对应 `Ctrl+N / O / S / W`。
-- **切换语言高亮**：语言菜单选择（打开 `.c/.py/.json` 等文件时会按扩展名自动猜测，也可手动改）。
-- **切换编码 / 行尾**：编码、行尾菜单；修改后状态栏会更新。新文档默认 LF (Unix) 行尾，已有文件按内容探测（CRLF 优先）。注意：把含非 ANSI 字符的文件"另存为 ANSI"时程序会提示潜在乱码风险。
-- **查找替换**：`Ctrl+F` / `Ctrl+H` 打开**非模态**对话框（查找时可继续编辑；Enter=查找下一个，Esc=关闭）；`F3` 查找下一个，`Shift+F3` 查找上一个；可勾选"正则表达式"（替换支持 `` 分组引用），命中的全部匹配会高亮显示。
-- **转到行**：`Ctrl+G`。
-- **JSON 格式化 / 压缩**：编辑菜单，或 `Ctrl+Shift+F` / `Ctrl+Shift+M`。无选区时处理整个文档，有选区时只处理选区；内容非法 JSON 时弹窗提示出错行列并跳转选中出错字符。
-- **缩放**：`Ctrl+=` 放大、`Ctrl+-` 缩小、`Ctrl+0` 复位。
-- **自动换行**：视图菜单切换。
-- **暗色主题**：在"视图 → 主题"切换（标题栏/标签栏/状态栏/语法高亮配色随之改变）。
-- **Markdown 预览**：打开 `.md` 文件后按 `F12`（或 视图 → Markdown 预览）切换到渲染视图，`Esc` 切回编辑；`Shift+F12` 并排分屏（左编辑右预览，滚动双向同步），再次按关闭分屏；预览中滚轮/键盘滚动，点击链接用系统默认程序打开；支持 `$..$` / `$$..$$` 数学公式、图片内嵌、13 个 Mermaid 图族；保存后预览自动刷新，缩放与主题跟随编辑器。
-- **导出 HTML / PDF**：文件菜单 → 导出。HTML 生成自包含单文件（内嵌 mermaid.min.js 与 MathJax CDN 回退，图表公式在浏览器中交互渲染）；PDF 走系统打印对话框分页渲染（选 Microsoft Print to PDF 存为 .pdf）。
-- **书签**：`Ctrl+F2` 切换当前行书签，`F2` / `Shift+F2` 上下跳转。
-- **代码折叠**：打开语法语言文件后，行号旁出现折叠边距，点击 +/− 折叠或展开。
-- **右键菜单**：编辑区右键=剪切/复制/粘贴/全选/打开所在文件夹；标签右键=关闭/关闭其他/关闭全部；标签中键关闭、双击空白新建。
-- **切换标签**：`Ctrl+Tab` / `Ctrl+Shift+Tab`（或 `Ctrl+PgDn` / `Ctrl+PgUp`）循环切换。
-- **自动备份**：已保存文件的未保存修改每 10 秒备份一次，程序异常退出后再次打开该文件会询问是否恢复；正常保存或关闭后备份自动删除。
-- **切换界面语言**：`帮助 → 界面语言` 选择 简体中文 / English，即时生效（无需重启）；下次启动记住上次选择，首次启动跟随系统语言。
-- **命令行打开**：`eton.exe path\to\file.txt`，支持多个文件。
-- **拖放打开**：把文件从资源管理器拖到窗口上，一次可拖多个；已打开的文件会切换到对应标签页，拖入目录会被忽略。
-- **会话恢复**：退出后再启动，自动打开上次编辑的文件标签并回到最后激活的标签；带文件参数启动时只打开参数指定的文件。会话保存在 `%APPDATA%\eton\session.ini`，每次标签变化即落盘，异常退出也不丢。
-- **草稿**：在"未命名"标签里输入的内容会自动保存草稿（`%APPDATA%\eton\drafts\`，每 10 秒定时落盘），程序崩溃或直接退出后，下次启动会以"未命名 N"标签恢复。草稿不弹"未保存"提示：关闭标签即丢弃该草稿；"另存为"后草稿自动转为正式文件；清空内容后草稿自动移除。
-
----
-
-## 实现要点（给想改代码的同学）
-
-- **编辑器内核**：使用 Scintilla 5.6.6 + Lexilla 5.4.9（Notepad++ 同款内核），静态链接（重编静态库见 `deps\make-deps.cmd`）。Scintilla 用样式 ID（0-255）给字符着色，不碰选区、不滚动、不触发重绘风暴，大文件性能优秀。
-- **标签栏**：自绘窗口类（`NPPTabBar`），通过 `WM_PAINT` 绘制标签 + 关闭按钮。
-- **行号**：Scintilla 内建 `SC_MARGIN_NUMBER`，不需要自绘 Gutter。
-- **语法着色**：`editor.c` 的 `ApplyLexer` 用 `CreateLexer("cpp"/"python"/...)` 创建词法器，`SCI_SETILEXER` 设给 Scintilla，再按主题设各样式 ID 的颜色。
-- **编码与行尾**：`fileio.c` 负责 BOM 探测、各编码与 UTF-8 的转换（Scintilla 内部用 UTF-8）、以及 CRLF/LF/CR 规范化与转换。
-- **大文件流式 IO**：`fileio.c` 的 `StreamLoadToDoc` 分块读取并按"换行/字符边界"安全切分（不拆 UTF-8 多字节字符、UTF-16 代理对、DBCS 双字节），逐块转码 `SCI_APPENDTEXT` 进 Scintilla；`StreamSaveFromDoc` 用 `SCI_GETTEXTRANGEFULL` 分块取出转换后写同目录临时文件，`MoveFileEx` 原子替换（取消/失败不破坏原文件）。注意 `char*` 字节比较须转 `unsigned char`（有符号 `char` 下 `>= 0xC0` 永远为假）。
-- **JSON 工具**：`jsonfmt.c` 用单遍递归下降解析器边校验（RFC 8259 严格语法）边输出——格式化按嵌套深度缩进、压缩则剔除全部空白；字符串/数字按原文透传（保留 `\uXXXX` 等转义写法）。替换通过 Scintilla 的 target + `SCI_REPLACETARGET` 完成，单步可撤销。
-- **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
-- **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。
-- **Markdown 预览**：`mdview.c` 用 MD4C（`MD_DIALECT_GITHUB` | `MD_FLAG_LATEXMATHSPANS`）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表/图片/公式），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式；行内公式作为原子 token 参与换行。紧凑列表（无空行条目）不发出段落块，`AddRun` 惰性挂段并入树。分屏模式编辑区占左半、预览占右半，滚动按可视比例双向同步（同步互斥锁防回环）。`mermaid.c` 为 ```mermaid``` 代码块提供 13 个图族的原生解析、布局与 GDI 绘制：流程图（最长路径分层 + 层内重心排序）、时序图（生命线 + 垂直堆叠）、状态图/类图/ER 图（复用流程图内核，三格成员框）、饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph（`mermaid_ext*.inc` 扩展），未识别图族回退为代码块。`mdmath.c` 把 LaTeX 子集解析成 MathBox 盒树（横排/分式/上下标/根式/大运算符，Cambria Math 三级字号 + 希腊字母/运算符符号表）自绘。图片经 GDI+ flat API 动态加载（LRU 缓存 16 张）。
+After launching:
+- **New / Open / Save / Close**: File menu or toolbar — `Ctrl+N / O / S / W`.
+- **Switch syntax language**: choose from the language menu (auto-guessed by extension when opening `.c/.py/.json` etc.; can be changed manually).
+- **Switch encoding / EOL**: Encoding and EOL menus; the status bar updates after changes. New documents default to LF (Unix) line endings; existing files are detected from content (CRLF preferred). Note: "Save as ANSI" on a file containing non-ANSI characters warns about potential mojibake.
+- **Find / Replace**: `Ctrl+F` / `Ctrl+H` open the **non-modal** dialog (you can keep editing while finding; Enter = find next, Esc = close); `F3` find next, `Shift+F3` find previous; "Regular expression" supported (replacement supports group references), and all matches are highlighted.
+- **Go to line**: `Ctrl+G`.
+- **JSON format / minify**: Edit menu, or `Ctrl+Shift+F` / `Ctrl+Shift+M`. Processes the whole document without a selection, the selection only with one; invalid JSON reports the line/column and jumps to the offending character.
+- **Zoom**: `Ctrl+=` in, `Ctrl+-` out, `Ctrl+0` reset.
+- **Word wrap**: toggle in the View menu.
+- **Dark theme**: switch under "View → Theme" (title bar / tab bar / status bar / syntax colors follow).
+- **Markdown preview**: open a `.md` file and press `F12` (or View → Markdown Preview) to switch to the rendered view, `Esc` to go back to editing; `Shift+F12` side-by-side split (editor left, preview right, two-way scroll sync), press again to close; scroll with the wheel/keyboard in the preview, click links to open with the system default program; supports `$..$` / `$$..$$` math, embedded images and 13 Mermaid diagram families; the preview refreshes automatically on save, zoom and theme follow the editor.
+- **Export HTML / PDF**: File menu → Export. HTML produces a self-contained single file (embedded mermaid.min.js with MathJax CDN fallback; diagrams and formulas render interactively in the browser); PDF goes through the system print dialog for paginated rendering (choose Microsoft Print to PDF).
+- **Bookmarks**: `Ctrl+F2` toggles the bookmark on the current line, `F2` / `Shift+F2` jump down/up.
+- **Code folding**: for lexer-language files, a folding margin appears next to the line numbers; click +/− to fold or unfold.
+- **Context menus**: editor right-click = cut/copy/paste/select all/open containing folder; tab right-click = close/close others/close all; middle-click closes a tab, double-click on empty space creates a new one.
+- **Switch tabs**: `Ctrl+Tab` / `Ctrl+Shift+Tab` (or `Ctrl+PgDn` / `Ctrl+PgUp`) cycle through.
+- **Auto backup**: unsaved changes of saved files are backed up every 10 seconds; after an abnormal exit, reopening the file asks whether to restore; backups are removed automatically after normal save or close.
+- **Switch UI language**: Help → UI language: Simplified Chinese / English, effective immediately (no restart); remembered on next launch, first launch follows the system language.
+- **Open from command line**: `eton.exe path\to\file.txt`, multiple files supported.
+- **Drag & drop open**: drag files from Explorer onto the window, several at once; already-open files switch to their tab, dropped directories are ignored.
+- **Session restore**: after restarting, previously edited tabs open automatically and the last active tab is restored; when launched with file arguments, only those files open. The session is stored in `%APPDATA%\eton\session.ini` and written on every tab change — safe even on abnormal exit.
+- **Drafts**: content typed in "Untitled" tabs is auto-saved as drafts (`%APPDATA%\eton\drafts\`, every 10 seconds); after a crash or force exit, the next launch restores them as "Untitled N" tabs. Drafts never show an "unsaved" prompt: closing the tab discards the draft; "Save as" converts the draft into a real file; clearing the content removes the draft.
 
 ---
 
-## 已知限制 / 后续可扩展
+## Implementation notes (for contributors)
 
-- Markdown 预览：Mermaid 已覆盖 13 个常用图族（flowchart/sequence/state/class/er/pie/quadrant/timeline/journey/gantt/xychart/mindmap/gitGraph），其余小众图族（C4 图、桑基图、需求图等）暂回退源码；数学公式为 LaTeX 常用子集（矩阵、cases 等复杂环境未实现）；导出 HTML 依赖内嵌 mermaid.js 3.5MB（首次构建后存在 deps\mermaid\）；PDF 导出为打印管线（矢量文本 + 图表位图化分页）。
-- 查找/替换为单文件（无跨文件/文件夹搜索）；正则语法为 Scintilla 内建（类 POSIX）。
-- 未实现：列块选择、宏、插件体系、打印。Scintilla 原生支持折叠（已启用）、打印（SCI_FORMATRANGE，可按需接入）。
+- **Editing core**: Scintilla 5.6.6 + Lexilla 5.4.9 (the same core as Notepad++), statically linked (see `deps\make-deps.cmd` to rebuild the libs). Scintilla colors text via style IDs (0–255) without touching selections, scrolling, or causing repaint storms — excellent large-file performance.
+- **Tab bar**: a custom window class (`NPPTabBar`) that paints tabs + close buttons in `WM_PAINT`.
+- **Line numbers**: Scintilla's built-in `SC_MARGIN_NUMBER` — no custom gutter drawing needed.
+- **Syntax coloring**: `ApplyLexer` in `editor.c` creates a lexer via `CreateLexer("cpp"/"python"/...)`, sets it with `SCI_SETILEXER`, then applies theme colors per style ID.
+- **Encoding & EOL**: `fileio.c` handles BOM detection, conversion between each encoding and UTF-8 (Scintilla uses UTF-8 internally), and CRLF/LF/CR normalization and conversion.
+- **Large-file streamed IO**: `StreamLoadToDoc` in `fileio.c` reads in chunks safely split on line/character boundaries (never breaking UTF-8 multibyte sequences, UTF-16 surrogate pairs or DBCS double bytes), converting each chunk into Scintilla via `SCI_APPENDTEXT`; `StreamSaveFromDoc` extracts chunks via `SCI_GETTEXTRANGEFULL`, writes a temp file in the same directory and atomically replaces the original with `MoveFileEx` (cancel/failure never corrupts the original). Note: `char*` byte comparisons must cast to `unsigned char` (with signed `char`, `>= 0xC0` is always false).
+- **JSON tools**: `jsonfmt.c` uses a single-pass recursive-descent parser that validates (strict RFC 8259) while emitting — formatting indents by nesting depth, minifying strips all whitespace; strings/numbers are passed through verbatim (preserving `\uXXXX` escapes). Replacement goes through Scintilla's target + `SCI_REPLACETARGET`, undoable in one step.
+- **Themes**: `Editor_ApplyThemeColors` in `editor.c` sets editor and highlight colors centrally, light and dark.
+- **UI localization**: all user-visible strings live in the string table in `i18n.c`, looked up via `T(STR_xxx)`; the main menu is built at runtime by `I18n_BuildMainMenu` (no .rc menu resource); dialogs keep their .rc templates and have text overridden in `WM_INITDIALOG` via `I18n_ApplyDialog`; switching the language rebuilds the menu and refreshes the status bar / untitled titles, and the choice is written to `session.ini [settings] uilang`. Adding a language = one new translation column in `kStr` + one entry in the UI-language submenu of `I18n_BuildMainMenu`.
+- **Markdown preview**: `mdview.c` uses MD4C (`MD_DIALECT_GITHUB` | `MD_FLAG_LATEXMATHSPANS`) callbacks to parse the document into a block tree (paragraphs/headings/lists [incl. tasks]/code blocks/quotes/tables/rules), lays it out into drawing primitives (text lines / background rects / borders / diagrams / images / formulas) for the client width, and paints double-buffered in `WM_PAINT`; line wrapping breaks on spaces plus per-character for CJK, with baseline-aligned mixed styles; inline formulas participate in wrapping as atomic tokens. Tight lists (no blank lines between items) emit no paragraph blocks, and `AddRun` attaches paragraphs lazily. In split mode the editor takes the left half and the preview the right, with scrolling synced both ways by visible ratio (a mutex prevents sync loops). `mermaid.c` provides native parsing, layout and GDI drawing for 13 diagram families in ```mermaid``` code blocks: flowchart (longest-path layering + in-layer barycenter ordering), sequence (lifelines + vertical stacking), state/class/ER (flowchart kernel reused with three-compartment member boxes), pie/quadrant/timeline/journey/gantt/xychart/mindmap/gitGraph (`mermaid_ext*.inc` extensions); unrecognized families fall back to a code block. `mdmath.c` parses a LaTeX subset into a MathBox tree (horizontal runs/fractions/scripts/radicals/big operators, Cambria Math at three sizes + Greek/operator symbol tables) and draws it itself. Images load dynamically via the GDI+ flat API (LRU cache of 16).
 
 ---
 
-## 许可证
+## Known limitations / possible extensions
 
-本项目为示例代码，可自由学习、修改、再分发。Scintilla 与 Lexilla 遵循其各自的 License.txt（HPND 许可证）；MD4C（`deps/md4c/`）遵循 MIT 许可（见 `deps/md4c/LICENSE.md`）；内嵌的 mermaid.min.js（`deps/mermaid/`）遵循 MIT 许可（Mermaid © 2014-2024 Knut Sveidqvist，用于导出 HTML 时在浏览器端渲染图族）。
+- Markdown preview: 13 common Mermaid families are covered (flowchart/sequence/state/class/er/pie/quadrant/timeline/journey/gantt/xychart/mindmap/gitGraph); niche families (C4, sankey, requirement diagrams etc.) fall back to source for now; math is a common LaTeX subset (matrix, cases and other complex environments not implemented); HTML export embeds mermaid.js at 3.5 MB (generated into deps\mermaid\ after the first build); PDF export uses the print pipeline (vector text + rasterized diagrams, paginated).
+- Find/Replace works on a single file (no cross-file/folder search); the regex syntax is Scintilla's built-in (POSIX-like).
+- Not implemented: column/box selection, macros, plugin system, printing. Scintilla natively supports folding (already enabled) and printing (`SCI_FORMATRANGE`, can be wired up as needed).
+
+---
+
+## License
+
+This project is sample code — feel free to learn from, modify and redistribute it. Scintilla and Lexilla follow their respective License.txt (HPND license); MD4C (`deps/md4c/`) is MIT licensed (see `deps/md4c/LICENSE.md`); the bundled mermaid.min.js (`deps/mermaid/`) is MIT licensed (Mermaid © 2014-2024 Knut Sveidqvist, used to render diagrams in the browser for HTML export).
