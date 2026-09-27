@@ -914,16 +914,17 @@ BOOL DiskWriteTimePublic(const wchar_t* path, FILETIME* ft) {
     return DiskWriteTime(path, ft);
 }
 
-void Editor_SyncScrollFromPreview(double frac) {
-    if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
+double Editor_SyncScrollFromPreview(double frac) {
+    if (g_curDoc < 0 || g_curDoc >= g_docCount) return -1.0;
     HWND hed = g_docs[g_curDoc].hwndEdit;
-    if (!hed || !IsWindowVisible(hed)) return;
+    if (!hed || !IsWindowVisible(hed)) return -1.0;
     int total = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
     int page = (int)SendMessage(hed, SCI_LINESONSCREEN, 0, 0);
     int span = total - page;
-    if (span <= 0) return;
+    if (span <= 0) return -1.0;
     int line = (int)(frac * span + 0.5);
     if (line < 0) line = 0;
     if (line > span) line = span;
     SendMessage(hed, SCI_SETFIRSTVISIBLELINE, line, 0);
+    return (double)line / span;
 }

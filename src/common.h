@@ -200,7 +200,7 @@ void MdImg_Init(HWND notifyWnd);
 BOOL MdImg_CachePath(const wchar_t* url, wchar_t* out, int cch);
 void MdImg_Ensure(const wchar_t* url);
 
-void Editor_SyncScrollFromPreview(double frac);
+double Editor_SyncScrollFromPreview(double frac);
 
 void MdExport_Html(void);
 void MdExport_Pdf(void);

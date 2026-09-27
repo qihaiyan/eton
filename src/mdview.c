@@ -2176,6 +2176,23 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 V.scrollY = maxScroll * t / (V.clientH - thumbH);
                 ClampScroll();
                 InvalidateRect(hwnd, NULL, FALSE);
+                if (g_mdSplit && !g_mdSyncLock) {
+                    g_mdSyncLock = TRUE;
+                    double achieved = Editor_SyncScrollFromPreview(MdView_GetScrollFraction());
+                    g_mdSyncLock = FALSE;
+                    if (achieved >= 0.0) {
+                        int ms = V.docH - V.clientH;
+                        if (ms > 0) {
+                            int y2 = (int)(achieved * ms + 0.5);
+                            if (y2 < 0) y2 = 0;
+                            if (y2 > ms) y2 = ms;
+                            if (y2 != V.scrollY) {
+                                V.scrollY = y2;
+                                InvalidateRect(hwnd, NULL, FALSE);
+                            }
+                        }
+                    }
+                }
                 return 0;
             }
             const wchar_t* href = HitLink(px, py);
