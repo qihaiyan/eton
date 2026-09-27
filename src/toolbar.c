@@ -20,8 +20,8 @@ static const TbBtn kBtns[] = {
     { IDM_ZOOMOUT, STR_ITEM_ZOOMOUT,   10 },
     { 0,           0,                  -1 },
     { IDM_WRAP,    STR_ITEM_WRAP,      11 },
-    { IDM_THEME,   STR_ITEM_THEME,     12 },
-    { IDM_VIEW_MD, STR_ITEM_MDPREVIEW, 13 },
+    { IDM_VIEW_MD, STR_ITEM_MDPREVIEW, 12 },
+    { IDM_VIEW_MDSPLT, STR_ITEM_MDSPLIT, 13 },
 };
 #define BTN_N ((int)(sizeof(kBtns) / sizeof(kBtns[0])))
 
@@ -73,8 +73,8 @@ static BOOL BtnEnabled(int i) {
 static BOOL BtnChecked(int i) {
     switch (kBtns[i].cmd) {
     case IDM_WRAP:    return g_wordWrap;
-    case IDM_THEME:   return g_dark;
     case IDM_VIEW_MD: return MdView_IsVisible();
+    case IDM_VIEW_MDSPLT: return g_mdSplit;
     }
     return FALSE;
 }
@@ -107,7 +107,7 @@ static void TbDrawIcon(HDC hdc, const RECT* r, int icon, BOOL en) {
         { CLR_GRAY,         RGB(112,185,105)},
         { CLR_GRAY,         RGB(228,110,118)},
         { RGB(177,144,250), RGB(177,144,250)},
-        { RGB(230,178,72),  RGB(96,164,222) },
+        { RGB(75,200,170),  RGB(75,200,170)},
         { RGB(75,200,170),  CLR_GRAY       },
     };
     double sz = UI_Scale(16);
@@ -218,15 +218,25 @@ static void TbDrawIcon(HDC hdc, const RECT* r, int icon, BOOL en) {
         }
         break;
     case 12:
-        SelectObject(hdc, ba);
-        Pie(hdc, X(3), Y(3), X(13), Y(13), X(8), Y(3), X(8), Y(13));
-        Ellipse(hdc, X(3), Y(3), X(13), Y(13));
+        Arc(hdc, X(1.8), Y(3.2), X(14.2), Y(12.8), X(1.8), Y(8), X(14.2), Y(8));
+        Arc(hdc, X(1.8), Y(3.2), X(14.2), Y(12.8), X(14.2), Y(8), X(1.8), Y(8));
+        Ellipse(hdc, X(5.7), Y(5.7), X(10.3), Y(10.3));
+        Ellipse(hdc, X(6.9), Y(6.9), X(9.1), Y(9.1));
         break;
-    case 13:
-        Rectangle(hdc, X(1.5), Y(2.5), X(14.5), Y(11));
-        MoveToEx(hdc, X(8), Y(11), NULL); LineTo(hdc, X(8), Y(13.5));
-        MoveToEx(hdc, X(5), Y(13.5), NULL); LineTo(hdc, X(11), Y(13.5));
+    case 13: {
+        SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        Rectangle(hdc, X(1.5), Y(2.5), X(14.5), Y(13.5));
+        MoveToEx(hdc, X(8), Y(2.5), NULL); LineTo(hdc, X(8), Y(13.5));
+        SelectObject(hdc, pa);
+        MoveToEx(hdc, X(3.2), Y(5.6), NULL); LineTo(hdc, X(6.4), Y(5.6));
+        MoveToEx(hdc, X(3.2), Y(8.0), NULL); LineTo(hdc, X(6.4), Y(8.0));
+        MoveToEx(hdc, X(3.2), Y(10.4), NULL); LineTo(hdc, X(6.4), Y(10.4));
+        SelectObject(hdc, pm);
+        Ellipse(hdc, X(9.3), Y(6.5), X(12.7), Y(9.9));
+        SelectObject(hdc, bm);
+        Ellipse(hdc, X(10.3), Y(7.5), X(11.7), Y(8.9));
         break;
+    }
     }
     SelectObject(hdc, op);
     SelectObject(hdc, ob);
