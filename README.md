@@ -10,9 +10,13 @@ The whole program is only 2 MB.
 - Statically linked CRT (`/MT`) + Scintilla + Lexilla — the binary only depends on system DLLs and can be copied to any Windows machine and run
 - Embeds a Common Controls v6 manifest and automatically picks up the system theme (including a dark title bar/controls)
 
+<p>
 <a href="https://get.microsoft.com/installer/download/9p1bnmg6qkf8?referrer=appbadge" target="_self" >
 	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
 </a>
+&nbsp;&nbsp;
+<img src="res/official-qrcode.jpg" width="120" alt="WeChat Official Account QR code"/>
+</p>
 
 ![eton](res/eton.png)
 

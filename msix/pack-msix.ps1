@@ -1,7 +1,7 @@
 ﻿param(
     [string]$Name = "A99C7AF7.ETON",
     [string]$Publisher = "CN=15387737-D26A-48FB-9636-57EAD340851A",
-    [string]$Version = "1.0.3.0",
+    [string]$Version = "1.0.4.0",
     [switch]$Sign
 )
 
