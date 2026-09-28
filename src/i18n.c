@@ -383,7 +383,9 @@ static void AddIt(HMENU m, StrId s, UINT cmd) {
     I18n_OwnerAppend(m, MF_STRING, cmd, T(s));
 }
 static void AddSep(HMENU m) {
-    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    /* 分隔线用 owner-draw（itemData=NULL 标记），由 I18n_OnDrawItem
+       按当前主题画暗色线；系统 MF_SEPARATOR 在暗色下是白色主题线 */
+    AppendMenuW(m, MF_OWNERDRAW, 0, NULL);
 }
 static void AddBar(HMENU bar, UINT_PTR sub, StrId s) {
     I18n_OwnerAppend(bar, MF_POPUP, sub,
@@ -440,6 +442,11 @@ static void SplitAccel(const wchar_t* text, wchar_t* label, int lcch, wchar_t* a
 
 BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     if (mis->CtlType != ODT_MENU) return FALSE;
+    if (!mis->itemData) {            /* owner-draw 分隔线 */
+        mis->itemHeight = UI_Scale(7) + 4;
+        mis->itemWidth = 1;
+        return TRUE;
+    }
     uintptr_t raw = (uintptr_t)mis->itemData;
     int isBar = (int)(raw & 1);
     const wchar_t* text = (const wchar_t*)(raw & ~(uintptr_t)1);
@@ -471,6 +478,20 @@ BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
 BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
     (void)hwnd;
     if (dis->CtlType != ODT_MENU) return FALSE;
+    if (!dis->itemData) {            /* owner-draw 分隔线：随主题配色 */
+        HDC hdc = dis->hDC;
+        HBRUSH b = CreateSolidBrush(g_dark ? RGB(43, 43, 43) : RGB(242, 242, 242));
+        FillRect(hdc, &dis->rcItem, b);
+        DeleteObject(b);
+        HPEN p = CreatePen(PS_SOLID, 1, g_dark ? RGB(70, 70, 70) : RGB(205, 205, 205));
+        HGDIOBJ old = SelectObject(hdc, p);
+        int y = (dis->rcItem.top + dis->rcItem.bottom) / 2;
+        MoveToEx(hdc, dis->rcItem.left + UI_Scale(8), y, NULL);
+        LineTo(hdc, dis->rcItem.right - UI_Scale(8), y);
+        SelectObject(hdc, old);
+        DeleteObject(p);
+        return TRUE;
+    }
     uintptr_t raw = (uintptr_t)dis->itemData;
     int isBar = (int)(raw & 1);
     const wchar_t* text = (const wchar_t*)(raw & ~(uintptr_t)1);

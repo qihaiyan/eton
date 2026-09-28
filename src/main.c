@@ -64,6 +64,8 @@ void ApplyTitleBarTheme(HWND hwnd) {
     BOOL v = g_dark ? TRUE : FALSE;
     p(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &v, sizeof(v));
     InvalidateRect(hwnd, NULL, TRUE);
+    /* 菜单栏在非客户区，普通 InvalidateRect 刷不到；带 RDW_FRAME 重绘框架 */
+    RedrawWindow(hwnd, NULL, NULL, RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW);
 }
 
 void AddRecent(const wchar_t* path) {
@@ -423,9 +425,9 @@ static void ShowEditContextMenu(HWND hwnd, POINT pt) {
     I18n_OwnerAppend(m, hasSel ? on : off, IDM_COPY, T(STR_ITEM_COPY));
     I18n_OwnerAppend(m, canPaste ? on : off, IDM_PASTE, T(STR_ITEM_PASTE));
     I18n_OwnerAppend(m, hasSel ? on : off, IDM_DELETE, T(STR_ITEM_DELETE));
-    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    I18n_OwnerAppend(m, MF_OWNERDRAW, 0, NULL);   /* 主题色分隔线 */
     I18n_OwnerAppend(m, on, IDM_SELECTALL, T(STR_ITEM_SELECTALL));
-    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    I18n_OwnerAppend(m, MF_OWNERDRAW, 0, NULL);
     if (g_curDoc >= 0 && !g_docs[g_curDoc].isNew && g_docs[g_curDoc].path[0])
         I18n_OwnerAppend(m, on, IDM_EXPLORER, T(STR_ITEM_EXPLORER));
     I18n_ApplyMenuTheme(m);
@@ -494,6 +496,32 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ResizeStatus();
             Editor_Layout();
             return 0;
+        case WM_NCPAINT: {
+            /* 暗色主题：菜单栏底边那条 1px 浅色分隔线由视觉样式绘制在
+               非客户区，SetMenuInfo 的画刷盖不到；这里画完后用菜单同色覆盖 */
+            LRESULT r = DefWindowProcW(hwnd, msg, wp, lp);
+            if (g_dark) {
+                MENUBARINFO mbi;
+                memset(&mbi, 0, sizeof(mbi));
+                mbi.cbSize = sizeof(mbi);
+                if (GetMenuBarInfo(hwnd, OBJID_MENU, 0, &mbi) && mbi.rcBar.bottom > 0) {
+                    RECT wr;
+                    GetWindowRect(hwnd, &wr);
+                    int y = mbi.rcBar.bottom - wr.top;
+                    HDC hdc = GetWindowDC(hwnd);
+                    HPEN pen = CreatePen(PS_SOLID, 1, RGB(43, 43, 43));
+                    HGDIOBJ old = SelectObject(hdc, pen);
+                    MoveToEx(hdc, 0, y - 1, NULL);
+                    LineTo(hdc, wr.right - wr.left, y - 1);
+                    MoveToEx(hdc, 0, y, NULL);
+                    LineTo(hdc, wr.right - wr.left, y);
+                    SelectObject(hdc, old);
+                    DeleteObject(pen);
+                    ReleaseDC(hwnd, hdc);
+                }
+            }
+            return r;
+        }
         case WM_ERASEBKGND: {
             RECT rc; GetClientRect(hwnd, &rc);
             HBRUSH hb = CreateSolidBrush(g_clrBg);
