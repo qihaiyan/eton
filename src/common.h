@@ -137,6 +137,26 @@ LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re,
 
 void Json_FormatActiveDoc(BOOL minify);
 
+/* ---- 开发者工具（devtools.c UI 层 / devtutil.c 纯算法层，后者不包含本头文件） ---- */
+
+enum {
+    DT_B64_ENC = 0, DT_B64_DEC, DT_URL_ENC, DT_URL_DEC, DT_UNI_ESC, DT_UNI_UNESC
+};
+
+void DevTools_TransformActiveDoc(int op);
+void DevTools_InsertUuid(void);
+void DevTools_ShowHashDlg(HWND parent);
+void DevTools_ShowTsDlg(HWND parent);
+
+char* DevUtil_B64Encode(const char* in, size_t n, size_t* outN);
+BOOL  DevUtil_B64Decode(const char* in, size_t n, char** out, size_t* outN, size_t* errPos);
+char* DevUtil_UrlEncode(const char* in, size_t n, size_t* outN);
+BOOL  DevUtil_UrlDecode(const char* in, size_t n, char** out, size_t* outN, size_t* errPos);
+char* DevUtil_Escape(const char* in, size_t n, size_t* outN);
+BOOL  DevUtil_Unescape(const char* in, size_t n, char** out, size_t* outN, size_t* errPos);
+BOOL  DevUtil_Hash(const wchar_t* alg, const BYTE* data, DWORD len, BYTE* out, DWORD outLen);
+BOOL  DevUtil_UuidV4(char out[37]);
+
 typedef struct MdFonts {
     HFONT body, bold, emph, boldemph;
     HFONT h[6];

@@ -169,6 +169,34 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"导出 HTML(&E)...",
         L"导出 PDF（打印）(&R)...",
         L"导出 Word 文档(&W)...",
+
+        L"工具(&T)",
+        L"Base64 编码(&B)\tCtrl+Alt+B",
+        L"Base64 解码(&D)\tCtrl+Alt+Shift+B",
+        L"URL 编码(&U)",
+        L"URL 解码(&L)",
+        L"Unicode 转义(&E)",
+        L"Unicode 反转义(&C)",
+        L"计算哈希(&H)...",
+        L"插入 UUID(&I)",
+        L"时间戳转换(&T)...",
+        L"哈希",
+        L"来源: 选区（%d 字节，UTF-8）",
+        L"来源: 整个文档（%d 字节，UTF-8）",
+        L"大写(&U)",
+        L"复制",
+        L"时间戳转换",
+        L"时间戳或日期时间(&T):",
+        L"转换(&C)",
+        L"现在(&N)",
+        L"Unix 秒: %lld",
+        L"Unix 毫秒: %lld",
+        L"本地时间: %04d-%02d-%02d %02d:%02d:%02d",
+        L"UTC 时间: %04d-%02d-%02d %02d:%02d:%02d",
+        L"转换失败：第 %d 个字节附近存在非法字符。",
+        L"当前内容为空，没有可处理的内容。",
+        L"文档过大（超过 %d MB），开发者工具仅支持较小的文档。",
+        L"无法识别的输入（支持 Unix 时间戳或 YYYY-MM-DD HH:MM:SS）。",
     },
 
     {
@@ -334,6 +362,34 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Export &HTML...",
         L"Export PDF (P&rint)...",
         L"Export &Word (.docx)...",
+
+        L"&Tools",
+        L"&Base64 Encode\tCtrl+Alt+B",
+        L"Base64 &Decode\tCtrl+Alt+Shift+B",
+        L"&URL Encode",
+        L"URL De&code",
+        L"Unicode &Escape",
+        L"Unicode Un&escape",
+        L"Calculate &Hash...",
+        L"&Insert UUID",
+        L"&Timestamp Convert...",
+        L"Hash",
+        L"Source: selection (%d bytes, UTF-8)",
+        L"Source: whole document (%d bytes, UTF-8)",
+        L"&Uppercase",
+        L"Copy",
+        L"Timestamp",
+        L"&Timestamp or date-time:",
+        L"&Convert",
+        L"&Now",
+        L"Unix seconds: %lld",
+        L"Unix milliseconds: %lld",
+        L"Local: %04d-%02d-%02d %02d:%02d:%02d",
+        L"UTC: %04d-%02d-%02d %02d:%02d:%02d",
+        L"Failed: invalid character near byte %d.",
+        L"The document is empty — nothing to process.",
+        L"The document is too large (over %d MB) for the developer tools.",
+        L"Unrecognized input (expected a Unix timestamp or YYYY-MM-DD HH:MM:SS).",
     },
 };
 
@@ -629,6 +685,19 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mEdit, STR_ITEM_JSONMIN, IDM_JSON_MIN);
     AddBar(bar, (UINT_PTR)mEdit, STR_MENU_EDIT);
 
+    HMENU mTools = CreatePopupMenu();
+    AddIt(mTools, STR_DT_B64ENC, IDM_DT_B64_ENC);
+    AddIt(mTools, STR_DT_B64DEC, IDM_DT_B64_DEC);
+    AddIt(mTools, STR_DT_URLENC, IDM_DT_URL_ENC);
+    AddIt(mTools, STR_DT_URLDEC, IDM_DT_URL_DEC);
+    AddIt(mTools, STR_DT_UNIESC, IDM_DT_UNI_ESC);
+    AddIt(mTools, STR_DT_UNIUNESC, IDM_DT_UNI_UNESC);
+    AddSep(mTools);
+    AddIt(mTools, STR_DT_HASH, IDM_DT_HASH);
+    AddIt(mTools, STR_DT_UUID, IDM_DT_UUID);
+    AddIt(mTools, STR_DT_TS, IDM_DT_TS);
+    AddBar(bar, (UINT_PTR)mTools, STR_MENU_TOOLS);
+
     HMENU mView = CreatePopupMenu();
     AddIt(mView, STR_ITEM_WRAP, IDM_WRAP);
     AddIt(mView, STR_ITEM_GUTTER, IDM_GUTTER);
@@ -735,6 +804,22 @@ static const DlgEnt kDlgOpenEnc[] = {
     { IDC_GOTO_CANCEL, STR_CANCEL },
     { 0, (StrId)0 }
 };
+static const DlgEnt kDlgHash[] = {
+    { IDC_HASH_UPPER, STR_HASH_UPPER },
+    { IDC_HASH_C0,    STR_BTN_COPY },
+    { IDC_HASH_C1,    STR_BTN_COPY },
+    { IDC_HASH_C2,    STR_BTN_COPY },
+    { IDC_HASH_C3,    STR_BTN_COPY },
+    { IDC_HASH_CLOSE, STR_CLOSE },
+    { 0, (StrId)0 }
+};
+static const DlgEnt kDlgTs[] = {
+    { IDC_TS_LBL,   STR_TS_INPUT },
+    { IDC_TS_GO,    STR_TS_GO },
+    { IDC_TS_NOW,   STR_TS_NOW },
+    { IDC_TS_CLOSE, STR_CLOSE },
+    { 0, (StrId)0 }
+};
 
 static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp);
 
@@ -747,6 +832,8 @@ void I18n_ApplyDialog(HWND hdlg, int dlgId) {
         case IDD_GOTO:    e = kDlgGoto;    cap = STR_TITLE_GOTO;    break;
         case IDD_ABOUT:   e = kDlgAbout;   cap = STR_TITLE_ABOUT;   break;
         case IDD_OPENENC: e = kDlgOpenEnc; cap = STR_TITLE_OPENENC; break;
+        case IDD_HASH:    e = kDlgHash;    cap = STR_TITLE_HASH;    break;
+        case IDD_TS:      e = kDlgTs;      cap = STR_TITLE_TS;      break;
         default: return;
     }
     SetWindowTextW(hdlg, T(cap));

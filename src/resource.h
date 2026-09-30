@@ -83,6 +83,17 @@
 
 #define IDM_ABOUT       1999
 
+/* 工具（开发者工具） */
+#define IDM_DT_B64_ENC    1700
+#define IDM_DT_B64_DEC    1701
+#define IDM_DT_URL_ENC    1702
+#define IDM_DT_URL_DEC    1703
+#define IDM_DT_UNI_ESC    1704
+#define IDM_DT_UNI_UNESC  1705
+#define IDM_DT_HASH       1710
+#define IDM_DT_UUID       1711
+#define IDM_DT_TS         1712
+
 #define IDM_UI_LANG_FIRST  1650
 #define IDM_UI_LANG_ZH     1650
 #define IDM_UI_LANG_EN     1651
@@ -94,6 +105,8 @@
 #define IDD_ABOUT   2103
 #define IDD_OPENENC 2104
 #define IDD_PROGRESS 2105
+#define IDD_HASH    2106
+#define IDD_TS      2107
 
 #define IDC_FIND_TEXT   2201
 #define IDC_REPL_TEXT   2202
@@ -127,5 +140,28 @@
 #define IDC_PROG_TEXT   2601
 #define IDC_PROG_BAR    2602
 #define IDC_PROG_CANCEL 2603
+
+#define IDC_HASH_SRC     2701
+#define IDC_HASH_UPPER   2702
+#define IDC_HASH_MD5     2703
+#define IDC_HASH_SHA1    2704
+#define IDC_HASH_SHA256  2705
+#define IDC_HASH_SHA512  2706
+#define IDC_HASH_L_MD5   2716
+#define IDC_HASH_L_SHA1  2717
+#define IDC_HASH_L_SHA256 2718
+#define IDC_HASH_L_SHA512 2719
+#define IDC_HASH_C0      2711
+#define IDC_HASH_C1      2712
+#define IDC_HASH_C2      2713
+#define IDC_HASH_C3      2714
+#define IDC_HASH_CLOSE   2715
+
+#define IDC_TS_IN    2801
+#define IDC_TS_GO    2802
+#define IDC_TS_NOW   2803
+#define IDC_TS_OUT   2804
+#define IDC_TS_CLOSE 2805
+#define IDC_TS_LBL   2806
 
 #endif

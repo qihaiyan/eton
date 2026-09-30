@@ -33,6 +33,7 @@
 | 多编码 | ANSI(系统代码页) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE，打开时自动探测 BOM，状态栏显示当前编码；另存 ANSI 时若内容含无法表示的字符会提示乱码风险 |
 | 行尾转换 | CRLF / LF / CR，可一键"转换为…"；新文档及探测不到行尾的文件默认 Unix (LF)，打开已有文件时按内容自动探测并保持 |
 | JSON 工具 | 编辑菜单：JSON 格式化/压缩；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
+| 开发者工具 | 工具菜单：Base64 / URL / Unicode(\uXXXX) 编解码（直接替换选区或全文，可撤销，解码失败定位非法字符）；MD5 / SHA-1 / SHA-256 / SHA-512 哈希对话框（一次显示四种结果、可切大写、逐行复制）；插入 UUID v4；Unix 时间戳 ↔ 日期时间双向转换 |
 | 查找 / 替换 / 转到 | 非模态查找对话框；支持区分大小写、全词匹配、正则表达式、向上/向下、循环查找；命中项全部高亮显示；`替换` 支持单个替换与全部替换；`转到行` |
 | 书签 | 切换当前行书签、在书签间跳转，书签行整行高亮 |
 | 最近文件 | 自动记录最近打开的文件，菜单可一键重新打开 |
@@ -84,6 +85,8 @@ eton/
     ├── session.c      # 会话/草稿持久化与恢复（含界面语言选择）
     ├── fileio.c       # 编码探测、读写、行尾规范化、UTF-8 转换
     ├── jsonfmt.c      # JSON 校验 + 格式化/压缩（单遍解析，RFC 8259）
+    ├── devtutil.c     # 开发者工具纯算法层（Base64/URL/Unicode 编解码、CNG 哈希、UUID，可独立自测）
+    ├── devtools.c     # 开发者工具 UI（选区变换、哈希/时间戳对话框）
     ├── statusbar.c    # 状态栏（字符数/行列/编码/行尾/缩放）
     ├── scrollbar.c    # 自绘滚动条
     ├── mdview.c       # Markdown 原生预览视图（MD4C 解析 → 块树 → 排版 → GDI 绘制；分屏/滚动同步）
@@ -171,6 +174,7 @@ wix build -arch x64 eton.wxs -d Version=0.0.1 -acceptEula wix7 -o eton-0.0.1-x64
 - **查找替换**：`Ctrl+F` / `Ctrl+H` 打开**非模态**对话框（查找时可继续编辑；Enter=查找下一个，Esc=关闭）；`F3` 查找下一个，`Shift+F3` 查找上一个；可勾选"正则表达式"（替换支持分组引用），命中的全部匹配会高亮显示。
 - **转到行**：`Ctrl+G`。
 - **JSON 格式化 / 压缩**：编辑菜单，或 `Ctrl+Shift+F` / `Ctrl+Shift+M`。无选区时处理整个文档，有选区时只处理选区；内容非法 JSON 时弹窗提示出错行列并跳转选中出错字符。
+- **开发者工具**：工具菜单。Base64 编/解码（`Ctrl+Alt+B` / `Ctrl+Alt+Shift+B`）、URL 编/解码、Unicode 转义/反转义都是"选中即转换"——无选区处理全文、有选区只处理选区，单步可撤销，解码遇到非法字符会弹窗并选中出错位置。计算哈希对选区/全文的 UTF-8 字节一次算出 MD5/SHA-1/SHA-256/SHA-512 四种结果，每行可单独复制、可勾选大写；插入 UUID 在光标处写入小写 v4；时间戳转换支持 时间戳(秒/毫秒自动识别) ↔ `YYYY-MM-DD HH:MM:SS` 双向换算（按本地时区，同时给出 UTC）。
 - **缩放**：`Ctrl+=` 放大、`Ctrl+-` 缩小、`Ctrl+0` 复位。
 - **自动换行**：视图菜单切换。
 - **暗色主题**：在"视图 → 主题"切换（标题栏/标签栏/状态栏/语法高亮配色随之改变）。
@@ -198,6 +202,7 @@ wix build -arch x64 eton.wxs -d Version=0.0.1 -acceptEula wix7 -o eton-0.0.1-x64
 - **编码与行尾**：`fileio.c` 负责 BOM 探测、各编码与 UTF-8 的转换（Scintilla 内部用 UTF-8）、以及 CRLF/LF/CR 规范化与转换。
 - **大文件流式 IO**：`fileio.c` 的 `StreamLoadToDoc` 分块读取并按"换行/字符边界"安全切分（不拆 UTF-8 多字节字符、UTF-16 代理对、DBCS 双字节），逐块转码 `SCI_APPENDTEXT` 进 Scintilla；`StreamSaveFromDoc` 用 `SCI_GETTEXTRANGEFULL` 分块取出转换后写同目录临时文件，`MoveFileEx` 原子替换（取消/失败不破坏原文件）。注意 `char*` 字节比较须转 `unsigned char`（有符号 `char` 下 `>= 0xC0` 永远为假）。
 - **JSON 工具**：`jsonfmt.c` 用单遍递归下降解析器边校验（RFC 8259 严格语法）边输出——格式化按嵌套深度缩进、压缩则剔除全部空白；字符串/数字按原文透传（保留 `\uXXXX` 等转义写法）。替换通过 Scintilla 的 target + `SCI_REPLACETARGET` 完成，单步可撤销。
+- **开发者工具**：算法与 UI 分层——`devtutil.c` 是不引用任何全局状态的纯函数（Base64/URL/Unicode 编解码手写、哈希与随机数走系统 CNG `bcrypt`、含代理对与严格非法输入校验），`devtools.c` 复用 JSON 工具的"选区/全文 + target 替换 + 错误定位"骨架。哈希对话框在 `WM_INITDIALOG` 一次算出四种摘要存二进制，"大写"切换只是重新渲染 hex。
 - **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
 - **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。
 - **Markdown 预览**：`mdview.c` 用 MD4C（`MD_DIALECT_GITHUB` | `MD_FLAG_LATEXMATHSPANS`）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表/图片/公式），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式；行内公式作为原子 token 参与换行。紧凑列表（无空行条目）不发出段落块，`AddRun` 惰性挂段并入树。分屏模式编辑区占左半、预览占右半，滚动按可视比例双向同步（同步互斥锁防回环）。`mermaid.c` 为 ```mermaid``` 代码块提供 13 个图族的原生解析、布局与 GDI 绘制：流程图（最长路径分层 + 层内重心排序）、时序图（生命线 + 垂直堆叠）、状态图/类图/ER 图（复用流程图内核，三格成员框）、饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph（`mermaid_ext*.inc` 扩展），未识别图族回退为代码块。`mdmath.c` 把 LaTeX 子集解析成 MathBox 盒树（横排/分式/上下标/根式/大运算符，Cambria Math 三级字号 + 希腊字母/运算符符号表）自绘。图片经 GDI+ flat API 动态加载（LRU 缓存 16 张）；远程图片经 WinHTTP 后台下载缓存（`mdimg.c`，%TEMP%\eton_mdimg，首次显示占位框、下载完成后自动重排）。
