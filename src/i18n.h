@@ -92,6 +92,7 @@ typedef enum {
     STR_NO_MATCH,
     STR_REPLACED,
     STR_REPLACED_N,
+    STR_REPLACED_ALLTABS,
 
     STR_TITLE_GOTO,
     STR_GOTO_LBL,
@@ -146,6 +147,7 @@ typedef enum {
     STR_ITEM_CLOSE_ALL,
     STR_ITEM_EXPLORER,
     STR_REGEX,
+    STR_FIND_ALLTABS,
     STR_BM_TOGGLE,
     STR_BM_NEXT,
     STR_BM_PREV,

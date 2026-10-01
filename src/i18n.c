@@ -1,5 +1,6 @@
 #include "common.h"
 #include "version.h"
+#include <commctrl.h>
 
 static int g_lang = UI_LANG_ZH;
 HMENU g_hMenuRecent = NULL;
@@ -93,6 +94,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"未找到匹配项",
         L"已替换",
         L"已替换 %d 处",
+        L"已在 %d 个标签页替换 %d 处",
 
         L"跳转到行",
         L"行号:",
@@ -147,6 +149,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"关闭所有标签(&L)",
         L"打开所在文件夹(&O)",
         L"正则表达式(&R)",
+        L"所有打开的标签页(&A)",
         L"切换书签(&K)\tCtrl+F2",
         L"下一个书签(&N)\tF2",
         L"上一个书签(&P)\tShift+F2",
@@ -286,6 +289,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"No matches found",
         L"Replaced",
         L"Replaced %d occurrence(s)",
+        L"Replaced %d occurrence(s) in %d tab(s)",
 
         L"Go to Line",
         L"Line &number:",
@@ -340,6 +344,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Close A&ll Tabs",
         L"Open Containing &Folder",
         L"Regular &expression",
+        L"All &open tabs",
         L"Toggle Book&mark\tCtrl+F2",
         L"&Next Bookmark\tF2",
         L"&Previous Bookmark\tShift+F2",
@@ -766,6 +771,7 @@ static const DlgEnt kDlgFind[] = {
     { IDC_FIND_WORD,     STR_WHOLE_WORD },
     { IDC_FIND_DOWN,     STR_SEARCH_DOWN },
     { IDC_FIND_REGEX,    STR_REGEX },
+    { IDC_FIND_ALL,      STR_FIND_ALLTABS },
     { IDC_FIND_NEXT,     STR_BTN_FIND_NEXT },
     { IDC_FIND_PREV,     STR_BTN_PREV },
     { IDC_FIND_CLOSE,    STR_CLOSE },
@@ -778,6 +784,7 @@ static const DlgEnt kDlgReplace[] = {
     { IDC_FIND_WORD,       STR_WHOLE_WORD },
     { IDC_FIND_DOWN,       STR_SEARCH_DOWN },
     { IDC_FIND_REGEX,      STR_REGEX },
+    { IDC_FIND_ALL,        STR_FIND_ALLTABS },
     { IDC_FIND_NEXT,       STR_BTN_FIND_NEXT },
     { IDC_FIND_REPL,       STR_BTN_REPLACE },
     { IDC_FIND_REPLALL,    STR_BTN_REPLACE_ALL },
@@ -853,6 +860,30 @@ void I18n_ApplyDialog(HWND hdlg, int dlgId) {
         EnumChildWindows(hdlg, DarkBtnProc, 0);
 }
 
+/* 暗色编辑框边框：DarkMode_Explorer 主题在部分 Win11 上不改变 Edit 边框，
+   去掉系统凹陷边框，改画 1px 深灰边（WS_BORDER 提供非客户区） */
+static LRESULT CALLBACK DarkEditProc(HWND h, UINT msg, WPARAM wp, LPARAM lp,
+                                     UINT_PTR id, DWORD_PTR ref) {
+    (void)id; (void)ref;
+    if (msg == WM_NCPAINT) {
+        LRESULT r = DefSubclassProc(h, msg, wp, lp);
+        RECT rc;
+        GetWindowRect(h, &rc);
+        OffsetRect(&rc, -rc.left, -rc.top);
+        HDC hdc = GetWindowDC(h);
+        HPEN pen = CreatePen(PS_SOLID, 1, RGB(86, 86, 88));
+        HGDIOBJ oldPen = SelectObject(hdc, pen);
+        HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
+        SelectObject(hdc, oldPen);
+        SelectObject(hdc, oldBr);
+        DeleteObject(pen);
+        ReleaseDC(h, hdc);
+        return r;
+    }
+    return DefSubclassProc(h, msg, wp, lp);
+}
+
 static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp) {
     typedef BOOL (WINAPI *SetThemeFn)(HWND, LPCWSTR, LPCWSTR);
     static SetThemeFn st;
@@ -861,8 +892,22 @@ static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp) {
         if (ux) st = (SetThemeFn)(void*)GetProcAddress(ux, "SetWindowTheme");
     }
     wchar_t cls[32];
-    if (st && GetClassNameW(h, cls, 32) && wcscmp(cls, L"Button") == 0)
+    if (!st || !GetClassNameW(h, cls, 32)) return TRUE;
+    if (wcscmp(cls, L"Button") == 0) {
         st(h, L"DarkMode_Explorer", NULL);
+    } else if (wcscmp(cls, L"Edit") == 0) {
+        st(h, L"DarkMode_Explorer", NULL);
+        /* 换成单线边框并子类化自绘暗色边 */
+        LONG_PTR ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
+        if (ex & WS_EX_CLIENTEDGE) {
+            SetWindowLongPtrW(h, GWL_EXSTYLE, ex & ~WS_EX_CLIENTEDGE);
+            SetWindowLongPtrW(h, GWL_STYLE,
+                              GetWindowLongPtrW(h, GWL_STYLE) | WS_BORDER);
+            SetWindowPos(h, NULL, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        }
+        SetWindowSubclass(h, DarkEditProc, 0x4D45, 0);
+    }
     return TRUE;
 }
 
@@ -895,3 +940,5 @@ void I18n_JoinFilter(wchar_t* out, int cch,
     }
     out[pos] = L'\0';
 }
+
+/* refresh */

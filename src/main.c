@@ -52,6 +52,28 @@ int WFmtV(wchar_t* buf, int cch, const wchar_t* fmt, ...) {
     return n;
 }
 
+/* 暗色主题：用菜单背景色覆盖菜单栏底边的主题分隔线（WM_NCPAINT/WM_NCACTIVATE 共用） */
+static void DarkMenuEdge(HWND hwnd) {
+    if (!g_dark) return;
+    MENUBARINFO mbi;
+    memset(&mbi, 0, sizeof(mbi));
+    mbi.cbSize = sizeof(mbi);
+    if (!GetMenuBarInfo(hwnd, OBJID_MENU, 0, &mbi) || mbi.rcBar.bottom <= 0) return;
+    RECT wr;
+    GetWindowRect(hwnd, &wr);
+    int y = mbi.rcBar.bottom - wr.top;
+    HDC hdc = GetWindowDC(hwnd);
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(43, 43, 43));
+    HGDIOBJ old = SelectObject(hdc, pen);
+    MoveToEx(hdc, 0, y - 1, NULL);
+    LineTo(hdc, wr.right - wr.left, y - 1);
+    MoveToEx(hdc, 0, y, NULL);
+    LineTo(hdc, wr.right - wr.left, y);
+    SelectObject(hdc, old);
+    DeleteObject(pen);
+    ReleaseDC(hwnd, hdc);
+}
+
 void ApplyTitleBarTheme(HWND hwnd) {
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -505,30 +527,17 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ResizeStatus();
             Editor_Layout();
             return 0;
+        case WM_NCACTIVATE:
+            /* 失活/激活时框架由 WM_NCACTIVATE 直接重画（不走 WM_NCPAINT），
+               打开对话框等导致主窗口失活后菜单栏白线会重新出现 */
+            DefWindowProcW(hwnd, msg, wp, lp);
+            DarkMenuEdge(hwnd);
+            return TRUE;
         case WM_NCPAINT: {
             /* 暗色主题：菜单栏底边那条 1px 浅色分隔线由视觉样式绘制在
                非客户区，SetMenuInfo 的画刷盖不到；这里画完后用菜单同色覆盖 */
             LRESULT r = DefWindowProcW(hwnd, msg, wp, lp);
-            if (g_dark) {
-                MENUBARINFO mbi;
-                memset(&mbi, 0, sizeof(mbi));
-                mbi.cbSize = sizeof(mbi);
-                if (GetMenuBarInfo(hwnd, OBJID_MENU, 0, &mbi) && mbi.rcBar.bottom > 0) {
-                    RECT wr;
-                    GetWindowRect(hwnd, &wr);
-                    int y = mbi.rcBar.bottom - wr.top;
-                    HDC hdc = GetWindowDC(hwnd);
-                    HPEN pen = CreatePen(PS_SOLID, 1, RGB(43, 43, 43));
-                    HGDIOBJ old = SelectObject(hdc, pen);
-                    MoveToEx(hdc, 0, y - 1, NULL);
-                    LineTo(hdc, wr.right - wr.left, y - 1);
-                    MoveToEx(hdc, 0, y, NULL);
-                    LineTo(hdc, wr.right - wr.left, y);
-                    SelectObject(hdc, old);
-                    DeleteObject(pen);
-                    ReleaseDC(hwnd, hdc);
-                }
-            }
+            DarkMenuEdge(hwnd);
             return r;
         }
         case WM_ERASEBKGND: {

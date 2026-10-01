@@ -5,6 +5,7 @@ wchar_t g_findText[512];
 wchar_t g_replText[512];
 BOOL g_findCase = FALSE, g_findWord = FALSE, g_findDown = TRUE;
 BOOL g_findRegex = FALSE;
+BOOL g_findAllTabs = FALSE;
 
 HWND g_hFindDlg = NULL;
 
@@ -87,13 +88,82 @@ void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re) {
 
 static void ReadFindOptions(HWND hdlg, HWND* lastEdit) {
     GetDlgItemTextW(hdlg, IDC_FIND_TEXT, g_findText, 512);
+    /* 替换框内容必须读回：历史版本从不读取，用户输入的替换词从未生效 */
+    if (GetDlgItem(hdlg, IDC_REPL_TEXT))
+        GetDlgItemTextW(hdlg, IDC_REPL_TEXT, g_replText, 512);
     g_findCase = IsDlgButtonChecked(hdlg, IDC_FIND_CASE) == BST_CHECKED;
     g_findWord = IsDlgButtonChecked(hdlg, IDC_FIND_WORD) == BST_CHECKED;
     g_findRegex = IsDlgButtonChecked(hdlg, IDC_FIND_REGEX) == BST_CHECKED;
+    g_findAllTabs = IsDlgButtonChecked(hdlg, IDC_FIND_ALL) == BST_CHECKED;
     HWND hed = Editor_ActiveEdit();
     if (hed != *lastEdit) {
         *lastEdit = hed;
         g_findStart = (hed) ? (LONG)SendMessage(hed, SCI_GETCURRENTPOS, 0, 0) : 0;
+    }
+}
+
+/* 单文档全部替换（使用当前查找选项），返回替换处数 */
+static int ReplaceAllInDoc(HWND hed, const char* utf8find, const char* utf8repl,
+                           int u8len, int rlen) {
+    int count = 0;
+    SendMessage(hed, SCI_SETTARGETSTART, 0, 0);
+    SendMessage(hed, SCI_SETTARGETEND, (WPARAM)SendMessage(hed, SCI_GETLENGTH, 0, 0), 0);
+    int flags = 0;
+    if (g_findCase) flags |= SCFIND_MATCHCASE;
+    if (g_findWord) flags |= SCFIND_WHOLEWORD;
+    if (g_findRegex) flags |= SCFIND_REGEXP;
+    SendMessage(hed, SCI_SETSEARCHFLAGS, flags, 0);
+    Sci_Position pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8find);
+    while (pos >= 0) {
+        Sci_Position tend = (Sci_Position)SendMessage(hed, SCI_GETTARGETEND, 0, 0);
+        SendMessage(hed, SCI_SETTARGETSTART, pos, 0);
+        SendMessage(hed, SCI_SETTARGETEND, tend, 0);
+        SendMessage(hed, SCI_REPLACETARGET, -1, (LPARAM)utf8repl);
+        count++;
+        Sci_Position newpos = pos + rlen;
+        if (newpos < tend) newpos = tend;
+        if (newpos <= pos) newpos = pos + 1;
+        SendMessage(hed, SCI_SETTARGETSTART, newpos, 0);
+        SendMessage(hed, SCI_SETTARGETEND, (WPARAM)SendMessage(hed, SCI_GETLENGTH, 0, 0), 0);
+        pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8find);
+    }
+    return count;
+}
+
+/* 跨标签查找：当前文档先搜到尾（不回绕），未命中则按标签顺序轮转其余文档 */
+static void FindNextAllTabs(HWND hdlg, HWND* lastEdit, BOOL down) {
+    HWND hed = *lastEdit;
+    if (wcslen(g_findText) == 0) {
+        SetDlgItemTextW(hdlg, IDC_FIND_STATUS, T(STR_ENTER_TEXT));
+        return;
+    }
+    BOOL found = FALSE;
+    LONG pos = -1;
+    if (hed)
+        pos = DoFindFrom(hed, g_findText, g_findCase, g_findWord, g_findRegex,
+                         down, g_findStart, FALSE, &found);
+    if (!found && g_docCount > 0) {
+        int cur = hed ? Editor_IndexFromHwnd(hed) : g_curDoc;
+        if (cur < 0) cur = 0;
+        for (int k = 1; k < g_docCount && !found; k++) {
+            int i = down ? (cur + k) % g_docCount
+                         : ((cur - k) % g_docCount + g_docCount) % g_docCount;
+            HWND h2 = g_docs[i].hwndEdit;
+            LONG start = down ? 0 : (LONG)SendMessage(h2, SCI_GETLENGTH, 0, 0);
+            pos = DoFindFrom(h2, g_findText, g_findCase, g_findWord, g_findRegex,
+                             down, start, FALSE, &found);
+            if (found) {
+                Editor_Activate(i);       /* 切到命中标签并定位显示 */
+                *lastEdit = h2;
+            }
+        }
+    }
+    if (found) {
+        g_findStart = pos;
+        SetDlgItemTextW(hdlg, IDC_FIND_STATUS, T(STR_MATCH_FOUND));
+        Find_MarkAll(*lastEdit, g_findText, g_findCase, g_findWord, g_findRegex);
+    } else {
+        SetDlgItemTextW(hdlg, IDC_FIND_STATUS, T(STR_NO_MATCH));
     }
 }
 
@@ -113,6 +183,7 @@ static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         CheckDlgButton(hdlg, IDC_FIND_WORD, g_findWord ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_DOWN, g_findDown ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_REGEX, g_findRegex ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(hdlg, IDC_FIND_ALL, g_findAllTabs ? BST_CHECKED : BST_UNCHECKED);
         return TRUE;
     }
     if (msg == WM_CLOSE) { DestroyFindDlg(hdlg); return TRUE; }
@@ -124,6 +195,7 @@ static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             g_findDown = (id == IDC_FIND_NEXT);
             HWND hed = s_lastEdit;
             if (wcslen(g_findText) == 0) { SetDlgItemTextW(hdlg, IDC_FIND_STATUS, T(STR_ENTER_TEXT)); return TRUE; }
+            if (g_findAllTabs) { FindNextAllTabs(hdlg, &s_lastEdit, g_findDown); return TRUE; }
             BOOL found;
             LONG pos = DoFindFrom(hed, g_findText, g_findCase, g_findWord, g_findRegex,
                                   g_findDown, g_findStart, TRUE, &found);
@@ -156,6 +228,7 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         CheckDlgButton(hdlg, IDC_FIND_WORD, g_findWord ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_DOWN, g_findDown ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_REGEX, g_findRegex ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(hdlg, IDC_FIND_ALL, g_findAllTabs ? BST_CHECKED : BST_UNCHECKED);
         return TRUE;
     }
     if (msg == WM_CLOSE) { DestroyFindDlg(hdlg); return TRUE; }
@@ -167,6 +240,7 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             g_findDown = (id == IDC_FIND_NEXT);
             HWND hed = s_lastEdit;
             if (wcslen(g_findText) == 0) { SetDlgItemTextW(hdlg, IDC_FIND_STATUS, T(STR_ENTER_TEXT)); return TRUE; }
+            if (g_findAllTabs) { FindNextAllTabs(hdlg, &s_lastEdit, g_findDown); return TRUE; }
             BOOL found;
             LONG pos = DoFindFrom(hed, g_findText, g_findCase, g_findWord, g_findRegex,
                                   g_findDown, g_findStart, TRUE, &found);
@@ -233,32 +307,25 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             int u8len = WideCharToMultiByte(CP_UTF8, 0, g_findText, -1, utf8find, sizeof(utf8find), NULL, NULL) - 1;
             int rlen = WideCharToMultiByte(CP_UTF8, 0, g_replText, -1, utf8repl, sizeof(utf8repl), NULL, NULL) - 1;
             if (rlen < 0) rlen = 0;
-            int count = 0;
-            SendMessage(hed, SCI_SETTARGETSTART, 0, 0);
-            SendMessage(hed, SCI_SETTARGETEND, (WPARAM)SendMessage(hed, SCI_GETLENGTH, 0, 0), 0);
-            int flags = 0;
-            if (g_findCase) flags |= SCFIND_MATCHCASE;
-            if (g_findWord) flags |= SCFIND_WHOLEWORD;
-            if (g_findRegex) flags |= SCFIND_REGEXP;
-            SendMessage(hed, SCI_SETSEARCHFLAGS, flags, 0);
-            Sci_Position pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8find);
-            while (pos >= 0) {
-                Sci_Position tend = (Sci_Position)SendMessage(hed, SCI_GETTARGETEND, 0, 0);
-                SendMessage(hed, SCI_SETTARGETSTART, pos, 0);
-                SendMessage(hed, SCI_SETTARGETEND, tend, 0);
-                SendMessage(hed, SCI_REPLACETARGET, -1, (LPARAM)utf8repl);
-                count++;
-                Sci_Position newpos = pos + rlen;
-                if (newpos < tend) newpos = tend;
-                if (newpos <= pos) newpos = pos + 1;
-                SendMessage(hed, SCI_SETTARGETSTART, newpos, 0);
-                SendMessage(hed, SCI_SETTARGETEND, (WPARAM)SendMessage(hed, SCI_GETLENGTH, 0, 0), 0);
-                pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8find);
+            if (g_findAllTabs) {
+                int total = 0, files = 0;
+                for (int i = 0; i < g_docCount; i++) {
+                    int cnt = ReplaceAllInDoc(g_docs[i].hwndEdit, utf8find, utf8repl, u8len, rlen);
+                    if (cnt > 0) {
+                        Editor_MarkDirty(i, TRUE);
+                        total += cnt;
+                        files++;
+                    }
+                }
+                wchar_t st[96]; WFmt(st, T(STR_REPLACED_ALLTABS), files, total);
+                SetDlgItemTextW(hdlg, IDC_FIND_STATUS, st);
+            } else {
+                int count = ReplaceAllInDoc(hed, utf8find, utf8repl, u8len, rlen);
+                wchar_t st[64]; WFmt(st, T(STR_REPLACED_N), count);
+                SetDlgItemTextW(hdlg, IDC_FIND_STATUS, st);
+                Editor_MarkDirty(g_curDoc, TRUE);
             }
-            wchar_t st[64]; WFmt(st, T(STR_REPLACED_N), count);
-            SetDlgItemTextW(hdlg, IDC_FIND_STATUS, st);
             Find_MarkAll(hed, L"", FALSE, FALSE, FALSE);
-            Editor_MarkDirty(g_curDoc, TRUE);
             return TRUE;
         }
     }
@@ -387,3 +454,5 @@ void Dlg_OpenEnc(HWND hwnd) {
     AddRecent(fname);
     Editor_Activate(ni);
 }
+
+/* build refresh */

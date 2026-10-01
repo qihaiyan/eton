@@ -125,6 +125,7 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
 extern wchar_t g_findText[512];
 extern wchar_t g_replText[512];
 extern BOOL g_findCase, g_findWord, g_findDown, g_findRegex;
+extern BOOL g_findAllTabs;
 extern LONG g_findStart;
 extern HWND g_hFindDlg;
 void Dlg_Find(HWND hwnd, BOOL replace);
