@@ -30,6 +30,9 @@ New-Item $layout -ItemType Directory -Force | Out-Null
 New-Item (Join-Path $layout "Assets") -ItemType Directory -Force | Out-Null
 
 Copy-Item $exe $layout
+$ctxDll = Join-Path $root "etonctx.dll"
+if (Test-Path $ctxDll) { Copy-Item $ctxDll $layout }
+else { throw "未找到 etonctx.dll,请先运行 build.bat(商店版右键菜单组件)" }
 
 Add-Type -AssemblyName System.Drawing
 $srcImg = [System.Drawing.Image]::FromFile((Join-Path $root "res\app.png"))
@@ -57,7 +60,8 @@ $manifest = Get-Content (Join-Path $PSScriptRoot "AppxManifest.template.xml") -R
 $manifest = $manifest.Replace("__NAME__", $Name).Replace("__PUBLISHER__", $Publisher).Replace("__VERSION__", $Version)
 [System.IO.File]::WriteAllText((Join-Path $layout "AppxManifest.xml"), $manifest, (New-Object System.Text.UTF8Encoding $false))
 
-$outMsix = Join-Path $root ("eton-{0}-x64.msix" -f $Version)
+$tag = if ($Name -eq "A99C7AF7.ETON") { "" } else { "-$($Name.ToLower())" }
+$outMsix = Join-Path $root ("eton{0}-{1}-x64.msix" -f $tag, $Version)
 if (Test-Path $outMsix) { Remove-Item $outMsix -Force }
 & $makeappx pack /o /v /d $layout /p $outMsix
 if ($LASTEXITCODE -ne 0) { throw "makeappx 打包失败" }

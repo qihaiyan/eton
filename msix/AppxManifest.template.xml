@@ -10,7 +10,9 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4">
 
   <Identity Name="__NAME__"
             Version="__VERSION__"
@@ -29,7 +31,8 @@
   </Resources>
 
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26200.0" />
+    <!-- desktop4:FileExplorerContextMenus 需要 10.0.18362 -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.18362.0" MaxVersionTested="10.0.26200.0" />
   </Dependencies>
 
   <Capabilities>
@@ -87,6 +90,24 @@
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
         </uap:Extension>
+        <!-- .md/.markdown 右键"用 Eton 编辑"：IExplorerCommand 见 src/etonctx.c -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop4:ItemType Type=".md">
+              <desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" />
+            </desktop4:ItemType>
+            <desktop4:ItemType Type=".markdown">
+              <desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" />
+            </desktop4:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer AppId="B3E27C4A-1F58-4D69-8A04-2E9C5F30D812" DisplayName="ETON Context Menu">
+              <com:Class Id="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" Path="etonctx.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>

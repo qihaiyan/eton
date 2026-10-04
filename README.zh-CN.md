@@ -34,6 +34,7 @@
 | 行尾转换 | CRLF / LF / CR，可一键"转换为…"；新文档及探测不到行尾的文件默认 Unix (LF)，打开已有文件时按内容自动探测并保持 |
 | JSON 工具 | 编辑菜单：JSON 格式化/压缩；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
 | 开发者工具 | 工具菜单：Base64 / URL / Unicode(\uXXXX) 编解码（直接替换选区或全文，可撤销，解码失败定位非法字符）；MD5 / SHA-1 / SHA-256 / SHA-512 哈希对话框（一次显示四种结果、可切大写、逐行复制）；插入 UUID v4；Unix 时间戳 ↔ 日期时间双向转换 |
+| 资源管理器集成（商店版） | 微软商店（MSIX）版原生获得 .md/.markdown 右键"用 Eton 编辑"：包清单经 `etonctx.dll`（IExplorerCommand）声明 `desktop4:FileExplorerContextMenus`，由 Windows 统一注册——升级不断、无确认框、直接显示在 Win11 一级菜单；便携版不含资源管理器集成 |
 | 查找 / 替换 / 转到 | 非模态查找对话框；支持区分大小写、全词匹配、正则表达式、向上/向下、循环查找；命中项全部高亮显示；`替换` 支持单个替换与全部替换；`转到行` |
 | 书签 | 切换当前行书签、在书签间跳转，书签行整行高亮 |
 | 最近文件 | 自动记录最近打开的文件，菜单可一键重新打开 |
@@ -94,6 +95,8 @@ eton/
     ├── mermaid.c      # Mermaid 原生渲染（13 图族：解析 + 布局 + GDI 绘制）
     ├── mdmath.c       # 数学公式排版（LaTeX 子集 → MathBox 盒树 → GDI 绘制）
     ├── mdexport.c     # 导出 HTML（内嵌 mermaid.js/MathJax）/ PDF（打印分页）
+    ├── docx.c         # 导出 Word (.docx)：OMML 公式、EMF 矢量图表
+    ├── etonctx.c      # MSIX 右键菜单 COM 组件（IExplorerCommand → etonctx.dll）
     └── dialogs.c      # 查找/替换/转到/关于/打开编码 对话框
 ```
 
@@ -129,7 +132,7 @@ rc /nologo /fo build\app.res app.rc
 cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
    /I"deps\scintilla" /I"deps\lexilla" /I"deps\md4c" ^
    /Fo"build/" /Fe:eton.exe ^
-   src\main.c src\editor.c src\tabbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\session.c src\i18n.c src\statusbar.c src\scrollbar.c src\mdview.c src\mdimg.c src\mermaid.c src\mdmath.c src\mdexport.c deps\md4c\md4c.c deps\md4c\md4c-html.c deps\md4c\entity.c build\eton.res build\app.res ^
+   src\main.c src\editor.c src\tabbar.c src\toolbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\devtutil.c src\devtools.c src\session.c src\i18n.c src\statusbar.c src\scrollbar.c src\mdview.c src\mdimg.c src\mermaid.c src\mdmath.c src\mdexport.c src\docx.c deps\md4c\md4c.c deps\md4c\md4c-html.c deps\md4c\entity.c build\eton.res build\app.res ^
    /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /LIBPATH:"deps\scintilla" /LIBPATH:"deps\lexilla" ^
    libscintilla.lib liblexilla.lib ^
    user32.lib gdi32.lib gdiplus.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib advapi32.lib winhttp.lib
@@ -203,6 +206,7 @@ wix build -arch x64 eton.wxs -d Version=0.0.1 -acceptEula wix7 -o eton-0.0.1-x64
 - **大文件流式 IO**：`fileio.c` 的 `StreamLoadToDoc` 分块读取并按"换行/字符边界"安全切分（不拆 UTF-8 多字节字符、UTF-16 代理对、DBCS 双字节），逐块转码 `SCI_APPENDTEXT` 进 Scintilla；`StreamSaveFromDoc` 用 `SCI_GETTEXTRANGEFULL` 分块取出转换后写同目录临时文件，`MoveFileEx` 原子替换（取消/失败不破坏原文件）。注意 `char*` 字节比较须转 `unsigned char`（有符号 `char` 下 `>= 0xC0` 永远为假）。
 - **JSON 工具**：`jsonfmt.c` 用单遍递归下降解析器边校验（RFC 8259 严格语法）边输出——格式化按嵌套深度缩进、压缩则剔除全部空白；字符串/数字按原文透传（保留 `\uXXXX` 等转义写法）。替换通过 Scintilla 的 target + `SCI_REPLACETARGET` 完成，单步可撤销。
 - **开发者工具**：算法与 UI 分层——`devtutil.c` 是不引用任何全局状态的纯函数（Base64/URL/Unicode 编解码手写、哈希与随机数走系统 CNG `bcrypt`、含代理对与严格非法输入校验），`devtools.c` 复用 JSON 工具的"选区/全文 + target 替换 + 错误定位"骨架。哈希对话框在 `WM_INITDIALOG` 一次算出四种摘要存二进制，"大写"切换只是重新渲染 hex。
+- **MSIX 右键菜单**：`etonctx.c` 是自包含的纯 C COM DLL（类厂 + `IExplorerCommand`），构建产物 `etonctx.dll` 随包分发；清单经 `com:ComServer`（dllhost 代理）注册组件，`desktop4:FileExplorerContextMenus` 把 `.md`/`.markdown` 的动词指向它——菜单项直接出现在 Win11 一级菜单，安装路径由 Windows 随版本目录自动维护、升级不断。`Invoke` 按 DLL 所在目录解析 `eton.exe` 并对每个选中文件启动一次，标题跟随系统界面语言。要求 `MinVersion 10.0.18362`。
 - **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
 - **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。
 - **Markdown 预览**：`mdview.c` 用 MD4C（显式 GFM 等价旗标 | `MD_FLAG_LATEXMATHSPANS` | `MD_FLAG_FOOTNOTES`；0.6.0 的 `MD_DIALECT_GITHUB` 还捆绑了暂未渲染的提示块扩展）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表/图片/公式），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式；行内公式作为原子 token 参与换行。紧凑列表（无空行条目）不发出段落块，`AddRun` 惰性挂段并入树。分屏模式编辑区占左半、预览占右半，滚动按可视比例双向同步（同步互斥锁防回环）。`mermaid.c` 为 ```mermaid``` 代码块提供 13 个图族的原生解析、布局与 GDI 绘制：流程图（最长路径分层 + 层内重心排序）、时序图（生命线 + 垂直堆叠）、状态图/类图/ER 图（复用流程图内核，三格成员框）、饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph（`mermaid_ext*.inc` 扩展），未识别图族回退为代码块。`mdmath.c` 把 LaTeX 子集解析成 MathBox 盒树（横排/分式/上下标/根式/大运算符，Cambria Math 三级字号 + 希腊字母/运算符符号表）自绘；`cases`/`matrix` 族/`aligned` 环境按 `&` 分列、`\\` 分行解析成网格逐行测量，外侧绘制自适应尺寸的大分隔符（圆括号/方括号/花括号/竖线，贝塞尔绘制），导出 Word 时映射为 OMML `m:d`/`m:m`；`\(..\)`/`\[..\]` 在解析前原地归一为 `$`/`$$`（跳过代码围栏、不碰 `\\[`）。图片经 GDI+ flat API 动态加载（LRU 缓存 16 张）；远程图片经 WinHTTP 后台下载缓存（`mdimg.c`，%TEMP%\eton_mdimg，首次显示占位框、下载完成后自动重排）。

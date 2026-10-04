@@ -692,3 +692,4 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
 }
 
 /* math: cases/matrix/aligned environments, \( \) and \[ \] delimiter normalization */
+

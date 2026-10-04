@@ -87,6 +87,12 @@ cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
    user32.lib gdi32.lib gdiplus.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib advapi32.lib winhttp.lib bcrypt.lib
 if errorlevel 1 goto :fail_cl
 
+echo [2b/3] building etonctx.dll (MSIX Explorer context menu) ...
+cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
+   src\etonctx.c /LD /Fe:etonctx.dll /Fo"build\etonctx.obj" ^
+   /link /SUBSYSTEM:WINDOWS /EXPORT:DllGetClassObject /EXPORT:DllCanUnloadNow shell32.lib shlwapi.lib ole32.lib user32.lib
+if errorlevel 1 goto :fail_cl
+
 echo [3/3] done.
 if "%AUTO%"=="1" ( echo BUILD_OK & endlocal & exit /b 0 )
 echo.
