@@ -692,3 +692,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
 }
 
 
+
+/* final */
+
+/* incremental viewport layout */

@@ -45,6 +45,8 @@ static struct {
     BOOL sbDrag; int sbDragOff;
     int lastLayoutW;
     BOOL imgTimerOn;     /* 图片到达合并窗口已挂起 */
+    int layIdx, layY;    /* 增量布局：下一个顶层块索引 / 已布局到的 y */
+    BOOL layDone;
 } V;
 
 #define TID_MDIMG 2         /* WM_MDIMG_READY 的 120ms 合并定时器 */
@@ -1890,25 +1892,58 @@ static void LayoutBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y, int quot
     }
 }
 
-static void LayoutAll(void) {
-    if (V.clientW <= 0 || V.clientH <= 0) {
-        V.lastLayoutW = -1;
-        return;
+/* ---- 增量布局 ----
+   长文档首次打开只布局到 可视区+一屏 余量，滚动时按需向下延伸（布局永远
+   从 y=0 顺序推进，向上滚必然命中）。未布局部分的总高用"已布局平均块高"
+   估算，滚动条随布局推进逐步收敛；END 键与打印强制补全拿到精确值。 */
+static int DocHEstimate(void) {
+    int base = V.layY + UI_Scale(40);
+    if (V.layDone || !V.root) return base;
+    int remaining = V.root->nChildren - V.layIdx;
+    if (V.layIdx > 0 && remaining > 0) {
+        double avg = (double)(V.layY - UI_Scale(16)) / (double)V.layIdx;
+        if (avg < 1.0) avg = 1.0;
+        return V.layY + (int)(avg * (double)remaining) + UI_Scale(40);
     }
-    ItemResetAll();
+    return base;
+}
 
+static void LayoutBegin(void) {
+    ItemResetAll();
+    V.layIdx = 0;
+    V.layY = UI_Scale(16);
+    V.layDone = (V.root == NULL || V.root->nChildren == 0);
+    V.docH = DocHEstimate();
+    V.lastLayoutW = V.clientW;
+}
+
+static void LayoutEnsure(int throughY) {
+    if (V.clientW <= 0 || V.clientH <= 0) return;
+    if (V.layDone || V.layY >= throughY) return;
     HDC hdc = GetDC(V.hwnd);
     FontsEnsure(hdc);
     int x0 = UI_Scale(28);
     int avail = V.clientW - UI_Scale(28) * 2 - UI_Scale(12);
     if (avail < UI_Scale(100)) avail = UI_Scale(100);
-    int y = UI_Scale(16);
-    if (V.root)
-        for (int i = 0; i < V.root->nChildren; i++)
-            LayoutBlock(hdc, V.root->children[i], x0, avail, &y, 0);
-    V.docH = y + UI_Scale(40);
-    V.lastLayoutW = V.clientW;
+    while (V.layY < throughY) {
+        if (!V.root || V.layIdx >= V.root->nChildren) {
+            V.layDone = TRUE;
+            break;
+        }
+        LayoutBlock(hdc, V.root->children[V.layIdx], x0, avail, &V.layY, 0);
+        V.layIdx++;
+    }
     ReleaseDC(V.hwnd, hdc);
+    V.docH = DocHEstimate();
+}
+
+static void LayoutAll(void) {
+    if (V.clientW <= 0 || V.clientH <= 0) {
+        V.lastLayoutW = -1;
+        return;
+    }
+    LayoutBegin();
+    LayoutEnsure(V.scrollY + V.clientH * 2);
     if (V.scrollY > V.docH - V.clientH) {
         V.scrollY = V.docH - V.clientH;
         if (V.scrollY < 0) V.scrollY = 0;
@@ -2207,6 +2242,7 @@ static HDC MemDCFor(HDC src, int w, int h) {
 static void Paint(void) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(V.hwnd, &ps);
+    LayoutEnsure(V.scrollY + V.clientH * 2);   /* 滚入未布局区域时按需延伸 */
     RECT rc;
     GetClientRect(V.hwnd, &rc);
     int w = rc.right, h = rc.bottom;
@@ -2398,7 +2434,9 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case VK_PRIOR: ScrollBy(-V.clientH * 9 / 10); return 0;
                 case VK_NEXT:  ScrollBy(V.clientH * 9 / 10); return 0;
                 case VK_HOME:  ScrollBy(-V.docH); return 0;
-                case VK_END:   ScrollBy(V.docH); return 0;
+                case VK_END:
+                    LayoutEnsure(0x7FFFFFFF);   /* 补全布局拿到精确 docH 再到底 */
+                    ScrollBy(V.docH); return 0;
             }
             break;
         case WM_MDIMG_READY:
@@ -2628,6 +2666,7 @@ BOOL MdView_PrintPages(HDC hdc, int pw, int ph) {
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
     if (V.docIdx != g_curDoc || !V.root || V.nItems == 0)
         LoadContent(g_curDoc);
+    LayoutEnsure(0x7FFFFFFF);   /* 打印需要精确的 docH 与完整 items */
     if (V.nItems == 0 || V.docH <= 0) return FALSE;
 
     double scale = (double)pw / (double)targetW;
