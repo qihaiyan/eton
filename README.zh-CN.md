@@ -11,7 +11,7 @@
 - 内嵌 Common Controls v6 清单，自动获得系统主题（含暗色标题栏/控件）
 
 <p>
-<a href="https://get.microsoft.com/installer/download/9p1bnmg6qkf8?referrer=appbadge" target="_self" >
+<a href="https://apps.microsoft.com/detail/9P1BNMG6QKF8?referrer=appbadge" target="_self" >
 	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
 </a>
 &nbsp;&nbsp;
@@ -35,7 +35,7 @@
 | JSON 工具 | 编辑菜单：JSON 格式化/压缩；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
 | 开发者工具 | 工具菜单：Base64 / URL / Unicode(\uXXXX) 编解码（直接替换选区或全文，可撤销，解码失败定位非法字符）；MD5 / SHA-1 / SHA-256 / SHA-512 哈希对话框（一次显示四种结果、可切大写、逐行复制）；插入 UUID v4；Unix 时间戳 ↔ 日期时间双向转换 |
 | 资源管理器集成（商店版） | 微软商店（MSIX）版原生获得 .md/.markdown 右键"用 Eton 编辑"：包清单经 `etonctx.dll`（IExplorerCommand）声明 `desktop4:FileExplorerContextMenus`，由 Windows 统一注册——升级不断、无确认框、直接显示在 Win11 一级菜单；便携版不含资源管理器集成 |
-| 查找 / 替换 / 转到 | 非模态查找对话框；支持区分大小写、全词匹配、正则表达式、向上/向下、循环查找；命中项全部高亮显示；`替换` 支持单个替换与全部替换；`转到行` |
+| 查找 / 替换 / 转到 | 非模态查找对话框；支持区分大小写、全词匹配、正则表达式、向上/向下、循环查找；命中项全部高亮显示；`替换` 支持单个替换与全部替换；`转到行`。**扩展模式**（Notepad++ 风格）：查找与替换文本均可解释 `\n` `\r` `\t` `\0`/`\b`（NUL）`\f` `\v` `\xHH` `\dDDD` `\\` 转义（与正则模式互斥；替换可插入真实换行/制表/NUL 字节） |
 | 书签 | 切换当前行书签、在书签间跳转，书签行整行高亮 |
 | 最近文件 | 自动记录最近打开的文件，菜单可一键重新打开 |
 | 行号槽 | Scintilla 内建行号 margin，随编辑区滚动实时同步；当前行自动高亮 |

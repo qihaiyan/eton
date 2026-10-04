@@ -147,6 +147,7 @@ typedef enum {
     STR_ITEM_CLOSE_ALL,
     STR_ITEM_EXPLORER,
     STR_REGEX,
+    STR_FIND_EXT,
     STR_FIND_ALLTABS,
     STR_BM_TOGGLE,
     STR_BM_NEXT,

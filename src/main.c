@@ -228,18 +228,13 @@ static void InsertDateTime(void) {
     SendMessage(edit, SCI_REPLACESEL, 0, (LPARAM)buf);
 }
 
-static void WToUtf8(const wchar_t* w, char* out, int outlen) {
-    WideCharToMultiByte(CP_UTF8, 0, w, -1, out, outlen, NULL, NULL);
-}
-
 static void FindNextAccel(HWND hwnd, BOOL down) {
     HWND edit = Editor_ActiveEdit();
     if (!edit) return;
     if (wcslen(g_findText) == 0) { Dlg_Find(hwnd, FALSE); return; }
-    char utf8[1024];
-    WToUtf8(g_findText, utf8, sizeof(utf8));
-    Sci_Position len = (Sci_Position)strlen(utf8);
-    (void)len;
+    char utf8[2048];
+    Sci_Position len = Find_TextToUtf8(g_findText, utf8, sizeof(utf8));
+    if (len <= 0) return;
     Sci_Position curStart = (Sci_Position)SendMessage(edit, SCI_GETCURRENTPOS, 0, 0);
     Sci_Position selStart = (Sci_Position)SendMessage(edit, SCI_GETSELECTIONSTART, 0, 0);
     Sci_Position selEnd = (Sci_Position)SendMessage(edit, SCI_GETSELECTIONEND, 0, 0);
@@ -693,3 +688,5 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
 
 /* math: cases/matrix/aligned environments, \( \) and \[ \] delimiter normalization */
 
+
+/* find: extended search mode with escape sequences */

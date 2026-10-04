@@ -11,7 +11,7 @@ The whole program is only 2 MB.
 - Embeds a Common Controls v6 manifest and automatically picks up the system theme (including a dark title bar/controls)
 
 <p>
-<a href="https://get.microsoft.com/installer/download/9p1bnmg6qkf8?referrer=appbadge" target="_self" >
+<a href="https://apps.microsoft.com/detail/9P1BNMG6QKF8?referrer=appbadge" target="_self" >
 	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
 </a>
 &nbsp;&nbsp;
@@ -35,7 +35,7 @@ The whole program is only 2 MB.
 | JSON tools | Edit menu: JSON format / minify; applies to the selection when there is one; indentation and EOL follow document settings; on parse failure, reports line/column and jumps to the offending character |
 | Developer tools | Tools menu: Base64 / URL / Unicode (`\uXXXX`) encode & decode (replaces the selection or whole document, undoable, jumps to invalid characters on decode failure); MD5 / SHA-1 / SHA-256 / SHA-512 hash dialog (all four at once, uppercase toggle, per-row copy); insert UUID v4; Unix timestamp ↔ date-time conversion |
 | Explorer integration (Store) | Microsoft Store (MSIX) builds get "Edit with Eton" on the right-click menu of `.md`/`.markdown` files natively: the package manifest declares `desktop4:FileExplorerContextMenus` backed by `etonctx.dll` (IExplorerCommand), so Windows registers it — update-proof, no prompts, shown in the Win11 top-level menu. Portable/zip builds ship no Explorer integration |
-| Find / Replace / Go to | Non-modal find dialog; case sensitivity, whole word, regular expressions, up/down, wrap-around search; all matches highlighted; Replace supports single and replace-all; Go to line |
+| Find / Replace / Go to | Non-modal find dialog; case sensitivity, whole word, regular expressions, up/down, wrap-around search; all matches highlighted; Replace supports single and replace-all; Go to line. **Extended mode** (Notepad++-style): `\n` `\r` `\t` `\0`/`\b` (NUL) `\f` `\v` `\xHH` `\dDDD` `\\` escapes are interpreted in both the search and replacement text (mutually exclusive with regex mode; replacement can insert real line breaks/tabs/NUL bytes) |
 | Bookmarks | Toggle a bookmark on the current line, jump between bookmarks, whole-line highlight |
 | Recent files | Recently opened files tracked automatically; reopen with one click from the menu |
 | Line-number gutter | Scintilla's built-in line-number margin, synced live while scrolling; current line highlighted |

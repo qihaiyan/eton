@@ -5,19 +5,91 @@ wchar_t g_findText[512];
 wchar_t g_replText[512];
 BOOL g_findCase = FALSE, g_findWord = FALSE, g_findDown = TRUE;
 BOOL g_findRegex = FALSE;
+BOOL g_findExt = FALSE;      /* Notepad++ 扩展模式：\n \r \t \b \f \v \0 \xHH \dDDD \\ */
 BOOL g_findAllTabs = FALSE;
 
 HWND g_hFindDlg = NULL;
 
 LONG g_findStart = 0;
 
+static int HexV(wchar_t c) {
+    if (c >= L'0' && c <= L'9') return c - L'0';
+    if (c >= L'a' && c <= L'f') return c - L'a' + 10;
+    if (c >= L'A' && c <= L'F') return c - L'A' + 10;
+    return -1;
+}
+
+/* Notepad++ 扩展模式转义解码。返回解码后的 wchar 数（可含内嵌 L'\0'）：
+ *   \n → LF   \r → CR   \t → TAB   \b / \0 → NUL（N++ 的 \b 即 binary zero）
+ *   \f → FF   \v → VT   \\ → 反斜杠
+ *   \xHH → 字节值（1~2 位十六进制）   \dDDD → 字节值（1~3 位十进制，≤255）
+ * 未识别的转义原样保留（如 \q 保持两个字符） */
+static int FindUnescapeW(const wchar_t* s, int n, wchar_t* dst, int dstMax) {
+    int j = 0;
+    for (int i = 0; i < n && j < dstMax - 1; ) {
+        if (s[i] != L'\\' || i + 1 >= n) { dst[j++] = s[i++]; continue; }
+        wchar_t e = s[i + 1];
+        wchar_t out; int adv = 2; BOOL lit = FALSE;
+        switch (e) {
+            case L'n': out = L'\n'; break;
+            case L'r': out = L'\r'; break;
+            case L't': out = L'\t'; break;
+            case L'b': case L'0': out = 0; break;
+            case L'f': out = L'\f'; break;
+            case L'v': out = L'\v'; break;
+            case L'\\': out = L'\\'; break;
+            case L'x': {
+                int v = 0, d = 0;
+                while (d < 2 && i + 2 + d < n && HexV(s[i + 2 + d]) >= 0) {
+                    v = v * 16 + HexV(s[i + 2 + d]); d++;
+                }
+                if (d == 0) { lit = TRUE; out = 0; adv = 1; break; }  /* \x 后无十六进制：保留反斜杠 */
+                dst[j++] = (wchar_t)v;
+                i += 2 + d;
+                continue;
+            }
+            case L'd': {
+                int v = 0, d = 0;
+                while (d < 3 && i + 2 + d < n && s[i + 2 + d] >= L'0' && s[i + 2 + d] <= L'9') {
+                    v = v * 10 + (s[i + 2 + d] - L'0'); d++;
+                }
+                if (d == 0 || v > 255) { lit = TRUE; out = 0; adv = 1; break; }
+                dst[j++] = (wchar_t)v;
+                i += 2 + d;
+                continue;
+            }
+            default: lit = TRUE; out = 0; break;
+        }
+        if (lit) { dst[j++] = L'\\'; dst[j++] = e; }   /* 未识别转义原样保留 */
+        else dst[j++] = out;
+        i += adv;
+    }
+    dst[j] = 0;
+    return j;
+}
+
+/* 查找/替换文本 → UTF-8；扩展模式下先解码转义。
+ * 返回字节数（可含内嵌 NUL），-1 = 失败 */
+int Find_TextToUtf8(const wchar_t* src, char* utf8, int utf8Max) {
+    wchar_t un[512];
+    const wchar_t* p = src;
+    int wlen = (int)wcslen(src);
+    if (g_findExt && !g_findRegex) {
+        wlen = FindUnescapeW(src, wlen, un, 512);
+        p = un;
+    }
+    int n = WideCharToMultiByte(CP_UTF8, 0, p, wlen, utf8, utf8Max - 1, NULL, NULL);
+    if (n <= 0) return -1;
+    utf8[n] = 0;
+    return n;
+}
+
 LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re, BOOL down, LONG start, BOOL wrap, BOOL* found) {
     *found = FALSE;
     if (!hed) return -1;
-    char utf8[1024];
-    int u8len = WideCharToMultiByte(CP_UTF8, 0, text, -1, utf8, sizeof(utf8), NULL, NULL);
+    char utf8[2048];
+    int u8len = Find_TextToUtf8(text, utf8, sizeof(utf8));
     if (u8len <= 0) return -1;
-    u8len--;
 
     Sci_Position docLen = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
     if (docLen == 0) return -1;
@@ -62,10 +134,9 @@ void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re) {
     Sci_Position docLen = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
     SendMessage(hed, SCI_INDICATORCLEARRANGE, 0, docLen);
     if (!text || !text[0] || docLen == 0) return;
-    char utf8[1024];
-    int u8len = WideCharToMultiByte(CP_UTF8, 0, text, -1, utf8, sizeof(utf8), NULL, NULL);
+    char utf8[2048];
+    int u8len = Find_TextToUtf8(text, utf8, sizeof(utf8));
     if (u8len <= 0) return;
-    u8len--;
     int flags = 0;
     if (cs) flags |= SCFIND_MATCHCASE;
     if (ww) flags |= SCFIND_WHOLEWORD;
@@ -94,6 +165,9 @@ static void ReadFindOptions(HWND hdlg, HWND* lastEdit) {
     g_findCase = IsDlgButtonChecked(hdlg, IDC_FIND_CASE) == BST_CHECKED;
     g_findWord = IsDlgButtonChecked(hdlg, IDC_FIND_WORD) == BST_CHECKED;
     g_findRegex = IsDlgButtonChecked(hdlg, IDC_FIND_REGEX) == BST_CHECKED;
+    g_findExt = (GetDlgItem(hdlg, IDC_FIND_EXT) != NULL) &&
+                (IsDlgButtonChecked(hdlg, IDC_FIND_EXT) == BST_CHECKED);
+    if (g_findExt) g_findRegex = FALSE;   /* 扩展与正则互斥 */
     g_findAllTabs = IsDlgButtonChecked(hdlg, IDC_FIND_ALL) == BST_CHECKED;
     HWND hed = Editor_ActiveEdit();
     if (hed != *lastEdit) {
@@ -118,7 +192,7 @@ static int ReplaceAllInDoc(HWND hed, const char* utf8find, const char* utf8repl,
         Sci_Position tend = (Sci_Position)SendMessage(hed, SCI_GETTARGETEND, 0, 0);
         SendMessage(hed, SCI_SETTARGETSTART, pos, 0);
         SendMessage(hed, SCI_SETTARGETEND, tend, 0);
-        SendMessage(hed, SCI_REPLACETARGET, -1, (LPARAM)utf8repl);
+        SendMessage(hed, SCI_REPLACETARGET, rlen, (LPARAM)utf8repl);
         count++;
         Sci_Position newpos = pos + rlen;
         if (newpos < tend) newpos = tend;
@@ -172,6 +246,14 @@ static void DestroyFindDlg(HWND hdlg) {
     DestroyWindow(hdlg);
 }
 
+/* 扩展与正则互斥（Notepad++ 是三选一模式，这里用复选框近似后点击即互斥） */
+static void FindModeExclusive(HWND hdlg, int id) {
+    if (id == IDC_FIND_EXT && IsDlgButtonChecked(hdlg, IDC_FIND_EXT) == BST_CHECKED)
+        CheckDlgButton(hdlg, IDC_FIND_REGEX, BST_UNCHECKED);
+    else if (id == IDC_FIND_REGEX && IsDlgButtonChecked(hdlg, IDC_FIND_REGEX) == BST_CHECKED)
+        CheckDlgButton(hdlg, IDC_FIND_EXT, BST_UNCHECKED);
+}
+
 static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static HWND s_lastEdit = NULL;
     if (msg == WM_INITDIALOG) {
@@ -183,12 +265,15 @@ static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         CheckDlgButton(hdlg, IDC_FIND_WORD, g_findWord ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_DOWN, g_findDown ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_REGEX, g_findRegex ? BST_CHECKED : BST_UNCHECKED);
+        if (GetDlgItem(hdlg, IDC_FIND_EXT))
+            CheckDlgButton(hdlg, IDC_FIND_EXT, g_findExt ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_ALL, g_findAllTabs ? BST_CHECKED : BST_UNCHECKED);
         return TRUE;
     }
     if (msg == WM_CLOSE) { DestroyFindDlg(hdlg); return TRUE; }
     if (msg == WM_COMMAND) {
         int id = LOWORD(wp);
+        if (HIWORD(wp) == BN_CLICKED) FindModeExclusive(hdlg, id);
         if (id == IDC_FIND_CLOSE || id == IDCANCEL) { DestroyFindDlg(hdlg); return TRUE; }
         if (id == IDC_FIND_NEXT || id == IDC_FIND_PREV) {
             ReadFindOptions(hdlg, &s_lastEdit);
@@ -228,12 +313,15 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         CheckDlgButton(hdlg, IDC_FIND_WORD, g_findWord ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_DOWN, g_findDown ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_REGEX, g_findRegex ? BST_CHECKED : BST_UNCHECKED);
+        if (GetDlgItem(hdlg, IDC_FIND_EXT))
+            CheckDlgButton(hdlg, IDC_FIND_EXT, g_findExt ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(hdlg, IDC_FIND_ALL, g_findAllTabs ? BST_CHECKED : BST_UNCHECKED);
         return TRUE;
     }
     if (msg == WM_CLOSE) { DestroyFindDlg(hdlg); return TRUE; }
     if (msg == WM_COMMAND) {
         int id = LOWORD(wp);
+        if (HIWORD(wp) == BN_CLICKED) FindModeExclusive(hdlg, id);
         if (id == IDC_FIND_CLOSE || id == IDCANCEL) { DestroyFindDlg(hdlg); return TRUE; }
         if (id == IDC_FIND_NEXT || id == IDC_FIND_PREV) {
             ReadFindOptions(hdlg, &s_lastEdit);
@@ -259,9 +347,11 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             ReadFindOptions(hdlg, &s_lastEdit);
             HWND hed = s_lastEdit;
             if (!hed || wcslen(g_findText) == 0) return TRUE;
-            char utf8find[1024], utf8repl[1024];
-            int u8len = WideCharToMultiByte(CP_UTF8, 0, g_findText, -1, utf8find, sizeof(utf8find), NULL, NULL) - 1;
-            WideCharToMultiByte(CP_UTF8, 0, g_replText, -1, utf8repl, sizeof(utf8repl), NULL, NULL);
+            char utf8find[2048], utf8repl[2048];
+            int u8len = Find_TextToUtf8(g_findText, utf8find, sizeof(utf8find));
+            int rlen = Find_TextToUtf8(g_replText, utf8repl, sizeof(utf8repl));
+            if (u8len < 0) u8len = 0;
+            if (rlen < 0) rlen = 0;
             if (g_findRegex) {
                 SendMessage(hed, SCI_SETSEARCHFLAGS, SCFIND_REGEXP |
                             (g_findCase ? SCFIND_MATCHCASE : 0), 0);
@@ -284,13 +374,16 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             }
             Sci_Position selStart = (Sci_Position)SendMessage(hed, SCI_GETSELECTIONSTART, 0, 0);
             Sci_Position selEnd = (Sci_Position)SendMessage(hed, SCI_GETSELECTIONEND, 0, 0);
-            if (selEnd - selStart == u8len) {
-                char selbuf[1024];
+            if (selEnd - selStart == u8len && u8len >= 0) {
+                char selbuf[2048];
                 SendMessage(hed, SCI_GETSELTEXT, 0, (LPARAM)selbuf);
-                BOOL eq = g_findCase ? (strcmp(selbuf, utf8find) == 0) : (_stricmp(selbuf, utf8find) == 0);
+                BOOL eq = g_findCase ? (memcmp(selbuf, utf8find, u8len) == 0)
+                                     : (_memicmp(selbuf, utf8find, u8len) == 0);
                 if (eq) {
-                    SendMessage(hed, SCI_REPLACESEL, 0, (LPARAM)utf8repl);
-                    LONG pos = (LONG)(selStart + strlen(utf8repl));
+                    SendMessage(hed, SCI_SETTARGETSTART, selStart, 0);
+                    SendMessage(hed, SCI_SETTARGETEND, selEnd, 0);
+                    SendMessage(hed, SCI_REPLACETARGET, rlen, (LPARAM)utf8repl);
+                    LONG pos = (LONG)(selStart + rlen);
                     g_findStart = pos;
                     BOOL found; DoFindFrom(hed, g_findText, g_findCase, g_findWord, FALSE,
                                            g_findDown, g_findStart, TRUE, &found);
@@ -303,9 +396,10 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
             ReadFindOptions(hdlg, &s_lastEdit);
             HWND hed = s_lastEdit;
             if (!hed || wcslen(g_findText) == 0) return TRUE;
-            char utf8find[1024], utf8repl[1024];
-            int u8len = WideCharToMultiByte(CP_UTF8, 0, g_findText, -1, utf8find, sizeof(utf8find), NULL, NULL) - 1;
-            int rlen = WideCharToMultiByte(CP_UTF8, 0, g_replText, -1, utf8repl, sizeof(utf8repl), NULL, NULL) - 1;
+            char utf8find[2048], utf8repl[2048];
+            int u8len = Find_TextToUtf8(g_findText, utf8find, sizeof(utf8find));
+            int rlen = Find_TextToUtf8(g_replText, utf8repl, sizeof(utf8repl));
+            if (u8len < 0) u8len = 0;
             if (rlen < 0) rlen = 0;
             if (g_findAllTabs) {
                 int total = 0, files = 0;

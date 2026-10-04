@@ -125,7 +125,7 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
 
 extern wchar_t g_findText[512];
 extern wchar_t g_replText[512];
-extern BOOL g_findCase, g_findWord, g_findDown, g_findRegex;
+extern BOOL g_findCase, g_findWord, g_findDown, g_findRegex, g_findExt;
 extern BOOL g_findAllTabs;
 extern LONG g_findStart;
 extern HWND g_hFindDlg;
@@ -136,6 +136,7 @@ void Dlg_OpenEnc(HWND hwnd);
 void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re);
 LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re,
                 BOOL down, LONG start, BOOL wrap, BOOL* found);
+int  Find_TextToUtf8(const wchar_t* src, char* utf8, int utf8Max);  /* 扩展模式解码+长度安全转换 */
 
 void Json_FormatActiveDoc(BOOL minify);
 
