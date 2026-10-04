@@ -461,6 +461,36 @@ static void OmmlNode(XB* b, const MathBox* m) {
         case MB_BIGOP:   /* 未与后续脚本合并：按普通符号输出 */
             OmmlNode(b, Kid(m, 0));
             break;
+        case MB_ENV: {
+            /* 环境矩阵：m:d（分隔符）包裹 m:m（矩阵行/列） */
+            static const char* kBeg[7] = { NULL, "(", "[", "{", "|", "\xE2\x80\x96", "{" };
+            static const char* kEnd[7] = { NULL, ")", "]", "}", "|", "\xE2\x80\x96", NULL };
+            int ev = m->env & 7;
+            BOOL hasDelim = (ev != MBENV_PLAIN);
+            if (hasDelim) {
+                Xs(b, "<m:d><m:dPr>");
+                if (kBeg[ev]) { Xs(b, "<m:begChr m:val=\""); Xs(b, kBeg[ev]); Xs(b, "\"/>"); }
+                else Xs(b, "<m:begChr m:val=\"\"/>");
+                if (kEnd[ev]) { Xs(b, "<m:endChr m:val=\""); Xs(b, kEnd[ev]); Xs(b, "\"/>"); }
+                else Xs(b, "<m:endChr m:val=\"\"/>");
+                Xs(b, "</m:dPr><m:e>");
+            }
+            int nCols = m->cols > 0 ? m->cols : 1;
+            Xs(b, "<m:m>");
+            for (int i = 0; i < m->nKids; i++) {
+                const MathBox* r = m->kids[i];
+                Xs(b, "<m:mr>");
+                for (int j = 0; j < nCols; j++) {
+                    Xs(b, "<m:e>");
+                    if (r && j < r->nKids) OmmlNode(b, r->kids[j]);
+                    Xs(b, "</m:e>");
+                }
+                Xs(b, "</m:mr>");
+            }
+            Xs(b, "</m:m>");
+            if (hasDelim) Xs(b, "</m:e></m:d>");
+            break;
+        }
     }
 }
 

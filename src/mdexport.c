@@ -130,10 +130,12 @@ void MdExport_Html(void) {
     DWORD len = 0;
     char* utf8 = Editor_GetTextUtf8(g_curDoc, &len);
     if (!utf8) return;
+    MdNormalizeMathDelims(utf8, &len);
 
     StrBuf body = { 0 };
     md_html(utf8, (MD_SIZE)len, MdHtmlOut, &body,
-            MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS, 0);
+            MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH |
+            MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS | MD_FLAG_FOOTNOTES, 0);
     free(utf8);
     MathDelimit(&body);
     MermaidBlocks(&body);

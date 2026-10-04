@@ -101,6 +101,146 @@ static MathBox* MbGlyphs(const wchar_t* s, int len, int level, BOOL italic) {
 
 static MathBox* MathParseRow(MScan* s, int level);
 
+/* ---- 环境扩展：\begin{...}...\end{...} ---- */
+
+static int EnvTypeFromName(const wchar_t* e) {
+    if (!e || !*e) return -1;
+    if (wcscmp(e, L"cases") == 0 || wcscmp(e, L"dcases") == 0) return MBENV_CASES;
+    if (wcscmp(e, L"matrix") == 0) return MBENV_PLAIN;
+    if (wcscmp(e, L"pmatrix") == 0) return MBENV_PAREN;
+    if (wcscmp(e, L"bmatrix") == 0) return MBENV_BRACKET;
+    if (wcscmp(e, L"Bmatrix") == 0) return MBENV_BRACE;
+    if (wcscmp(e, L"vmatrix") == 0) return MBENV_VBAR;
+    if (wcscmp(e, L"Vmatrix") == 0) return MBENV_VVBAR;
+    if (wcscmp(e, L"aligned") == 0 || wcscmp(e, L"align") == 0 ||
+        wcscmp(e, L"align*") == 0 || wcscmp(e, L"gather") == 0 ||
+        wcscmp(e, L"gathered") == 0) return MBENV_PLAIN;
+    return -1;
+}
+
+/* 解析环境体：& 分列、\\ 分行，cell 的源码先原样积累再交给 MathParseRow
+   （嵌套环境随之自然递归）。消费到与之匹配的 \end{...} 为止。 */
+static MathBox* ParseEnv(MScan* s, int ev, int level) {
+    MathBox* envb = MbNew(MB_ENV);
+    envb->level = level;
+    envb->env = ev;
+    MathBox* row = MbNew(MB_ROW);
+    row->level = level;
+    wchar_t cell[768];
+    int nc = 0;
+    int depth = 0;      /* { } 嵌套 */
+    int nesting = 0;    /* 嵌套 \begin/\end */
+    int maxCols = 0;
+
+    #define ENV_FLUSHCELL() do { \
+        while (nc > 0 && (cell[nc - 1] == L' ' || cell[nc - 1] == L'\t')) nc--; \
+        const wchar_t* cs = cell; \
+        while (cs < cell + nc && (*cs == L' ' || *cs == L'\t')) cs++; \
+        if (nc > 0 && cs < cell + nc) { \
+            cell[nc] = 0; \
+            MScan sub = { cs, cell + nc }; \
+            MathBox* cb = MathParseRow(&sub, level); \
+            if (cb) MbAdd(row, cb); \
+            nc = 0; \
+        } else nc = 0; \
+    } while (0)
+    #define ENV_FLUSHROW() do { \
+        ENV_FLUSHCELL(); \
+        if (row->nKids > 0) { \
+            if (row->nKids > maxCols) maxCols = row->nKids; \
+            MbAdd(envb, row); \
+        } else { \
+            Math_Free(row); \
+        } \
+        row = MbNew(MB_ROW); \
+        row->level = level; \
+    } while (0)
+
+    while (s->p < s->end) {
+        wchar_t c = *s->p;
+        if (c == L'\\' && s->p + 1 < s->end) {
+            wchar_t c2 = s->p[1];
+            if (c2 == L'\\' && depth == 0 && nesting == 0) {
+                s->p += 2;
+                if (s->p < s->end && *s->p == L'[') {   /* \\[2pt] 行距参数 */
+                    while (s->p < s->end && *s->p != L']') s->p++;
+                    if (s->p < s->end) s->p++;
+                }
+                ENV_FLUSHROW();
+                continue;
+            }
+            if ((c2 == L'b' && wcsncmp(s->p, L"\\begin", 6) == 0) && depth == 0) {
+                /* 嵌套环境开始：连同 {name} 原样拷入 cell */
+                if (nc < 760) cell[nc++] = c;
+                s->p++;
+                for (int k = 0; k < 5 && s->p < s->end; k++) {
+                    if (nc < 760) cell[nc++] = *s->p;
+                    s->p++;
+                }
+                if (s->p < s->end && *s->p == L'{') {
+                    while (s->p < s->end && *s->p != L'}') {
+                        if (nc < 760) cell[nc++] = *s->p;
+                        s->p++;
+                    }
+                    if (s->p < s->end) { if (nc < 760) cell[nc++] = *s->p; s->p++; }
+                }
+                nesting++;
+                continue;
+            }
+            if (c2 == L'e' && wcsncmp(s->p, L"\\end", 4) == 0 && depth == 0) {
+                if (nesting > 0) {   /* 嵌套环境的 \end：原样拷入 */
+                    if (nc < 760) cell[nc++] = c;
+                    s->p++;
+                    for (int k = 0; k < 3 && s->p < s->end; k++) {
+                        if (nc < 760) cell[nc++] = *s->p;
+                        s->p++;
+                    }
+                    if (s->p < s->end && *s->p == L'{') {
+                        while (s->p < s->end && *s->p != L'}') {
+                            if (nc < 760) cell[nc++] = *s->p;
+                            s->p++;
+                        }
+                        if (s->p < s->end) { if (nc < 760) cell[nc++] = *s->p; s->p++; }
+                    }
+                    nesting--;
+                    continue;
+                }
+                /* 当前环境的 \end：消费并结束 */
+                s->p += 4;
+                if (s->p < s->end && *s->p == L'{') {
+                    while (s->p < s->end && *s->p != L'}') s->p++;
+                    if (s->p < s->end) s->p++;
+                }
+                break;
+            }
+            /* 其它命令：反斜杠 + 后一字符 + 字母尾巴整体拷入，防止 \frac 断开 */
+            if (nc < 762) { cell[nc++] = c; cell[nc++] = c2; }
+            s->p += 2;
+            while (s->p < s->end && iswalpha(*s->p) && nc < 766) cell[nc++] = *s->p++;
+            continue;
+        }
+        if (c == L'&' && depth == 0 && nesting == 0) {
+            s->p++;
+            ENV_FLUSHCELL();
+            continue;
+        }
+        if (c == L'{') depth++;
+        if (c == L'}' && depth > 0) depth--;
+        if (nc < 766) cell[nc++] = c;
+        s->p++;
+    }
+    ENV_FLUSHROW();
+    #undef ENV_FLUSHCELL
+    #undef ENV_FLUSHROW
+
+    if (envb->nKids == 0 || maxCols == 0) {
+        Math_Free(envb);
+        return NULL;
+    }
+    envb->cols = maxCols;
+    return envb;
+}
+
 static MathBox* MathParseGroup(MScan* s, int level) {
     if (s->p < s->end && *s->p == L'{') {
         s->p++;
@@ -314,7 +454,26 @@ static MathBox* MathParseRow(MScan* s, int level) {
                 if (s->p < s->end && *s->p == L'.') s->p++;
                 continue;
             }
-            if (wcscmp(cmd, L"begin") == 0 || wcscmp(cmd, L"end") == 0) {
+            if (wcscmp(cmd, L"begin") == 0) {
+                wchar_t env[24];
+                int ne = 0;
+                if (s->p < s->end && *s->p == L'{') {
+                    s->p++;
+                    while (s->p < s->end && *s->p != L'}' && ne < 22) env[ne++] = *s->p++;
+                    if (s->p < s->end) s->p++;
+                }
+                env[ne] = 0;
+                int ev = EnvTypeFromName(env);
+                if (ev >= 0) {
+                    FLUSH();
+                    MathBox* envb = ParseEnv(s, ev, level);
+                    if (envb) MbAdd(row, envb);
+                    continue;
+                }
+                /* 未知环境：吞掉 {name}，内容按普通序列解析（沿用旧行为） */
+                continue;
+            }
+            if (wcscmp(cmd, L"end") == 0) {
                 if (s->p < s->end && *s->p == L'{') {
                     while (s->p < s->end && *s->p != L'}') s->p++;
                     if (s->p < s->end) s->p++;
@@ -360,6 +519,52 @@ static MathBox* MathParseRow(MScan* s, int level) {
         return only;
     }
     return row;
+}
+
+/* \(..\) / \[..\] 数学定界符归一为 $..$ / $$..$$（md_parse 前做，LaTeX 系
+   来源的公式免改写）。逐行跟踪围栏代码块整块跳过；"\\"（换行命令）后跟
+   分隔符的情形按反斜杠奇偶不转换。原地收缩重写，返回新长度。 */
+void MdNormalizeMathDelims(char* s, DWORD* len) {
+    DWORD n = *len;
+    DWORD r = 0, i = 0;
+    BOOL inFence = FALSE;
+    BOOL lineOnlySpace = TRUE;
+    int bs = 0;   /* 连续反斜杠计数（跨字符维护，避免读已被改写的缓冲） */
+    while (i < n) {
+        char c = s[i];
+        if (c == '\n') {
+            s[r++] = c;
+            i++;
+            lineOnlySpace = TRUE;
+            bs = 0;
+            continue;
+        }
+        if (lineOnlySpace && (c == '`' || c == '~')) {
+            int k = 0;
+            while (i + k < n && s[i + k] == c) k++;
+            if (k >= 3) inFence = !inFence;
+        }
+        if (c == '\\') {
+            if (!inFence && i + 1 < n &&
+                (s[i + 1] == '(' || s[i + 1] == '[' ||
+                 s[i + 1] == ')' || s[i + 1] == ']') &&
+                ((bs + 1) & 1)) {
+                s[r++] = '$';
+                if (s[i + 1] == '[' || s[i + 1] == ']') s[r++] = '$';
+                i += 2;
+                bs = 0;
+                continue;
+            }
+            bs++;
+        } else {
+            bs = 0;
+        }
+        s[r++] = c;
+        i++;
+        if (c != ' ' && c != '\t' && c != '\r') lineOnlySpace = FALSE;
+    }
+    if (r < n) s[r] = '\0';
+    *len = r;
 }
 
 MathBox* Math_Build(const wchar_t* latex) {
@@ -567,6 +772,39 @@ static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f) {
             b->asc = ga;
             break;
         }
+        case MB_ENV: {
+            /* 环境网格：列宽取各列最大，行高取各行最大；测量所有 cell */
+            int nRows = b->nKids;
+            int nCols = b->cols > 0 ? b->cols : 1;
+            if (nCols > 16) nCols = 16;
+            if (nRows > 64) nRows = 64;
+            int em = MathFontEm(MathFont(f, b->level, FALSE));
+            int colW[16];
+            int rowH[64], rowAsc[64];
+            for (int j = 0; j < nCols; j++) colW[j] = 0;
+            for (int i = 0; i < nRows; i++) { rowH[i] = em; rowAsc[i] = em * 3 / 4; }
+            for (int i = 0; i < nRows; i++) {
+                const MathBox* r = b->kids[i];
+                if (!r) continue;
+                for (int j = 0; j < r->nKids && j < nCols; j++) {
+                    MbMeasure(r->kids[j], hdc, f);
+                    if (r->kids[j]->w > colW[j]) colW[j] = r->kids[j]->w;
+                    if (r->kids[j]->h > rowH[i]) rowH[i] = r->kids[j]->h;
+                    if (r->kids[j]->asc > rowAsc[i]) rowAsc[i] = r->kids[j]->asc;
+                }
+            }
+            int cg = UI_Scale(8), rg = UI_Scale(4);
+            int innerW = UI_Scale(8) * (nCols - 1);
+            for (int j = 0; j < nCols; j++) innerW += colW[j];
+            int dw = UI_Scale(10);
+            int sides = (b->env == MBENV_PLAIN) ? 0 : (b->env == MBENV_CASES ? 1 : 2);
+            int totalH = rg * (nRows - 1);
+            for (int i = 0; i < nRows; i++) totalH += rowH[i];
+            b->w = innerW + UI_Scale(4) + dw * sides;
+            b->h = totalH;
+            b->asc = totalH - (rowH[nRows - 1] - rowAsc[nRows - 1]);
+            break;
+        }
     }
 }
 
@@ -581,6 +819,69 @@ static void MbDrawKids(const MathBox* b, HDC hdc, int x, int yBase,
                        const MdFonts* f, const MdTheme* th, int dx, int dy) {
     for (int i = 0; i < b->nKids; i++)
         if (b->kids[i]) MbDraw(b->kids[i], hdc, x + dx, yBase + dy, f, th);
+}
+
+/* 大分隔符（任意高度）：贝塞尔/线段绘制，随环境高度伸缩 */
+static void EnvDelim(HDC hdc, int x, int yTop, int yBot, int w, int shape) {
+    /* shape: 0=( 1=) 2=[ 3=] 4={ 5=} 6=| 7=‖ */
+    int h = yBot - yTop;
+    if (h < 2) h = 2;
+    int ym = yTop + h / 2;
+    int q = h / 4;
+    if (q < 2) q = 2;
+    POINT pts[4];
+    switch (shape) {
+        case 0:  /* ( */
+            pts[0].x = x + w; pts[0].y = yTop;
+            pts[1].x = x;     pts[1].y = yTop + q;
+            pts[2].x = x;     pts[2].y = yBot - q;
+            pts[3].x = x + w; pts[3].y = yBot;
+            PolyBezier(hdc, pts, 4);
+            break;
+        case 1:  /* ) */
+            pts[0].x = x;     pts[0].y = yTop;
+            pts[1].x = x + w; pts[1].y = yTop + q;
+            pts[2].x = x + w; pts[2].y = yBot - q;
+            pts[3].x = x;     pts[3].y = yBot;
+            PolyBezier(hdc, pts, 4);
+            break;
+        case 2:  /* [ */
+            MoveToEx(hdc, x + w, yTop, NULL);
+            LineTo(hdc, x, yTop);
+            LineTo(hdc, x, yBot);
+            LineTo(hdc, x + w, yBot);
+            break;
+        case 3:  /* ] */
+            MoveToEx(hdc, x, yTop, NULL);
+            LineTo(hdc, x + w, yTop);
+            LineTo(hdc, x + w, yBot);
+            LineTo(hdc, x, yBot);
+            break;
+        case 4: {  /* { ：上/下两段贝塞尔，中点尖角朝右 */
+            POINT b1[4] = { { x + w, yTop }, { x, yTop + q }, { x, ym - q / 2 }, { x + w, ym } };
+            PolyBezier(hdc, b1, 4);
+            POINT b2[4] = { { x + w, ym }, { x, ym + q / 2 }, { x, yBot - q }, { x + w, yBot } };
+            PolyBezier(hdc, b2, 4);
+            break;
+        }
+        case 5: {  /* } */
+            POINT b1[4] = { { x, yTop }, { x + w, yTop + q }, { x + w, ym - q / 2 }, { x, ym } };
+            PolyBezier(hdc, b1, 4);
+            POINT b2[4] = { { x, ym }, { x + w, ym + q / 2 }, { x + w, yBot - q }, { x, yBot } };
+            PolyBezier(hdc, b2, 4);
+            break;
+        }
+        case 6:  /* | */
+            MoveToEx(hdc, x + w / 2, yTop, NULL);
+            LineTo(hdc, x + w / 2, yBot);
+            break;
+        case 7:  /* ‖ */
+            MoveToEx(hdc, x + w / 3, yTop, NULL);
+            LineTo(hdc, x + w / 3, yBot);
+            MoveToEx(hdc, x + 2 * w / 3, yTop, NULL);
+            LineTo(hdc, x + 2 * w / 3, yBot);
+            break;
+    }
 }
 
 static void MbDraw(const MathBox* b, HDC hdc, int x, int yBase,
@@ -663,6 +964,54 @@ static void MbDraw(const MathBox* b, HDC hdc, int x, int yBase,
             if (g) {
                 MbDraw(g, hdc, x, yBase, f, th);
             }
+            break;
+        }
+        case MB_ENV: {
+            int nRows = b->nKids;
+            int nCols = b->cols > 0 ? b->cols : 1;
+            if (nCols > 16) nCols = 16;
+            if (nRows > 64) nRows = 64;
+            int colW[16];
+            int rowH[64], rowAsc[64];
+            for (int j = 0; j < nCols; j++) colW[j] = 0;
+            for (int i = 0; i < nRows; i++) { rowH[i] = 0; rowAsc[i] = 0; }
+            for (int i = 0; i < nRows; i++) {
+                const MathBox* r = b->kids[i];
+                if (!r) continue;
+                for (int j = 0; j < r->nKids && j < nCols; j++) {
+                    if (r->kids[j]->w > colW[j]) colW[j] = r->kids[j]->w;
+                    if (r->kids[j]->h > rowH[i]) rowH[i] = r->kids[j]->h;
+                    if (r->kids[j]->asc > rowAsc[i]) rowAsc[i] = r->kids[j]->asc;
+                }
+            }
+            int cg = UI_Scale(8), rg = UI_Scale(4);
+            int dw = UI_Scale(10);
+            int top = yBase - b->asc;
+            int yBot = top + b->h;
+            HPEN pen = CreatePen(PS_SOLID, 1, th->fg);
+            HPEN op = (HPEN)SelectObject(hdc, pen);
+            int cx = x;
+            static const int kLeft[7]  = { -1, 0, 2, 4, 4, 6, 4 };  /* PLAIN,PAREN,BRACKET,BRACE,VBAR,VVBAR,CASES */
+            static const int kRight[7] = { -1, 1, 3, 5, 6, 7, -1 };
+            int li = kLeft[b->env & 7], ri = kRight[b->env & 7];
+            if (li >= 0) { EnvDelim(hdc, cx, top, yBot, dw, li); cx += dw; }
+            cx += UI_Scale(2);
+            int colX[16];
+            colX[0] = cx;
+            for (int j = 1; j < nCols; j++) colX[j] = colX[j - 1] + colW[j - 1] + cg;
+            int cy = top;
+            for (int i = 0; i < nRows; i++) {
+                int baseline = cy + rowAsc[i];
+                const MathBox* r = b->kids[i];
+                for (int j = 0; r && j < r->nKids && j < nCols; j++)
+                    MbDraw(r->kids[j], hdc, colX[j], baseline, f, th);
+                cy += rowH[i] + rg;
+            }
+            if (ri >= 0)
+                EnvDelim(hdc, cx + (colX[nCols - 1] - colX[0]) + colW[nCols - 1] + UI_Scale(2),
+                         top, yBot, dw, ri);
+            SelectObject(hdc, op);
+            DeleteObject(pen);
             break;
         }
     }

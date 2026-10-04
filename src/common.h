@@ -232,8 +232,19 @@ struct MdBlock {
 /* ---- 公式模型（mdmath 解析，mdmath/docx 共用；docx 据此生成 OMML） ---- */
 
 typedef enum {
-    MB_ROW, MB_GLYPHS, MB_FRAC, MB_SCRIPT, MB_RADICAL, MB_BIGOP
+    MB_ROW, MB_GLYPHS, MB_FRAC, MB_SCRIPT, MB_RADICAL, MB_BIGOP, MB_ENV
 } MbKind;
+
+/* MB_ENV 的环境类型（m->env）：matrix 族 / cases / aligned */
+enum {
+    MBENV_PLAIN = 0,   /* matrix / aligned / gather：无分隔符 */
+    MBENV_PAREN,       /* pmatrix  ( ) */
+    MBENV_BRACKET,     /* bmatrix  [ ] */
+    MBENV_BRACE,       /* Bmatrix  { } */
+    MBENV_VBAR,        /* vmatrix  | | */
+    MBENV_VVBAR,       /* Vmatrix  ‖ ‖ */
+    MBENV_CASES        /* cases：仅左花括号 */
+};
 
 typedef struct MathBox MathBox;
 struct MathBox {
@@ -245,12 +256,15 @@ struct MathBox {
     BOOL italic;
     int spaceAfter;
     int raiseY;
+    int env;    /* MB_ENV 时的环境类型（MBENV_*），其余种类无效 */
+    int cols;   /* MB_ENV 的列数 */
 };
 
 MathBox* Math_Build(const wchar_t* latex);
 void  Math_Free(MathBox* b);
 void  Math_Measure(MathBox* b, HDC hdc, const MdFonts* f);
 void  Math_MeasureCacheReset(void);   /* 字体重建（字号/DPI 变化）时清测量缓存 */
+void  MdNormalizeMathDelims(char* utf8, DWORD* len);   /* \(..)/\[..\] → $..$/$$..$$ */
 void  Math_Draw(const MathBox* b, HDC hdc, int x, int yBase,
                 const MdTheme* th, const MdFonts* f);
 int   Math_Width(const MathBox* b);

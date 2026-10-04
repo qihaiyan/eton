@@ -719,6 +719,30 @@ static int MdEnterBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             P->quoteDepth++;
             break;
         }
+        case MD_BLOCK_FOOTNOTE_DEF_SECTION: {
+            /* 文末脚注区：分隔线 + 有序列表（定义按首次引用顺序送达，编号即 id） */
+            MdBlock* hr = BlkNew(MDB_HR);
+            BlkAppend(P->stack[P->depth], hr);
+            MdBlock* l = BlkNew(MDB_OL);
+            BlkAppend(P->stack[P->depth], l);
+            P->stack[++P->depth] = l;
+            P->inOl[P->depth] = TRUE;
+            P->olStart[P->depth] = 1;
+            P->olDelim[P->depth] = L'.';
+            P->olNum[P->depth] = 0;
+            break;
+        }
+        case MD_BLOCK_FOOTNOTE_DEF: {
+            const MD_BLOCK_FOOTNOTE_DEF_DETAIL* d =
+                (const MD_BLOCK_FOOTNOTE_DEF_DETAIL*)detail;
+            MdBlock* li = BlkNew(MDB_LI);
+            li->itemNum = (int)d->id;
+            li->itemDelim = L'.';
+            li->tight = TRUE;
+            BlkAppend(P->stack[P->depth], li);
+            P->stack[++P->depth] = li;
+            break;
+        }
         case MD_BLOCK_UL: {
             MdBlock* l = BlkNew(MDB_UL);
             const MD_BLOCK_UL_DETAIL* d = (const MD_BLOCK_UL_DETAIL*)detail;
@@ -827,6 +851,7 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             break;
         case MD_BLOCK_UL: case MD_BLOCK_OL: case MD_BLOCK_LI:
         case MD_BLOCK_TABLE:
+        case MD_BLOCK_FOOTNOTE_DEF: case MD_BLOCK_FOOTNOTE_DEF_SECTION:
             P->textBlk = NULL;
             if (P->depth > 0) P->depth--;
             if (type == MD_BLOCK_TABLE) P->table = NULL;
@@ -939,6 +964,16 @@ static int MdEnterSpan(MD_SPANTYPE type, void* detail, void* ud) {
             AttrToWide(d->src, tmp, 2048);
             free(P->imgSrc);
             P->imgSrc = _wcsdup(tmp);
+            break;
+        }
+        case MD_SPAN_FOOTNOTE_REF: {
+            /* 自含 span（内部不触发文本回调）：直接产出 "[N]" 引用文本 */
+            const MD_SPAN_FOOTNOTE_REF_DETAIL* d =
+                (const MD_SPAN_FOOTNOTE_REF_DETAIL*)detail;
+            wchar_t t[16];
+            int n = _snwprintf(t, 16, L"[%u]", d->id);
+            if (n < 0 || n > 15) n = 15;
+            AddRun(t, n, STY_LINK | P->style);
             break;
         }
         default: break;
@@ -1097,7 +1132,10 @@ static int MdText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE len, void* ud) 
 
 static MD_PARSER g_mdParser = {
     0,
-    MD_DIALECT_GITHUB | MD_FLAG_LATEXMATHSPANS,
+    /* 不用 MD_DIALECT_GITHUB：0.6.0 起它捆绑了 ADMONITIONS（暂未做原生渲染）；
+       显式列出所需扩展 + 脚注 */
+    MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH |
+    MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS | MD_FLAG_FOOTNOTES,
     MdEnterBlock, MdLeaveBlock,
     MdEnterSpan, MdLeaveSpan,
     MdText,
@@ -1111,6 +1149,7 @@ static MdBlock* MdParseDoc(const char* utf8, DWORD len) {
     ZeroMemory(&ctx, sizeof(ctx));
     ctx.stack[0] = root;
     P = &ctx;
+    MdNormalizeMathDelims((char*)utf8, &len);
     md_parse(utf8, (MD_SIZE)len, &g_mdParser, &ctx);
     ResetInlineHtml();
     free(ctx.mathBuf);

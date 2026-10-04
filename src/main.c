@@ -691,8 +691,4 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     return (int)msg.wParam;
 }
 
-
-
-/* final */
-
-/* incremental viewport layout */
+/* math: cases/matrix/aligned environments, \( \) and \[ \] delimiter normalization */

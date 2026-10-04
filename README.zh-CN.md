@@ -29,7 +29,7 @@
 | 多标签 | 自定义标签栏，可同时编辑多个文件 |
 | 界面语言 | 简体中文 / English 双语界面，未选择过时首次启动跟随系统 UI 语言 |
 | 语法高亮 | 10 种语言：C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL / Markdown；按扩展名自动识别，也可在语言菜单手动切换；语法语言下显示代码折叠边距|
-| Markdown 预览 | F12 在当前标签内切换 编辑 ↔ 渲染视图，Shift+F12 并排分屏（左编辑右预览，双向同步滚动）；**Mermaid 13 个图族原生绘制**（流程图/时序图/状态图/类图/ER 图/饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph），未识别图族回退为源码显示并提示；**数学公式**（`$..$` 行内与 `$$..$$` 块级，分式/根号/上下标/希腊字母/求和积分等 LaTeX 子集，Cambria Math 字体排版）；**图片内嵌**；导出 **HTML**与 **PDF**（打印对话框分页渲染）；配色跟随亮/暗主题，字号跟随编辑器缩放 |
+| Markdown 预览 | F12 在当前标签内切换 编辑 ↔ 渲染视图，Shift+F12 并排分屏（左编辑右预览，双向同步滚动）；**Mermaid 13 个图族原生绘制**（流程图/时序图/状态图/类图/ER 图/饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph），未识别图族回退为源码显示并提示；**数学公式**（`$..$` 行内与 `$$..$$` 块级，`\(..\)`/`\[..\]` 定界符自动归一；分式/根号/上下标/希腊字母/求和积分等 LaTeX 子集，`cases`/`matrix` 族/`aligned` 环境带自适应大分隔符，Cambria Math 字体排版）；**脚注**（`[^label]` 引用渲染为链接色 [N]，定义收集到文末的"分隔线+编号列表"区，未引用的定义不显示）；**图片内嵌**；导出 **HTML**与 **PDF**（打印对话框分页渲染）；配色跟随亮/暗主题，字号跟随编辑器缩放 |
 | 多编码 | ANSI(系统代码页) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE，打开时自动探测 BOM，状态栏显示当前编码；另存 ANSI 时若内容含无法表示的字符会提示乱码风险 |
 | 行尾转换 | CRLF / LF / CR，可一键"转换为…"；新文档及探测不到行尾的文件默认 Unix (LF)，打开已有文件时按内容自动探测并保持 |
 | JSON 工具 | 编辑菜单：JSON 格式化/压缩；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
@@ -66,7 +66,7 @@ eton/
 ├── deps/              # Scintilla + Lexilla + MD4C 依赖（内置，编译不再依赖外部目录）
 │   ├── scintilla/     #   libscintilla.lib + 头文件
 │   ├── lexilla/       #   liblexilla.lib + 头文件
-│   ├── md4c/          #   MD4C 0.5.3（Markdown 解析器，MIT）源码 md4c.c/md4c.h 等
+│   ├── md4c/          #   MD4C 0.6.0（Markdown 解析器，MIT）源码 md4c.c/md4c.h 等
 │   └── mermaid/       #   mermaid.min.js（导出 HTML 时内嵌；CDN 回退）
 ├── res/
 │   ├── app.png        # 程序图标源图（1080×1080）
@@ -178,7 +178,7 @@ wix build -arch x64 eton.wxs -d Version=0.0.1 -acceptEula wix7 -o eton-0.0.1-x64
 - **缩放**：`Ctrl+=` 放大、`Ctrl+-` 缩小、`Ctrl+0` 复位。
 - **自动换行**：视图菜单切换。
 - **暗色主题**：在"视图 → 主题"切换（标题栏/标签栏/状态栏/语法高亮配色随之改变）。
-- **Markdown 预览**：打开 `.md` 文件后按 `F12`（或 视图 → Markdown 预览）切换到渲染视图，`Esc` 切回编辑；`Shift+F12` 并排分屏（左编辑右预览，滚动双向同步），再次按关闭分屏；预览中滚轮/键盘滚动，点击链接用系统默认程序打开；支持 `$..$` / `$$..$$` 数学公式、图片内嵌、13 个 Mermaid 图族；保存后预览自动刷新，缩放与主题跟随编辑器。
+- **Markdown 预览**：打开 `.md` 文件后按 `F12`（或 视图 → Markdown 预览）切换到渲染视图，`Esc` 切回编辑；`Shift+F12` 并排分屏（左编辑右预览，滚动双向同步），再次按关闭分屏；预览中滚轮/键盘滚动，点击链接用系统默认程序打开；支持 `$..$` / `$$..$$` / `\(..\)` / `\[..\]` 数学公式（含 `cases`/`matrix`/`aligned` 环境）、图片内嵌、13 个 Mermaid 图族；保存后预览自动刷新，缩放与主题跟随编辑器。
 - **导出 HTML / PDF**：文件菜单 → 导出。HTML 生成自包含单文件（内嵌 mermaid.min.js 与 MathJax CDN 回退，图表公式在浏览器中交互渲染）；PDF 走系统打印对话框分页渲染（选 Microsoft Print to PDF 存为 .pdf）。
 - **书签**：`Ctrl+F2` 切换当前行书签，`F2` / `Shift+F2` 上下跳转。
 - **代码折叠**：打开语法语言文件后，行号旁出现折叠边距，点击 +/− 折叠或展开。
@@ -205,14 +205,13 @@ wix build -arch x64 eton.wxs -d Version=0.0.1 -acceptEula wix7 -o eton-0.0.1-x64
 - **开发者工具**：算法与 UI 分层——`devtutil.c` 是不引用任何全局状态的纯函数（Base64/URL/Unicode 编解码手写、哈希与随机数走系统 CNG `bcrypt`、含代理对与严格非法输入校验），`devtools.c` 复用 JSON 工具的"选区/全文 + target 替换 + 错误定位"骨架。哈希对话框在 `WM_INITDIALOG` 一次算出四种摘要存二进制，"大写"切换只是重新渲染 hex。
 - **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
 - **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。
-- **Markdown 预览**：`mdview.c` 用 MD4C（`MD_DIALECT_GITHUB` | `MD_FLAG_LATEXMATHSPANS`）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表/图片/公式），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式；行内公式作为原子 token 参与换行。紧凑列表（无空行条目）不发出段落块，`AddRun` 惰性挂段并入树。分屏模式编辑区占左半、预览占右半，滚动按可视比例双向同步（同步互斥锁防回环）。`mermaid.c` 为 ```mermaid``` 代码块提供 13 个图族的原生解析、布局与 GDI 绘制：流程图（最长路径分层 + 层内重心排序）、时序图（生命线 + 垂直堆叠）、状态图/类图/ER 图（复用流程图内核，三格成员框）、饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph（`mermaid_ext*.inc` 扩展），未识别图族回退为代码块。`mdmath.c` 把 LaTeX 子集解析成 MathBox 盒树（横排/分式/上下标/根式/大运算符，Cambria Math 三级字号 + 希腊字母/运算符符号表）自绘。图片经 GDI+ flat API 动态加载（LRU 缓存 16 张）；远程图片经 WinHTTP 后台下载缓存（`mdimg.c`，%TEMP%\eton_mdimg，首次显示占位框、下载完成后自动重排）。
+- **Markdown 预览**：`mdview.c` 用 MD4C（显式 GFM 等价旗标 | `MD_FLAG_LATEXMATHSPANS` | `MD_FLAG_FOOTNOTES`；0.6.0 的 `MD_DIALECT_GITHUB` 还捆绑了暂未渲染的提示块扩展）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表/图片/公式），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式；行内公式作为原子 token 参与换行。紧凑列表（无空行条目）不发出段落块，`AddRun` 惰性挂段并入树。分屏模式编辑区占左半、预览占右半，滚动按可视比例双向同步（同步互斥锁防回环）。`mermaid.c` 为 ```mermaid``` 代码块提供 13 个图族的原生解析、布局与 GDI 绘制：流程图（最长路径分层 + 层内重心排序）、时序图（生命线 + 垂直堆叠）、状态图/类图/ER 图（复用流程图内核，三格成员框）、饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph（`mermaid_ext*.inc` 扩展），未识别图族回退为代码块。`mdmath.c` 把 LaTeX 子集解析成 MathBox 盒树（横排/分式/上下标/根式/大运算符，Cambria Math 三级字号 + 希腊字母/运算符符号表）自绘；`cases`/`matrix` 族/`aligned` 环境按 `&` 分列、`\\` 分行解析成网格逐行测量，外侧绘制自适应尺寸的大分隔符（圆括号/方括号/花括号/竖线，贝塞尔绘制），导出 Word 时映射为 OMML `m:d`/`m:m`；`\(..\)`/`\[..\]` 在解析前原地归一为 `$`/`$$`（跳过代码围栏、不碰 `\\[`）。图片经 GDI+ flat API 动态加载（LRU 缓存 16 张）；远程图片经 WinHTTP 后台下载缓存（`mdimg.c`，%TEMP%\eton_mdimg，首次显示占位框、下载完成后自动重排）。
 
 ---
 
 ## 已知限制 / 后续可扩展
 
-- Markdown 预览：Mermaid 已覆盖 13 个常用图族（flowchart/sequence/state/class/er/pie/quadrant/timeline/journey/gantt/xychart/mindmap/gitGraph），其余小众图族（C4 图、桑基图、需求图等）暂回退源码；数学公式为 LaTeX 常用子集（矩阵、cases 等复杂环境未实现）；导出 HTML 依赖内嵌 mermaid.js 3.5MB（首次构建后存在 deps\mermaid\）；PDF 导出为打印管线（矢量文本 + 图表位图化分页）。
-- 查找/替换为单文件（无跨文件/文件夹搜索）；正则语法为 Scintilla 内建（类 POSIX）。
+- Markdown 预览：Mermaid 已覆盖 13 个常用图族（flowchart/sequence/state/class/er/pie/quadrant/timeline/journey/gantt/xychart/mindmap/gitGraph），其余小众图族（C4 图、桑基图、需求图等）暂回退源码；数学公式为 LaTeX 常用子集，已含 `cases`/`matrix` 族与 `aligned`/`align`/`gather` 环境（未知环境按普通内容渲染、不做特殊网格布局）；导出 HTML 依赖内嵌 mermaid.js 3.5MB（首次构建后存在 deps\mermaid\）；PDF 导出为打印管线（矢量文本 + 图表位图化分页）。
 - 未实现：列块选择、宏、插件体系、打印。Scintilla 原生支持折叠（已启用）、打印（SCI_FORMATRANGE，可按需接入）。
 
 ---
