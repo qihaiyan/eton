@@ -219,7 +219,6 @@ static void OpenRecent(int ri) {
     OpenFileByPath(path);
 }
 
-
 static void InsertDateTime(void) {
     HWND edit = Editor_ActiveEdit();
     if (!edit) return;
@@ -632,17 +631,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     Session_Save();
                     g_sessionDirty = FALSE;
                 }
-                if (g_draftsDirty) Session_SaveDrafts();
-                for (int i = 0; i < g_docCount; i++) {
-                    if (g_docs[i].dirty && !g_docs[i].isNew)
-                        Session_AutoBackupWrite(i);
-                }
+                Session_FlushDirtyAsync();   /* 草稿+自动备份：快照后交后台线程写盘 */
             }
             return 0;
         case WM_CLOSE:
             if (ConfirmExit()) DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
+            Session_WaitBackupDone();   /* 等后台写盘收尾，避免备份/草稿被截断 */
             Session_SaveDrafts();
             Session_Save();
             Settings_Save();
@@ -694,3 +690,5 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     }
     return (int)msg.wParam;
 }
+
+

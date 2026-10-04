@@ -55,6 +55,7 @@ typedef struct {
     FILETIME ftWrite;
     BOOL previewOn;
     unsigned modGen;
+    unsigned bkpGen;    /* 上次备份/草稿写盘时的 modGen，跳过无变化的重复写盘 */
 } Doc;
 
 extern HINSTANCE g_hInst;
@@ -216,6 +217,7 @@ struct MdBlock {
     MdRun* runs; int nRuns, capRuns;
     int level;
     wchar_t* code; int codeLen;
+    char* mmdSrc; int mmdSrcLen;   /* mermaid 源码（UTF-8），解析缓存的键 */
     char fenceLang[24];
     MermaidDiagram* diag;
     BOOL isTask; wchar_t taskMark;
@@ -248,6 +250,7 @@ struct MathBox {
 MathBox* Math_Build(const wchar_t* latex);
 void  Math_Free(MathBox* b);
 void  Math_Measure(MathBox* b, HDC hdc, const MdFonts* f);
+void  Math_MeasureCacheReset(void);   /* 字体重建（字号/DPI 变化）时清测量缓存 */
 void  Math_Draw(const MathBox* b, HDC hdc, int x, int yBase,
                 const MdTheme* th, const MdFonts* f);
 int   Math_Width(const MathBox* b);
@@ -326,6 +329,8 @@ int  Session_RestoreWindow(HWND hwnd, int nShowCmd);
 void Settings_Load(void);
 void Settings_Save(void);
 void Session_AutoBackupWrite(int index);
+void Session_FlushDirtyAsync(void);   /* 10 秒定时：UI 线程快照 + 后台线程写盘 */
+void Session_WaitBackupDone(void);    /* 退出前等待后台写盘结束（防备份截断） */
 void Session_AutoBackupDiscard(const wchar_t* path);
 BOOL Session_AutoBackupExists(const wchar_t* path);
 BOOL Session_AutoBackupRead(const wchar_t* path, char** out, DWORD* len);

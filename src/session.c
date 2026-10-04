@@ -1,4 +1,52 @@
 #include "common.h"
+#include <process.h>
+
+/* ---- 后台写盘 ----
+   10 秒定时器的草稿/自动备份原先在 UI 线程同步整篇写盘，大文档时造成周期性
+   输入停顿（慢盘/杀软实时扫描下更明显）。现在 UI 线程只做文本快照（SCI_GETTEXT
+   必须在 UI 线程），CreateFile/WriteFile 交给单个后台线程；上一轮还没写完则
+   跳过本轮。退出前 Session_WaitBackupDone 等待收尾，避免备份文件被截断。 */
+typedef struct BkJob {
+    struct BkJob* next;
+    wchar_t path[MAX_PATH];
+    char* text;
+    DWORD len;
+} BkJob;
+
+static HANDLE s_bkThread = NULL;
+static volatile LONG s_bkBusy = 0;
+
+static void BkWriteSync(BkJob* j) {
+    while (j) {
+        BkJob* nx = j->next;
+        HANDLE h = CreateFileW(j->path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
+                               FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            DWORD wr;
+            WriteFile(h, j->text, j->len, &wr, NULL);
+            CloseHandle(h);
+        }
+        free(j->text);
+        free(j);
+        j = nx;
+    }
+}
+
+static unsigned __stdcall BkWriter(void* param) {
+    BkWriteSync((BkJob*)param);
+    InterlockedDecrement(&s_bkBusy);
+    return 0;
+}
+
+static void BkPush(BkJob** head, const wchar_t* path, char* text, DWORD len) {
+    BkJob* j = (BkJob*)malloc(sizeof(BkJob));
+    if (!j) { free(text); return; }
+    wcscpy_s(j->path, MAX_PATH, path);
+    j->text = text;
+    j->len = len;
+    j->next = *head;
+    *head = j;
+}
 
 static BOOL Session_GetDir(wchar_t* out, DWORD cch) {
     wchar_t appdata[MAX_PATH];
@@ -63,7 +111,7 @@ void Session_Save(void) {
     WritePrivateProfileStringW(L"session", L"activetab", at, ini);
 }
 
-void Session_SaveDrafts(void) {
+static void DraftsCollect(BkJob** q) {   /* q == NULL → 同步写（退出路径） */
     wchar_t ini[MAX_PATH], dir[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
     if (!Session_GetDraftDir(dir, MAX_PATH)) return;
@@ -80,6 +128,7 @@ void Session_SaveDrafts(void) {
             }
             continue;
         }
+        if (d->bkpGen == d->modGen && d->draft[0]) continue;   /* 自上次写盘未修改 */
         if (!d->draft[0]) {
             for (int k = 1; k < 1000; k++) {
                 wchar_t nm[32], p[MAX_PATH];
@@ -97,22 +146,31 @@ void Session_SaveDrafts(void) {
         if (!text) continue;
         wchar_t p[MAX_PATH];
         WFmt(p, L"%s\\%s", dir, d->draft);
-        HANDLE h = CreateFileW(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (h != INVALID_HANDLE_VALUE) {
-            DWORD wr;
-            WriteFile(h, text, len, &wr, NULL);
-            CloseHandle(h);
-            n++;
-            wchar_t key[16];
-            WFmt(key, L"draft%d", n);
-            WritePrivateProfileStringW(L"session", key, d->draft, ini);
+        d->bkpGen = d->modGen;
+        n++;                                   /* 写盘交给后台，簿记在 UI 线程完成 */
+        wchar_t key[16];
+        WFmt(key, L"draft%d", n);
+        WritePrivateProfileStringW(L"session", key, d->draft, ini);
+        if (q) {
+            BkPush(q, p, text, len);
+        } else {
+            HANDLE h = CreateFileW(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (h != INVALID_HANDLE_VALUE) {
+                DWORD wr;
+                WriteFile(h, text, len, &wr, NULL);
+                CloseHandle(h);
+            }
+            free(text);
         }
-        free(text);
     }
     wchar_t v[16];
     WFmt(v, L"%d", n);
     WritePrivateProfileStringW(L"session", L"drafts", v, ini);
     g_draftsDirty = FALSE;
+}
+
+void Session_SaveDrafts(void) {
+    DraftsCollect(NULL);
 }
 
 void Session_DiscardDraft(int index) {
@@ -347,10 +405,11 @@ static BOOL Session_AutoBackupPath(const wchar_t* path, wchar_t* out, DWORD cch)
     return TRUE;
 }
 
-void Session_AutoBackupWrite(int index) {
+static void AutoBackupCollect(int index, BkJob** q) {   /* q == NULL → 同步写 */
     if (index < 0 || index >= g_docCount) return;
     Doc* d = &g_docs[index];
     if (d->isNew || !d->dirty || d->path[0] == L'\0') return;
+    if (d->bkpGen == d->modGen) return;                   /* 自上次写盘未修改 */
     if (!d->hwndEdit ||
         SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) > (LRESULT)AUTOBACK_MAX) return;
     wchar_t p[MAX_PATH];
@@ -358,12 +417,50 @@ void Session_AutoBackupWrite(int index) {
     DWORD len = 0;
     char* text = Editor_GetTextUtf8(index, &len);
     if (!text) return;
-    HANDLE h = CreateFileW(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h != INVALID_HANDLE_VALUE) {
-        DWORD wr; WriteFile(h, text, len, &wr, NULL);
-        CloseHandle(h);
+    d->bkpGen = d->modGen;
+    if (q) {
+        BkPush(q, p, text, len);
+    } else {
+        HANDLE h = CreateFileW(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (h != INVALID_HANDLE_VALUE) {
+            DWORD wr; WriteFile(h, text, len, &wr, NULL);
+            CloseHandle(h);
+        }
+        free(text);
     }
-    free(text);
+}
+
+void Session_AutoBackupWrite(int index) {
+    AutoBackupCollect(index, NULL);
+}
+
+void Session_FlushDirtyAsync(void) {
+    if (InterlockedCompareExchange(&s_bkBusy, 1, 0) != 0) return;  /* 上一轮还在写 */
+    BkJob* jobs = NULL;
+    DraftsCollect(&jobs);
+    for (int i = 0; i < g_docCount; i++)
+        if (g_docs[i].dirty && !g_docs[i].isNew)
+            AutoBackupCollect(i, &jobs);
+    if (!jobs) {
+        InterlockedDecrement(&s_bkBusy);
+        return;
+    }
+    uintptr_t t = _beginthreadex(NULL, 0, BkWriter, jobs, 0, NULL);
+    if (!t) {
+        BkWriteSync(jobs);            /* 线程创建失败：退化为同步写 */
+        InterlockedDecrement(&s_bkBusy);
+        return;
+    }
+    if (s_bkThread) CloseHandle(s_bkThread);
+    s_bkThread = (HANDLE)t;
+}
+
+void Session_WaitBackupDone(void) {
+    if (s_bkThread) {
+        WaitForSingleObject(s_bkThread, 3000);
+        CloseHandle(s_bkThread);
+        s_bkThread = NULL;
+    }
 }
 
 static BOOL Session_AutoBackupPathOf(const wchar_t* path, wchar_t* out, DWORD cch) {

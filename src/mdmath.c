@@ -376,14 +376,88 @@ static HFONT MathFont(const MdFonts* f, int level, BOOL italic) {
     }
 }
 
+/* em（字号）按 HFONT 缓存（GetObjectW 逐字形调用也是热点之一），
+   随 Math_MeasureCacheReset 一并失效 */
+static HFONT s_emF[16];
+static int s_emV[16];
+
 static int MathFontEm(HFONT fo) {
+    for (int i = 0; i < 16; i++)
+        if (s_emF[i] == fo) return s_emV[i];
     LOGFONTW lf;
+    int em = 16;
     if (GetObjectW(fo, sizeof(lf), &lf) && lf.lfHeight < 0)
-        return -lf.lfHeight;
-    return 16;
+        em = -lf.lfHeight;
+    for (int i = 0; i < 16; i++) {
+        if (!s_emF[i]) { s_emF[i] = fo; s_emV[i] = em; break; }
+    }
+    return em;
 }
 
 static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f);
+
+/* ---- 测量缓存 ----
+   MB_GLYPHS 每个字形盒要 SelectObject×2 + GetTextExtentPoint32W + GetObjectW，
+   公式密集文档首屏布局时是最大热点；数学字形的 (字体,文本) 组合高度重复，
+   按 FNV 哈希缓存 宽度/em，em 另有按 HFONT 的小缓存。字体重建（字号/DPI
+   变化）时由 mdview 调 Math_MeasureCacheReset 整表失效。 */
+#define MG_BUCKETS 512
+typedef struct MgEnt {
+    struct MgEnt* next;
+    HFONT f;
+    wchar_t* s;
+    int cx, em;
+} MgEnt;
+static MgEnt* s_mg[MG_BUCKETS];
+static int s_mgCount = 0;
+
+static unsigned MgHash(HFONT f, const wchar_t* s) {
+    unsigned h = 2166136261u ^ (unsigned)(uintptr_t)f;
+    for (const wchar_t* p = s; *p; p++) { h ^= (unsigned)*p; h *= 16777619u; }
+    return h & (MG_BUCKETS - 1);
+}
+
+void Math_MeasureCacheReset(void) {
+    for (int i = 0; i < MG_BUCKETS; i++) {
+        MgEnt* e = s_mg[i];
+        while (e) {
+            MgEnt* nx = e->next;
+            free(e->s);
+            free(e);
+            e = nx;
+        }
+        s_mg[i] = NULL;
+    }
+    s_mgCount = 0;
+    for (int i = 0; i < 16; i++) { s_emF[i] = NULL; s_emV[i] = 0; }   /* em 缓存一并失效 */
+}
+
+static BOOL MgGet(HFONT f, const wchar_t* s, int* cx, int* em) {
+    for (MgEnt* e = s_mg[MgHash(f, s)]; e; e = e->next) {
+        if (e->f == f && wcscmp(e->s, s) == 0) {
+            *cx = e->cx;
+            *em = e->em;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static void MgPut(HFONT f, const wchar_t* s, int cx, int em) {
+    if (s_mgCount > 4096) return;   /* 上限保护 */
+    MgEnt* e = (MgEnt*)malloc(sizeof(MgEnt));
+    if (!e) return;
+    e->s = _wcsdup(s);
+    if (!e->s) { free(e); return; }
+    e->f = f;
+    e->cx = cx;
+    e->em = em;
+    unsigned b = MgHash(f, s);
+    e->next = s_mg[b];
+    s_mg[b] = e;
+    s_mgCount++;
+}
+
 
 static void MbMeasureKids(MathBox* b, HDC hdc, const MdFonts* f) {
     for (int i = 0; i < b->nKids; i++)
@@ -394,14 +468,19 @@ static void MbMeasure(MathBox* b, HDC hdc, const MdFonts* f) {
     switch (b->kind) {
         case MB_GLYPHS: {
             HFONT fo = MathFont(f, b->level, b->italic);
-            HFONT of = (HFONT)SelectObject(hdc, fo);
-            SIZE sz;
-            GetTextExtentPoint32W(hdc, b->text, (int)wcslen(b->text), &sz);
-            SelectObject(hdc, of);
-            b->w = sz.cx + b->spaceAfter;
-            int em = MathFontEm(fo);
-            b->h = em;
-            b->asc = em * 3 / 4;
+            int gcx = 0, gem = 0;
+            if (!MgGet(fo, b->text, &gcx, &gem)) {
+                HFONT of = (HFONT)SelectObject(hdc, fo);
+                SIZE sz;
+                GetTextExtentPoint32W(hdc, b->text, (int)wcslen(b->text), &sz);
+                SelectObject(hdc, of);
+                gem = MathFontEm(fo);
+                MgPut(fo, b->text, sz.cx, gem);
+                gcx = sz.cx;
+            }
+            b->w = gcx + b->spaceAfter;
+            b->h = gem;
+            b->asc = gem * 3 / 4;
             break;
         }
         case MB_ROW: {

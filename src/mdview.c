@@ -24,6 +24,8 @@ typedef struct MdItem {
     MermaidDiagram* diag;
     void* image;
     UINT imageW, imageH;
+    void* thumb;            /* 按显示尺寸预渲染的位图（滚动时免逐帧重采样） */
+    UINT thumbW, thumbH;
     MdRun* mathRun;
     MdRun* ownRun;
     wchar_t* href;      /* 图片项的点击目标（来自包裹链接或图片源） */
@@ -42,7 +44,10 @@ static struct {
     HCURSOR hHand;
     BOOL sbDrag; int sbDragOff;
     int lastLayoutW;
+    BOOL imgTimerOn;     /* 图片到达合并窗口已挂起 */
 } V;
+
+#define TID_MDIMG 2         /* WM_MDIMG_READY 的 120ms 合并定时器 */
 
 typedef void* GpImage;
 typedef void* GpGraphics;
@@ -59,6 +64,8 @@ static int  (WINAPI* p_GdipSetInterpolationMode)(GpGraphics*, int);
 static int  (WINAPI* p_GdipDrawImageRectRectI)(GpGraphics*, GpImage*,
                     int, int, int, int, int, int, int, int, int, void*, void*, void*);
 static int  (WINAPI* p_GdipFlush)(GpGraphics*, int);
+static int  (WINAPI* p_GdipCreateBitmapFromGraphics)(int, int, GpGraphics*, GpImage**);
+static int  (WINAPI* p_GdipGetImageGraphicsContext)(GpImage*, GpGraphics**);
 static BOOL s_gdipOk = FALSE;
 
 static void GdipInit(void) {
@@ -75,6 +82,8 @@ static void GdipInit(void) {
     p_GdipSetInterpolationMode = (void*)GetProcAddress(g, "GdipSetInterpolationMode");
     p_GdipDrawImageRectRectI = (void*)GetProcAddress(g, "GdipDrawImageRectRectI");
     p_GdipFlush = (void*)GetProcAddress(g, "GdipFlush");
+    p_GdipCreateBitmapFromGraphics = (void*)GetProcAddress(g, "GdipCreateBitmapFromGraphics");
+    p_GdipGetImageGraphicsContext = (void*)GetProcAddress(g, "GdipGetImageGraphicsContext");
     if (!p_GdipStartup || !p_GdipCreateBitmapFromFile) return;
     GdipStartupInput si;
     ZeroMemory(&si, sizeof(si));
@@ -150,17 +159,90 @@ static void BlkAppend(MdBlock* parent, MdBlock* child) {
     parent->children[parent->nChildren++] = child;
 }
 
+/* ---- 图表/公式解析缓存 ----
+   LoadContentEx 每次重载（保存后刷新、图片下载完成）都会 BlkFree 整棵块树再
+   重建，其中 Mermaid_Parse / Math_Build 是最贵的两步。这里以"源码文本"为键，
+   释放时把解析结果收回缓存、重解析时取回——内容未变就零重算。测量不在缓存
+   范围，字号/DPI/缩放变化仍会重新测量。容量 FIFO 淘汰，内存有界。 */
+typedef struct { unsigned hash; int len; char* key; void* obj; } MCacheEnt;
+#define MCACHE_MAX 96
+typedef struct {
+    MCacheEnt e[MCACHE_MAX];
+    int n;
+    void (*freeObj)(void*);
+} MCache;
+static void FreeDiagObj(void* o) { Mermaid_Free((MermaidDiagram*)o); }
+static void FreeMathObj(void* o) { Math_Free((MathBox*)o); }
+static MCache s_diagC = { { { 0 } }, 0, FreeDiagObj };
+static MCache s_mathC = { { { 0 } }, 0, FreeMathObj };
+
+static unsigned McHash(const void* p, int n) {
+    unsigned h = 2166136261u;
+    const unsigned char* b = (const unsigned char*)p;
+    for (int i = 0; i < n; i++) { h ^= b[i]; h *= 16777619u; }
+    return h;
+}
+
+static void* McTake(MCache* c, const void* key, int len) {
+    if (!key || len <= 0) return NULL;
+    unsigned h = McHash(key, len);
+    for (int i = 0; i < c->n; i++) {
+        if (c->e[i].hash == h && c->e[i].len == len &&
+            memcmp(c->e[i].key, key, (size_t)len) == 0) {
+            void* o = c->e[i].obj;
+            free(c->e[i].key);
+            c->e[i] = c->e[c->n - 1];
+            c->n--;
+            return o;
+        }
+    }
+    return NULL;
+}
+
+static void McPut(MCache* c, const void* key, int len, void* obj) {
+    if (!obj) return;
+    if (!key || len <= 0) { c->freeObj(obj); return; }
+    if (c->n >= MCACHE_MAX) {
+        free(c->e[0].key);
+        c->freeObj(c->e[0].obj);
+        for (int i = 1; i < c->n; i++) c->e[i - 1] = c->e[i];
+        c->n--;
+    }
+    char* k = (char*)malloc((size_t)len);
+    if (!k) { c->freeObj(obj); return; }
+    memcpy(k, key, (size_t)len);
+    c->e[c->n].hash = McHash(key, len);
+    c->e[c->n].len = len;
+    c->e[c->n].key = k;
+    c->e[c->n].obj = obj;
+    c->n++;
+}
+
+static MathBox* MathAcquire(const wchar_t* text) {
+    if (!text) return NULL;
+    MathBox* m = (MathBox*)McTake(&s_mathC, text, (int)(wcslen(text) * sizeof(wchar_t)));
+    if (!m) m = Math_Build(text);
+    return m;
+}
+
 static void BlkFree(MdBlock* b) {
     if (!b) return;
     for (int i = 0; i < b->nRuns; i++) {
         free(b->runs[i].text);
         free(b->runs[i].href);
         free(b->runs[i].link);
-        if (b->runs[i].math) Math_Free(b->runs[i].math);
+        if (b->runs[i].math) {
+            /* 解析结果回收进缓存，重载时按源码取回（见 MCache 注释） */
+            McPut(&s_mathC, b->runs[i].text,
+                  (int)(b->runs[i].text ? wcslen(b->runs[i].text) * sizeof(wchar_t) : 0),
+                  b->runs[i].math);
+        }
     }
     free(b->runs);
     free(b->code);
-    if (b->diag) Mermaid_Free(b->diag);
+    if (b->diag)
+        McPut(&s_diagC, b->mmdSrc, b->mmdSrcLen, b->diag);
+    free(b->mmdSrc);
     if (b->cells) {
         for (int i = 0; i < b->nRows * b->nCols; i++) BlkFree(b->cells[i]);
         free(b->cells);
@@ -788,8 +870,17 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             }
             if (type == MD_BLOCK_CODE && P->codeLen > 0 &&
                 _stricmp(c->fenceLang, "mermaid") == 0) {
-                c->diag = Mermaid_Parse(P->codeBuf, P->codeLen);
+                c->diag = (MermaidDiagram*)McTake(&s_diagC, P->codeBuf, P->codeLen);
+                if (!c->diag) {
+                    c->diag = Mermaid_Parse(P->codeBuf, P->codeLen);
+                }
                 if (c->diag) {
+                    /* 留存源码作缓存键：BlkFree 时据此收回缓存 */
+                    c->mmdSrc = (char*)malloc((size_t)P->codeLen);
+                    if (c->mmdSrc) {
+                        memcpy(c->mmdSrc, P->codeBuf, (size_t)P->codeLen);
+                        c->mmdSrcLen = P->codeLen;
+                    }
                     BlkAppend(P->stack[P->depth], c);
                     break;
                 }
@@ -892,6 +983,73 @@ static BOOL IsCJK(wchar_t c) {
            (c >= 0xFF00 && c <= 0xFFEF) || (c >= 0x3000 && c <= 0x303F);
 }
 
+/* ---- 单字宽度缓存 ----
+   WrapRuns 对 CJK 逐字成 token，逐字 GDI 测量是大文档布局的最大热点
+   （几十万次 GetTextExtentPoint32W）。按 HFONT 缓存 65536 项宽度表
+   （存 字宽+1，0 表示未缓存）；FontsFree 重建字体时整表失效。 */
+#define CW_MAXFONTS 16
+static struct { HFONT f; short* w; } s_cw[CW_MAXFONTS];
+static int s_nCw = 0;
+
+/* 空格宽度 / TEXTMETRIC 按字体缓存（与字宽表同生命周期） */
+static HFONT s_swF[8];
+static int s_swV[8];
+static HFONT s_tmF[16];
+static TEXTMETRICW s_tmV[16];
+static BOOL s_tmOk[16];
+
+static void CwInvalidate(void) {
+    for (int i = 0; i < s_nCw; i++) free(s_cw[i].w);
+    s_nCw = 0;
+    memset(s_swF, 0, sizeof(s_swF));   /* 空格宽/字体度量缓存一并失效 */
+    memset(s_tmOk, 0, sizeof(s_tmOk));
+}
+
+static short* CwTableFor(HFONT f) {
+    for (int i = 0; i < s_nCw; i++)
+        if (s_cw[i].f == f) return s_cw[i].w;
+    if (s_nCw >= CW_MAXFONTS) return NULL;
+    short* w = (short*)malloc(sizeof(short) * 65536);
+    if (!w) return NULL;
+    memset(w, 0, sizeof(short) * 65536);
+    s_cw[s_nCw].f = f;
+    s_cw[s_nCw].w = w;
+    s_nCw++;
+    return w;
+}
+
+static int SpaceWFor(HDC hdc, HFONT f) {
+    for (int i = 0; i < 8; i++)
+        if (s_swF[i] == f) return s_swV[i];
+    HFONT of = (HFONT)SelectObject(hdc, f);
+    SIZE sz;
+    GetTextExtentPoint32W(hdc, L" ", 1, &sz);
+    SelectObject(hdc, of);
+    for (int i = 0; i < 8; i++) {
+        if (!s_swF[i]) { s_swF[i] = f; s_swV[i] = sz.cx; break; }
+    }
+    return sz.cx;
+}
+
+static BOOL TmFor(HDC hdc, HFONT f, TEXTMETRICW* tm) {
+    for (int i = 0; i < 16; i++) {
+        if (s_tmOk[i] && s_tmF[i] == f) {
+            *tm = s_tmV[i];
+            return TRUE;
+        }
+    }
+    for (int i = 0; i < 16; i++) {
+        if (!s_tmOk[i]) {
+            GetTextMetricsW(hdc, tm);
+            s_tmF[i] = f;
+            s_tmV[i] = *tm;
+            s_tmOk[i] = TRUE;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 static int MdText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE len, void* ud) {
     (void)ud;
     switch (type) {
@@ -968,6 +1126,8 @@ static HFONT MkFont(int pt, int weight, BOOL italic, const wchar_t* face) {
 
 static void FontsFree(void) {
     Mermaid_FontsChanged();
+    CwInvalidate();          /* HFONT 可能被新字体复用，字宽表必须整表失效 */
+    Math_MeasureCacheReset();
     if (!V.fontsOk) return;
     DeleteObject(V.fonts.body); DeleteObject(V.fonts.bold);
     DeleteObject(V.fonts.emph); DeleteObject(V.fonts.boldemph);
@@ -1029,6 +1189,8 @@ static void ItemResetAll(void) {
                 free(V.items[i].lines[l].frags);
             free(V.items[i].lines);
         }
+        if (V.items[i].type == ITM_IMAGE && V.items[i].thumb && s_gdipOk)
+            p_GdipDisposeImage((GpImage*)V.items[i].thumb);
         if (V.items[i].ownRun) {
             free(V.items[i].ownRun->text);
             free(V.items[i].ownRun->href);
@@ -1107,10 +1269,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
     int spaceW = 0;
     {
         HFONT bf = FontFor(0, role == ROLE_MONO || role == ROLE_SMALL ? role : ROLE_BODY);
-        HFONT of = (HFONT)SelectObject(hdc, bf);
-        SIZE sz; GetTextExtentPoint32W(hdc, L" ", 1, &sz);
-        spaceW = sz.cx;
-        SelectObject(hdc, of);
+        spaceW = SpaceWFor(hdc, bf);
     }
 
     for (int i = 0; i <= nT; i++) {
@@ -1131,7 +1290,7 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
             }
             if (tk->run->style & STY_MATH) {
                 MdRun* mr2 = tk->run;
-                if (!mr2->math) mr2->math = Math_Build(mr2->text);
+                if (!mr2->math) mr2->math = MathAcquire(mr2->text);
                 if (mr2->math) Math_Measure(mr2->math, hdc, &V.fonts);
                 int mw = mr2->math ? Math_Width(mr2->math) : UI_Scale(60);
                 int ma = mr2->math ? Math_Ascent(mr2->math) : V.fonts.lineH;
@@ -1151,20 +1310,35 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
                 HFONT fnt = FontFor(tk->run->style, role);
                 if (fnt != curFont) {
                     SelectObject(hdc, fnt);
-                    GetTextMetricsW(hdc, &curTm);
+                    if (!TmFor(hdc, fnt, &curTm)) GetTextMetricsW(hdc, &curTm);
                     curFont = fnt;
                 }
-                SIZE sz;
-                GetTextExtentPoint32W(hdc, tk->s, tk->len, &sz);
-                if (nF > 0 && x + sz.cx > avail) { flush = TRUE; overflow = TRUE; }
+                int tw;
+                short* cwt = (tk->len == 1) ? CwTableFor(fnt) : NULL;
+                if (cwt) {
+                    unsigned ch = (unsigned)tk->s[0];
+                    if (cwt[ch]) {
+                        tw = (int)cwt[ch] - 1;
+                    } else {
+                        SIZE sz;
+                        GetTextExtentPoint32W(hdc, tk->s, 1, &sz);
+                        tw = sz.cx;
+                        cwt[ch] = (short)(tw + 1);
+                    }
+                } else {
+                    SIZE sz;
+                    GetTextExtentPoint32W(hdc, tk->s, tk->len, &sz);
+                    tw = sz.cx;
+                }
+                if (nF > 0 && x + tw > avail) { flush = TRUE; overflow = TRUE; }
                 else {
                     if (curTm.tmHeight > lineH) lineH = curTm.tmHeight;
                     if (curTm.tmAscent > asc) asc = curTm.tmAscent;
                     MD_GROW(fr, nF, capF, MdFrag);
                     fr[nF].run = tk->run; fr[nF].s = tk->s; fr[nF].len = tk->len;
-                    fr[nF].x = x; fr[nF].w = sz.cx;
+                    fr[nF].x = x; fr[nF].w = tw;
                     nF++;
-                    x += sz.cx;
+                    x += tw;
                     continue;
                 }
             }
@@ -1637,7 +1811,7 @@ static BOOL LayoutMathParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) 
         mr = r;
     }
     if (!mr) return FALSE;
-    if (!mr->math) mr->math = Math_Build(mr->text);
+    if (!mr->math) mr->math = MathAcquire(mr->text);
     if (!mr->math) return FALSE;
     Math_Measure(mr->math, hdc, &V.fonts);
     MdItem* it = ItemAlloc();
@@ -1854,16 +2028,54 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                 break;
             case ITM_IMAGE: {
                 if (!s_gdipOk || !it->image) break;
+                RECT rc = it->rc;
+                OffsetRect(&rc, 0, -V.scrollY);
+                int dw = rc.right - rc.left, dh = rc.bottom - rc.top;
+                if (dw <= 0 || dh <= 0) break;
                 GpGraphics* g = NULL;
                 if (p_GdipCreateFromHDC(hdc, &g) == 0 && g) {
-                    p_GdipSetInterpolationMode(g, 7 );
-                    RECT rc = it->rc;
-                    OffsetRect(&rc, 0, -V.scrollY);
-                    p_GdipDrawImageRectRectI(g, (GpImage*)it->image,
-                        rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top,
-                        0, 0, (int)it->imageW, (int)it->imageH,
-                        2 , NULL, NULL, NULL);
-                    p_GdipFlush(g, 1 );
+                    GpImage* draw = (GpImage*)it->image;
+                    UINT sw = it->imageW, sh = it->imageH;
+                    int interp = 7 /*HighQualityBicubic*/;
+                    if (sw != (UINT)dw || sh != (UINT)dh) {
+                        /* 显示尺寸≠原始尺寸：首帧按显示尺寸预渲染一次，
+                           之后滚动每帧只做同尺寸搬运，不再整图重采样 */
+                        if (!it->thumb || it->thumbW != (UINT)dw || it->thumbH != (UINT)dh) {
+                            if (it->thumb) p_GdipDisposeImage((GpImage*)it->thumb);
+                            it->thumb = NULL;
+                            if (dw <= 8192 && dh <= 8192 &&
+                                p_GdipCreateBitmapFromGraphics &&
+                                p_GdipGetImageGraphicsContext) {
+                                GpImage* bmp = NULL;
+                                if (p_GdipCreateBitmapFromGraphics(dw, dh, g, &bmp) == 0 && bmp) {
+                                    GpGraphics* bg = NULL;
+                                    if (p_GdipGetImageGraphicsContext(bmp, &bg) == 0 && bg) {
+                                        p_GdipSetInterpolationMode(bg, 7);
+                                        p_GdipDrawImageRectRectI(bg, draw,
+                                            0, 0, dw, dh, 0, 0, (int)sw, (int)sh,
+                                            2, NULL, NULL, NULL);
+                                        p_GdipDeleteGraphics(bg);
+                                        it->thumb = bmp;
+                                        it->thumbW = (UINT)dw;
+                                        it->thumbH = (UINT)dh;
+                                    } else {
+                                        p_GdipDisposeImage(bmp);
+                                    }
+                                }
+                            }
+                        }
+                        if (it->thumb) {
+                            draw = (GpImage*)it->thumb;
+                            sw = it->thumbW;
+                            sh = it->thumbH;
+                            interp = 5 /*NearestNeighbor：同尺寸搬运*/;
+                        }
+                    }
+                    p_GdipSetInterpolationMode(g, interp);
+                    p_GdipDrawImageRectRectI(g, draw,
+                        rc.left, rc.top, dw, dh, 0, 0, (int)sw, (int)sh,
+                        2, NULL, NULL, NULL);
+                    p_GdipFlush(g, 1);
                     p_GdipDeleteGraphics(g);
                 }
                 break;
@@ -2088,6 +2300,10 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_ERASEBKGND:
             return 1;
         case WM_DESTROY:
+            if (V.imgTimerOn) {
+                KillTimer(hwnd, TID_MDIMG);
+                V.imgTimerOn = FALSE;
+            }
             MemFree();
             return 0;
         case WM_PAINT:
@@ -2186,12 +2402,24 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             break;
         case WM_MDIMG_READY:
-            if (V.docIdx >= 0 && V.docIdx < g_docCount) {
-                int save = V.scrollY;
-                LoadContentEx(V.docIdx, TRUE);
-                V.scrollY = save;
-                ClampScroll();
-                InvalidateRect(hwnd, NULL, FALSE);
+            /* 多张外链图片的下载完成消息常成批到达；每条都触发整篇强制重排
+               会形成重算风暴。120ms 合并窗口内只重排一次。 */
+            if (!V.imgTimerOn) {
+                SetTimer(hwnd, TID_MDIMG, 120, NULL);
+                V.imgTimerOn = TRUE;
+            }
+            return 0;
+        case WM_TIMER:
+            if (wp == TID_MDIMG) {
+                KillTimer(hwnd, TID_MDIMG);
+                V.imgTimerOn = FALSE;
+                if (V.docIdx >= 0 && V.docIdx < g_docCount) {
+                    int save = V.scrollY;
+                    LoadContentEx(V.docIdx, TRUE);
+                    V.scrollY = save;
+                    ClampScroll();
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
             }
             return 0;
         case WM_SETFOCUS:
