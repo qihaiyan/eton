@@ -175,6 +175,7 @@ typedef struct MdTheme {
     COLORREF link;
     COLORREF quoteBar;
     COLORREF codeBg, codeBorder, codeFg;
+    COLORREF synKw, synStr, synCom, synNum, synPre;   /* 代码块语法色 */
     COLORREF tableLine, tableHeadBg;
     COLORREF hrule;
     COLORREF selBg;
@@ -183,6 +184,11 @@ typedef struct MdTheme {
     COLORREF seqNoteBg, seqNoteBorder, seqNoteFg;
     COLORREF frame;
 } MdTheme;
+
+/* ---- 代码块语法高亮（mdhl.c）：片段类型与切分 ---- */
+enum { HL_KW = 1, HL_STR, HL_COM, HL_NUM, HL_PRE };
+typedef struct { int pos, len; unsigned char type; } CodeSpan;
+int MdHl_Tokenize(const wchar_t* code, int len, const char* lang, CodeSpan** out);
 
 typedef struct MermaidDiagram MermaidDiagram;
 MermaidDiagram* Mermaid_Parse(const char* src, int len);
@@ -195,7 +201,9 @@ void  Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
 
 enum { STY_BOLD = 1, STY_EM = 2, STY_CODE = 4, STY_STRIKE = 8,
        STY_LINK = 16, STY_IMG = 32, STY_BR = 64,
-       STY_MATH = 128, STY_MATHDISP = 256 };
+       STY_MATH = 128, STY_MATHDISP = 256,
+       STY_KW = 512, STY_STR = 1024, STY_COM = 2048, STY_NUM = 4096,
+       STY_PRE = 8192 };   /* 代码块语法着色（仅预览） */
 
 typedef struct MdRun {
     wchar_t* text;
@@ -218,6 +226,7 @@ struct MdBlock {
     MdRun* runs; int nRuns, capRuns;
     int level;
     wchar_t* code; int codeLen;
+    CodeSpan* hl; int hlN;        /* 语法高亮片段（相对 code 的偏移） */
     char* mmdSrc; int mmdSrcLen;   /* mermaid 源码（UTF-8），解析缓存的键 */
     char fenceLang[24];
     MermaidDiagram* diag;

@@ -242,6 +242,7 @@ static void BlkFree(MdBlock* b) {
     }
     free(b->runs);
     free(b->code);
+    free(b->hl);
     if (b->diag)
         McPut(&s_diagC, b->mmdSrc, b->mmdSrcLen, b->diag);
     free(b->mmdSrc);
@@ -926,6 +927,8 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             } else {
                 c->code = Utf8ToW(P->codeBuf, P->codeLen);
                 c->codeLen = (int)wcslen(c->code ? c->code : L"");
+                /* 代码块语法着色：按围栏语言切片段（未知语言 0 片段） */
+                c->hlN = MdHl_Tokenize(c->code, c->codeLen, c->fenceLang, &c->hl);
             }
             BlkAppend(P->stack[P->depth], c);
             break;
@@ -1428,6 +1431,17 @@ static int LayoutText(HDC hdc, MdBlock* b, int x0, int avail, int* y, int role,
     return h;
 }
 
+static unsigned StyleOfHl(unsigned char t) {
+    switch (t) {
+        case HL_KW:  return STY_KW;
+        case HL_STR: return STY_STR;
+        case HL_COM: return STY_COM;
+        case HL_NUM: return STY_NUM;
+        case HL_PRE: return STY_PRE;
+    }
+    return 0;
+}
+
 static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     if (b->diag) {
         SIZE sz = Mermaid_Measure(b->diag, hdc, &V.fonts);
@@ -1443,27 +1457,79 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         *y += h + UI_Scale(16) + UI_Scale(12);
         return;
     }
-    MdLine* lines = NULL; int nL = 0, capL = 0;
-    MdRun* codeRun = (MdRun*)calloc(1, sizeof(MdRun));
-    codeRun->style = 0; codeRun->href = NULL; codeRun->text = NULL;
-    wchar_t* p = b->code;
-    while (p && *p) {
-        wchar_t* nl = wcschr(p, L'\n');
-        int len = nl ? (int)(nl - p) : (int)wcslen(p);
-        if (len > 0 && p[len-1] == L'\r') len--;
-        wchar_t saved = p[len];
-        p[len] = L'\0';
-        codeRun->text = p;
-        MdLine* sub; int subN;
-        WrapRuns(hdc, codeRun, 1, avail - UI_Scale(20), ROLE_MONO, &sub, &subN);
-        p[len] = saved;
-        MD_GROW(lines, nL + subN, capL, MdLine);
-        for (int i = 0; i < subN; i++) lines[nL++] = sub[i];
-        free(sub);
-        if (!nl) break;
-        p = nl + 1;
+    /* 1) 逐行把代码切成片段（hl 覆盖段 + 普通补缝段；跨行片段按行边界截断） */
+    typedef struct { int off, len; unsigned sty; } Piece;
+    Piece* pcs = NULL; int nP = 0, capP = 0;
+    int* lineBegin = NULL; int nSrcLines = 0, capLB = 0;
+    int total = b->codeLen, pos = 0;
+    while (pos < total) {
+        int e = pos;
+        while (e < total && b->code[e] != L'\n') e++;
+        int lineLen = e - pos;
+        if (lineLen > 0 && b->code[pos + lineLen - 1] == L'\r') lineLen--;
+        MD_GROW(lineBegin, nSrcLines, capLB, int);
+        lineBegin[nSrcLines++] = nP;
+        int c2 = 0;
+        do {
+            int end = lineLen; unsigned sty = 0;
+            for (int s = 0; s < b->hlN; s++) {
+                int a = b->hl[s].pos, z = a + b->hl[s].len;
+                if (z <= pos + c2) continue;              /* 片段已消费 */
+                if (a <= pos + c2) {                      /* 正处于片段内 */
+                    int take = (z < pos + lineLen) ? z : pos + lineLen;
+                    end = take - pos;
+                    sty = StyleOfHl(b->hl[s].type);
+                    break;
+                }
+                if (a - pos < end) end = a - pos;         /* 前方片段限制普通段 */
+            }
+            if (end < c2) end = c2;
+            if (end > lineLen) end = lineLen;
+            MD_GROW(pcs, nP, capP, Piece);
+            pcs[nP].off = pos + c2;
+            pcs[nP].len = end - c2;
+            pcs[nP].sty = sty;
+            nP++;
+            c2 = end;
+        } while (c2 < lineLen);
+        pos = (e < total) ? e + 1 : total;
     }
-    codeRun->text = NULL;
+
+    /* 2) 片段文本复制进一块连续暂存（各自 NUL 结尾）：
+          runs[0] 为哑头——ownRun 释放逻辑只 free 首元素 text/href/link
+          与整个数组，暂存缓冲即由哑头持有；其余 run 的 text 指向暂存内部 */
+    int scratchChars = 1;
+    for (int i = 0; i < nP; i++) scratchChars += pcs[i].len + 1;
+    wchar_t* scratch = (wchar_t*)malloc((size_t)scratchChars * sizeof(wchar_t));
+    MdRun* runs = (MdRun*)calloc((size_t)nP + 1, sizeof(MdRun));
+    MdLine* lines = NULL; int nL = 0, capL = 0;
+    if (scratch && runs) {
+        scratch[0] = 0;
+        runs[0].text = scratch;        /* 哑头持有暂存 */
+        runs[0].style = 0; runs[0].href = NULL; runs[0].link = NULL;
+        int off = 1;
+        for (int i = 0; i < nP; i++) {
+            int start = off;
+            memcpy(scratch + off, b->code + pcs[i].off, (size_t)pcs[i].len * sizeof(wchar_t));
+            off += pcs[i].len;
+            scratch[off++] = 0;
+            runs[i + 1].text = scratch + start;
+            runs[i + 1].style = pcs[i].sty;
+            runs[i + 1].href = NULL;
+            runs[i + 1].link = NULL;
+        }
+        for (int l = 0; l < nSrcLines; l++) {
+            int begin = lineBegin[l] + 1;
+            int end = (l + 1 < nSrcLines) ? lineBegin[l + 1] + 1 : nP + 1;
+            MdLine* sub; int subN;
+            WrapRuns(hdc, runs + begin, end - begin, avail - UI_Scale(20), ROLE_MONO, &sub, &subN);
+            MD_GROW(lines, nL + subN, capL, MdLine);
+            for (int i = 0; i < subN; i++) lines[nL++] = sub[i];
+            free(sub);
+        }
+    }
+    free(pcs);
+    free(lineBegin);
     int pad = UI_Scale(10);
     int h = 0;
     for (int i = 0; i < nL; i++) {
@@ -1481,7 +1547,8 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     it->rc.right = x0 + avail - pad; it->rc.bottom = *y + pad + h;
     it->lines = lines; it->nLines = nL;
     it->role = ROLE_MONO;
-    it->ownRun = codeRun;
+    it->ownRun = runs;
+    if (!scratch || !runs) { free(scratch); free(runs); it->ownRun = NULL; }
     *y += h + pad * 2 + UI_Scale(12);
 }
 
@@ -2001,6 +2068,11 @@ void MdTheme_Build(MdTheme* th) {
         th->codeBg    = RGB(40,42,46);
         th->codeBorder= RGB(60,63,68);
         th->codeFg    = RGB(230,220,200);
+        th->synKw     = RGB(120,170,255);
+        th->synStr    = RGB(224,150,110);
+        th->synCom    = RGB(130,145,120);
+        th->synNum    = RGB(220,190,120);
+        th->synPre    = RGB(200,140,200);
         th->tableLine = RGB(60,63,68);
         th->tableHeadBg = RGB(44,46,51);
         th->hrule     = RGB(60,63,68);
@@ -2025,6 +2097,11 @@ void MdTheme_Build(MdTheme* th) {
         th->codeBg    = RGB(246,248,250);
         th->codeBorder= RGB(208,215,222);
         th->codeFg    = RGB(95,95,95);
+        th->synKw     = RGB(0,80,200);
+        th->synStr    = RGB(163,60,40);
+        th->synCom    = RGB(100,120,90);
+        th->synNum    = RGB(150,90,10);
+        th->synPre    = RGB(140,60,160);
         th->tableLine = RGB(208,215,222);
         th->tableHeadBg = RGB(236,240,243);
         th->hrule     = RGB(208,215,222);
@@ -2193,7 +2270,12 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                         } else if (it->role >= ROLE_H1 && it->role <= ROLE_H1 + 5) {
                             SetTextColor(hdc, th->head);
                         } else if (it->role == ROLE_MONO) {
-                            SetTextColor(hdc, th->codeFg);
+                            if (run->style & STY_COM)      SetTextColor(hdc, th->synCom);
+                            else if (run->style & STY_KW)   SetTextColor(hdc, th->synKw);
+                            else if (run->style & STY_STR)  SetTextColor(hdc, th->synStr);
+                            else if (run->style & STY_NUM)  SetTextColor(hdc, th->synNum);
+                            else if (run->style & STY_PRE)  SetTextColor(hdc, th->synPre);
+                            else                            SetTextColor(hdc, th->codeFg);
                         } else {
                             SetTextColor(hdc, th->fg);
                         }

@@ -1,16 +1,3 @@
-# Build eton.exe and an MSI installer only when a GitHub Release is published,
-# or when triggered manually from the Actions tab. Both files are signed when
-# a code signing certificate is configured (secrets CODESIGN_PFX_B64 /
-# CODESIGN_PFX_PASSWORD) and are attached to the release as assets.
-#
-# Signing options that work with this workflow as-is:
-#   Any certificate you can export as a PFX (base64 into CODESIGN_PFX_B64).
-# For cloud-based signing (new certs are hardware-bound since June 2023 and
-# cannot be exported as PFX), swap the sign steps for the vendor's action,
-# e.g. Microsoft Trusted Signing: Microsoft/trusted-signing-action@v0
-#
-# Version: release tag v1.2.3 / 1.2.3 -> MSI ProductVersion 1.2.3;
-#          manual dispatch           -> 0.0.<run number>
 name: Build
 
 on:

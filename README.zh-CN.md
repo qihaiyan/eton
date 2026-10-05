@@ -29,7 +29,7 @@
 | 多标签 | 自定义标签栏，可同时编辑多个文件 |
 | 界面语言 | 简体中文 / English 双语界面，未选择过时首次启动跟随系统 UI 语言 |
 | 语法高亮 | 10 种语言：C / C++ / C# / Java / JavaScript / Python / XML(HTML) / JSON / SQL / Markdown；按扩展名自动识别，也可在语言菜单手动切换；语法语言下显示代码折叠边距|
-| Markdown 预览 | F12 在当前标签内切换 编辑 ↔ 渲染视图，Shift+F12 并排分屏（左编辑右预览，双向同步滚动）；**Mermaid 13 个图族原生绘制**（流程图/时序图/状态图/类图/ER 图/饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph），未识别图族回退为源码显示并提示；**数学公式**（`$..$` 行内与 `$$..$$` 块级，`\(..\)`/`\[..\]` 定界符自动归一；分式/根号/上下标/希腊字母/求和积分等 LaTeX 子集，`cases`/`matrix` 族/`aligned` 环境带自适应大分隔符，Cambria Math 字体排版）；**脚注**（`[^label]` 引用渲染为链接色 [N]，定义收集到文末的"分隔线+编号列表"区，未引用的定义不显示）；**图片内嵌**；导出 **HTML**与 **PDF**（打印对话框分页渲染）；配色跟随亮/暗主题，字号跟随编辑器缩放 |
+| Markdown 预览 | F12 在当前标签内切换 编辑 ↔ 渲染视图，Shift+F12 并排分屏（左编辑右预览，双向同步滚动）；**Mermaid 13 个图族原生绘制**（流程图/时序图/状态图/类图/ER 图/饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph），未识别图族回退为源码显示并提示；**数学公式**（`$..$` 行内与 `$$..$$` 块级，`\(..\)`/`\[..\]` 定界符自动归一；分式/根号/上下标/希腊字母/求和积分等 LaTeX 子集，`cases`/`matrix` 族/`aligned` 环境带自适应大分隔符，Cambria Math 字体排版）；**脚注**（`[^label]` 引用渲染为链接色 [N]，定义收集到文末的"分隔线+编号列表"区，未引用的定义不显示）；**代码块按围栏语言语法高亮**（C/C++/C#/Java/JS/TS/Go/Rust/Python/JSON/XML/SQL/Bash——关键字、字符串、注释、数字、预处理）；**图片内嵌**；导出 **HTML**与 **PDF**（打印对话框分页渲染）；配色跟随亮/暗主题，字号跟随编辑器缩放 |
 | 多编码 | ANSI(系统代码页) / UTF-8 / UTF-8 BOM / UTF-16 LE / UTF-16 BE，打开时自动探测 BOM，状态栏显示当前编码；另存 ANSI 时若内容含无法表示的字符会提示乱码风险 |
 | 行尾转换 | CRLF / LF / CR，可一键"转换为…"；新文档及探测不到行尾的文件默认 Unix (LF)，打开已有文件时按内容自动探测并保持 |
 | JSON 工具 | 编辑菜单：JSON 格式化/压缩；有选区时只处理选区，缩进与行尾跟随文档设置；解析失败提示出错行列并定位到出错字符 |
@@ -92,6 +92,7 @@ eton/
     ├── scrollbar.c    # 自绘滚动条
     ├── mdview.c       # Markdown 原生预览视图（MD4C 解析 → 块树 → 排版 → GDI 绘制；分屏/滚动同步）
     ├── mdimg.c        # Markdown 预览远程图片下载与缓存（WinHTTP）
+    ├── mdhl.c         # 预览代码块语法高亮（轻量词法器，12 种语言）
     ├── mermaid.c      # Mermaid 原生渲染（13 图族：解析 + 布局 + GDI 绘制）
     ├── mdmath.c       # 数学公式排版（LaTeX 子集 → MathBox 盒树 → GDI 绘制）
     ├── mdexport.c     # 导出 HTML（内嵌 mermaid.js/MathJax）/ PDF（打印分页）
@@ -132,7 +133,7 @@ rc /nologo /fo build\app.res app.rc
 cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
    /I"deps\scintilla" /I"deps\lexilla" /I"deps\md4c" ^
    /Fo"build/" /Fe:eton.exe ^
-   src\main.c src\editor.c src\tabbar.c src\toolbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\devtutil.c src\devtools.c src\session.c src\i18n.c src\statusbar.c src\scrollbar.c src\mdview.c src\mdimg.c src\mermaid.c src\mdmath.c src\mdexport.c src\docx.c deps\md4c\md4c.c deps\md4c\md4c-html.c deps\md4c\entity.c build\eton.res build\app.res ^
+   src\main.c src\editor.c src\tabbar.c src\toolbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\devtutil.c src\devtools.c src\session.c src\i18n.c src\statusbar.c src\scrollbar.c src\mdview.c src\mdimg.c src\mdhl.c src\mermaid.c src\mdmath.c src\mdexport.c src\docx.c deps\md4c\md4c.c deps\md4c\md4c-html.c deps\md4c\entity.c build\eton.res build\app.res ^
    /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /LIBPATH:"deps\scintilla" /LIBPATH:"deps\lexilla" ^
    libscintilla.lib liblexilla.lib ^
    user32.lib gdi32.lib gdiplus.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib advapi32.lib winhttp.lib
@@ -207,6 +208,7 @@ wix build -arch x64 eton.wxs -d Version=0.0.1 -acceptEula wix7 -o eton-0.0.1-x64
 - **JSON 工具**：`jsonfmt.c` 用单遍递归下降解析器边校验（RFC 8259 严格语法）边输出——格式化按嵌套深度缩进、压缩则剔除全部空白；字符串/数字按原文透传（保留 `\uXXXX` 等转义写法）。替换通过 Scintilla 的 target + `SCI_REPLACETARGET` 完成，单步可撤销。
 - **开发者工具**：算法与 UI 分层——`devtutil.c` 是不引用任何全局状态的纯函数（Base64/URL/Unicode 编解码手写、哈希与随机数走系统 CNG `bcrypt`、含代理对与严格非法输入校验），`devtools.c` 复用 JSON 工具的"选区/全文 + target 替换 + 错误定位"骨架。哈希对话框在 `WM_INITDIALOG` 一次算出四种摘要存二进制，"大写"切换只是重新渲染 hex。
 - **MSIX 右键菜单**：`etonctx.c` 是自包含的纯 C COM DLL（类厂 + `IExplorerCommand`），构建产物 `etonctx.dll` 随包分发；清单经 `com:ComServer`（dllhost 代理）注册组件，`desktop4:FileExplorerContextMenus` 把 `.md`/`.markdown` 的动词指向它——菜单项直接出现在 Win11 一级菜单，安装路径由 Windows 随版本目录自动维护、升级不断。`Invoke` 按 DLL 所在目录解析 `eton.exe` 并对每个选中文件启动一次，标题跟随系统界面语言。要求 `MinVersion 10.0.18362`。
+- **代码块高亮**：`mdhl.c` 是无依赖的轻量词法器，解析期把围栏代码块切成带类型片段（关键字/字符串/注释/数字/预处理）；`LayoutCodeBlock` 逐行拆成彩色 run（仍为等宽字体，仅变色）。12 种语言共用一套 C 风格扫描配置（按语言换关键字表；Python 附加三引号与 # 注释；XML 单独的标签扫描；SQL 大小写不敏感 + -- 注释）。未识别语言保持纯文本。
 - **配色主题**：`editor.c` 的 `Editor_ApplyThemeColors` 统一设置编辑区与高亮颜色，亮/暗两套。
 - **界面多语言**：所有用户可见文字收进 `i18n.c` 的字符串表，经 `T(STR_xxx)` 取词；主菜单由 `I18n_BuildMainMenu` 运行时构建（不再用 .rc 菜单资源），对话框沿用 .rc 模板、`WM_INITDIALOG` 时用 `I18n_ApplyDialog` 覆盖文字；切换语言重建菜单并刷新状态栏/未命名标题，选择写入 `session.ini [settings] uilang`。新增语言 = 在 `kStr` 加一列译文 + 在 `I18n_BuildMainMenu` 的界面语言子菜单加一项。
 - **Markdown 预览**：`mdview.c` 用 MD4C（显式 GFM 等价旗标 | `MD_FLAG_LATEXMATHSPANS` | `MD_FLAG_FOOTNOTES`；0.6.0 的 `MD_DIALECT_GITHUB` 还捆绑了暂未渲染的提示块扩展）回调把文档解析成块树（段落/标题/列表[含任务]/代码块/引用/表格/分隔线），再按客户区宽度排版成绘制原语列表（文本行/背景矩形/边框/图表/图片/公式），`WM_PAINT` 双缓冲绘制；换行算法空格断词 + CJK 逐字可断，基线对齐混合样式；行内公式作为原子 token 参与换行。紧凑列表（无空行条目）不发出段落块，`AddRun` 惰性挂段并入树。分屏模式编辑区占左半、预览占右半，滚动按可视比例双向同步（同步互斥锁防回环）。`mermaid.c` 为 ```mermaid``` 代码块提供 13 个图族的原生解析、布局与 GDI 绘制：流程图（最长路径分层 + 层内重心排序）、时序图（生命线 + 垂直堆叠）、状态图/类图/ER 图（复用流程图内核，三格成员框）、饼图/四象限/时间线/旅程图/甘特图/xychart/思维导图/gitGraph（`mermaid_ext*.inc` 扩展），未识别图族回退为代码块。`mdmath.c` 把 LaTeX 子集解析成 MathBox 盒树（横排/分式/上下标/根式/大运算符，Cambria Math 三级字号 + 希腊字母/运算符符号表）自绘；`cases`/`matrix` 族/`aligned` 环境按 `&` 分列、`\\` 分行解析成网格逐行测量，外侧绘制自适应尺寸的大分隔符（圆括号/方括号/花括号/竖线，贝塞尔绘制），导出 Word 时映射为 OMML `m:d`/`m:m`；`\(..\)`/`\[..\]` 在解析前原地归一为 `$`/`$$`（跳过代码围栏、不碰 `\\[`）。图片经 GDI+ flat API 动态加载（LRU 缓存 16 张）；远程图片经 WinHTTP 后台下载缓存（`mdimg.c`，%TEMP%\eton_mdimg，首次显示占位框、下载完成后自动重排）。
