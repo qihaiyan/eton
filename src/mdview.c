@@ -1,5 +1,7 @@
 #include "common.h"
 #include "md4c.h"
+#include "nanosvg.h"
+#include "nanosvgrast.h"
 
 typedef enum { ITM_LINES, ITM_RECT, ITM_FRAME, ITM_DIAGRAM, ITM_IMAGE, ITM_MATH } MdItemType;
 enum { RCT_CODEBG = 0, RCT_QUOTEBAR, RCT_HRULE, RCT_TABLEHEAD, RCT_CANVAS };
@@ -68,6 +70,7 @@ static int  (WINAPI* p_GdipDrawImageRectRectI)(GpGraphics*, GpImage*,
 static int  (WINAPI* p_GdipFlush)(GpGraphics*, int);
 static int  (WINAPI* p_GdipCreateBitmapFromGraphics)(int, int, GpGraphics*, GpImage**);
 static int  (WINAPI* p_GdipGetImageGraphicsContext)(GpImage*, GpGraphics**);
+static int  (WINAPI* p_GdipCreateBitmapFromScan0)(int, int, int, int, void*, GpImage**);
 static BOOL s_gdipOk = FALSE;
 
 static void GdipInit(void) {
@@ -86,6 +89,7 @@ static void GdipInit(void) {
     p_GdipFlush = (void*)GetProcAddress(g, "GdipFlush");
     p_GdipCreateBitmapFromGraphics = (void*)GetProcAddress(g, "GdipCreateBitmapFromGraphics");
     p_GdipGetImageGraphicsContext = (void*)GetProcAddress(g, "GdipGetImageGraphicsContext");
+    p_GdipCreateBitmapFromScan0 = (void*)GetProcAddress(g, "GdipCreateBitmapFromScan0");
     if (!p_GdipStartup || !p_GdipCreateBitmapFromFile) return;
     GdipStartupInput si;
     ZeroMemory(&si, sizeof(si));
@@ -94,7 +98,8 @@ static void GdipInit(void) {
     if (p_GdipStartup(&tok, &si, NULL) == 0) s_gdipOk = TRUE;
 }
 
-typedef struct { wchar_t path[MAX_PATH]; GpImage* img; UINT w, h; unsigned gen; } ImgEnt;
+typedef struct { wchar_t path[MAX_PATH]; GpImage* img; UINT w, h; unsigned gen;
+                 void* px; } ImgEnt;   /* px：SVG 光栅缓冲（位图直接引用，随槽位释放） */
 static ImgEnt s_imgs[16];
 static int s_nImgs = 0;
 static unsigned s_imgGen = 0;
@@ -105,28 +110,103 @@ static ImgEnt* ImgFind(const wchar_t* full) {
     return NULL;
 }
 
+/* SVG → 位图：nanosvg 解析 + 2 倍光栅（位图细节高于逻辑尺寸，缩放显示更清晰）。
+ * GdipCreateBitmapFromScan0 不拷贝扫描线，缓冲由 ImgEnt.px 持有。 */
+static GpImage* LoadSvgBitmap(const wchar_t* full, UINT* ow, UINT* oh, void** pxOut) {
+    *pxOut = NULL;
+    HANDLE f = CreateFileW(full, GENERIC_READ, FILE_SHARE_READ, NULL,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) return NULL;
+    LARGE_INTEGER sz;
+    if (!GetFileSizeEx(f, &sz) || sz.QuadPart <= 0 || sz.QuadPart > 4 * 1024 * 1024) {
+        CloseHandle(f); return NULL;
+    }
+    size_t n = (size_t)sz.QuadPart;
+    char* buf = (char*)malloc(n + 1);
+    if (!buf) { CloseHandle(f); return NULL; }
+    DWORD rd = 0;
+    BOOL ok = ReadFile(f, buf, (DWORD)n, &rd, NULL) && rd == (DWORD)n;
+    CloseHandle(f);
+    if (!ok) { free(buf); return NULL; }
+    buf[n] = 0;
+
+    NSVGimage* img = nsvgParse(buf, "px", 96.0f);
+    free(buf);
+    if (!img || img->width <= 0 || img->height <= 0) {
+        if (img) nsvgDelete(img);
+        return NULL;
+    }
+    UINT lw = (UINT)(img->width + 0.5f), lh = (UINT)(img->height + 0.5f);
+    if (!lw || !lh || lw > 4096 || lh > 4096) { nsvgDelete(img); return NULL; }
+    float scale = 2.0f;
+    if (lw * scale > 4096) scale = 4096.0f / lw;
+    if (lh * scale > 4096 && 4096.0f / lh < scale) scale = 4096.0f / lh;
+    UINT rw = (UINT)(img->width * scale + 0.5f);
+    UINT rh = (UINT)(img->height * scale + 0.5f);
+    if (rw < 1) rw = 1;
+    if (rh < 1) rh = 1;
+    unsigned char* px = (unsigned char*)malloc((size_t)rw * rh * 4);
+    NSVGrasterizer* rast = px ? nsvgCreateRasterizer() : NULL;
+    if (!px || !rast) { free(px); if (rast) nsvgDeleteRasterizer(rast); nsvgDelete(img); return NULL; }
+    nsvgRasterize(rast, img, 0, 0, scale, px, (int)rw, (int)rh, (int)rw * 4);
+    nsvgDeleteRasterizer(rast);
+    /* nanosvg 输出按内存 R,G,B,A；GDI+ 32bppARGB 的内存序是 B,G,R,A —— 原地换 R/B */
+    for (unsigned char* p = px, *end = px + (size_t)rw * rh * 4; p < end; p += 4) {
+        unsigned char t = p[0];
+        p[0] = p[2];
+        p[2] = t;
+    }
+
+    GpImage* bmp = NULL;
+    /* PixelFormat32bppARGB */
+    if (!p_GdipCreateBitmapFromScan0 || p_GdipCreateBitmapFromScan0((int)rw, (int)rh,
+            (int)rw * 4, 0x26200A, px, &bmp) != 0 || !bmp) {
+        free(px);
+        nsvgDelete(img);
+        return NULL;
+    }
+    nsvgDelete(img);
+    *pxOut = px;
+    *ow = lw;
+    *oh = lh;
+    return bmp;
+}
+
 static ImgEnt* ImgGet(const wchar_t* full) {
     if (!s_gdipOk || !full || !full[0]) return NULL;
     ImgEnt* hit = ImgFind(full);
     if (hit) { hit->gen = s_imgGen; return hit->img ? hit : NULL; }
     GpImage* im = NULL;
-    if (p_GdipCreateBitmapFromFile(full, &im) != 0 || !im) return NULL;
     UINT w = 0, h = 0;
-    p_GdipGetImageWidth(im, &w);
-    p_GdipGetImageHeight(im, &h);
-    if (!w || !h) { p_GdipDisposeImage(im); return NULL; }
+    void* svgPx = NULL;
+    size_t fl = wcslen(full);
+    BOOL isSvg = (fl > 4 && _wcsicmp(full + fl - 4, L".svg") == 0);
+    if (isSvg)
+        im = LoadSvgBitmap(full, &w, &h, &svgPx);
+    else {
+        if (p_GdipCreateBitmapFromFile(full, &im) != 0 || !im) return NULL;
+        p_GdipGetImageWidth(im, &w);
+        p_GdipGetImageHeight(im, &h);
+    }
+    if (!im || !w || !h) {
+        if (im) p_GdipDisposeImage(im);
+        free(svgPx);
+        return NULL;
+    }
     /* 满时淘汰最久未使用（gen 最小）的槽位，而不是固定挤掉 0 号 */
     int slot = 0;
     if (s_nImgs < 16) slot = s_nImgs++;
     else {
         for (int i = 1; i < 16; i++) if (s_imgs[i].gen < s_imgs[slot].gen) slot = i;
         if (s_imgs[slot].img) p_GdipDisposeImage(s_imgs[slot].img);
+        free(s_imgs[slot].px);
     }
     wcscpy_s(s_imgs[slot].path, MAX_PATH, full);
     s_imgs[slot].img = im;
     s_imgs[slot].w = w;
     s_imgs[slot].h = h;
     s_imgs[slot].gen = s_imgGen;
+    s_imgs[slot].px = svgPx;
     return &s_imgs[slot];
 }
 
@@ -135,7 +215,10 @@ static void ImgSweep(void) {
     int keep = 0;
     for (int i = 0; i < s_nImgs; i++) {
         if (s_imgs[i].gen == s_imgGen) s_imgs[keep++] = s_imgs[i];
-        else if (s_imgs[i].img) p_GdipDisposeImage(s_imgs[i].img);
+        else {
+            if (s_imgs[i].img) p_GdipDisposeImage(s_imgs[i].img);
+            free(s_imgs[i].px);
+        }
     }
     s_nImgs = keep;
 }
@@ -406,10 +489,10 @@ static int DecodeOneEntity(const char* s, int rem, char* out, int* outLen) {
     if (s[1] != '#') {
         for (int i = 0; i < 6; i++) {
             int n = (int)strlen(kNamed[i].name);
-            if (rem >= 2 + n && strncmp(s + 1, kNamed[i].name, n) == 0) {
+            if (rem >= 1 + n && strncmp(s + 1, kNamed[i].name, n) == 0) {
                 out[0] = kNamed[i].ch;
                 *outLen = 1;
-                return 2 + n;
+                return 1 + n;   /* '&' + 名字；多吞一字节会吃掉紧随的内容 */
             }
         }
         return 0;
@@ -1843,6 +1926,14 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
                 it->rc.right = cx + U[i].w; it->rc.bottom = *y + U[i].h;
                 it->image = U[i].ent->img;
                 it->imageW = U[i].ent->w; it->imageH = U[i].ent->h;
+                {   /* 源矩形必须按位图真实尺寸：SVG 光栅为逻辑尺寸的 2 倍，
+                       沿用逻辑值会只画左上四分之一 */
+                    UINT bw = 0, bh = 0;
+                    if (p_GdipGetImageWidth(U[i].ent->img, &bw) == 0 && bw &&
+                        p_GdipGetImageHeight(U[i].ent->img, &bh) == 0 && bh) {
+                        it->imageW = bw; it->imageH = bh;
+                    }
+                }
                 it->href = click ? _wcsdup(click) : NULL;
             }
         } else {

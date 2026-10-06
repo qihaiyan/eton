@@ -4,6 +4,7 @@
 #include <shlwapi.h>
 #include <shellapi.h>
 #include <stdarg.h>
+#include <appmodel.h>
 
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
@@ -649,6 +650,23 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     g_hInst = hInst;
     I18n_Init();
     Settings_Load();
+    {   /* 商店版（MSIX）：注册"新建 → Markdown 文件"。清单已声明
+           desktop6:RegistryWriteVirtualization=disabled，此写入落在真实注册表，
+           Explorer 的新建菜单据此显示 .md 项。每次启动重写一遍自愈；
+           便携版（非打包环境）不执行。 */
+        UINT32 pkgNameLen = 0;
+        if (GetCurrentPackageFamilyName(&pkgNameLen, NULL) == ERROR_INSUFFICIENT_BUFFER) {
+            HKEY k;
+            if (RegCreateKeyExW(HKEY_CURRENT_USER,
+                    L"Software\\Classes\\.md\\ShellNew", 0, NULL, 0,
+                    KEY_SET_VALUE, NULL, &k, NULL) == ERROR_SUCCESS) {
+                static const wchar_t empty[1] = L"";
+                RegSetValueExW(k, L"NullFile", 0, REG_SZ,
+                               (const BYTE*)empty, sizeof(empty));
+                RegCloseKey(k);
+            }
+        }
+    }
     I18n_ApplySystemThemeMode();
     g_dpi = GetDpiForSystem();
     WNDCLASSEXW wc; memset(&wc, 0, sizeof(wc));
@@ -690,3 +708,16 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
 
 
 /* find: extended search mode with escape sequences */
+
+
+
+
+/* fix: html entity off-by-one, nbsp broke image paragraphs */
+
+/* html badge images: entity decode fix verified end-to-end */
+
+
+/* svg draw: source rect must use real bitmap size (2x raster) */
+
+/* svg colors: nanosvg RGBA memory order vs GDI+ BGRA - swap R/B */
+

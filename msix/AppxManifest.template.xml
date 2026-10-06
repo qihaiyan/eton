@@ -12,7 +12,8 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
-  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4">
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:virtualization="http://schemas.microsoft.com/appx/manifest/virtualization/windows10">
 
   <Identity Name="__NAME__"
             Version="__VERSION__"
@@ -23,6 +24,14 @@
     <DisplayName>ETON</DisplayName>
     <PublisherDisplayName>海易华天</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
+    <!-- "新建 → Markdown 文件"：把 .md\ShellNew 排除出注册表虚拟化，
+         exe 启动时写入的真实键 Explorer 可见（需 unvirtualizedResources
+         受限能力；Win10 20348+/Win11 生效；写入在卸载后会残留，无害） -->
+    <virtualization:RegistryWriteVirtualization>
+      <virtualization:ExcludedKeys>
+        <virtualization:ExcludedKey>HKEY_CURRENT_USER\Software\Classes\.md\ShellNew</virtualization:ExcludedKey>
+      </virtualization:ExcludedKeys>
+    </virtualization:RegistryWriteVirtualization>
   </Properties>
 
   <Resources>
@@ -37,6 +46,7 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
 
   <Applications>
