@@ -33,6 +33,19 @@ typedef struct MdItem {
     wchar_t* href;      /* 图片项的点击目标（来自包裹链接或图片源） */
 } MdItem;
 
+/* ---- 文本选区 ----
+   位置 = 项/行/片段/字符 的字典序；跨项拖选即比较两端大小。
+   布局只会向后追加项，既有索引稳定；重排（ItemResetAll）时选区一并复位。 */
+typedef struct { int item, line, frag, ch; } MdPos;
+
+static int PosCmp(MdPos a, MdPos b) {
+    if (a.item != b.item) return a.item < b.item ? -1 : 1;
+    if (a.line != b.line) return a.line < b.line ? -1 : 1;
+    if (a.frag != b.frag) return a.frag < b.frag ? -1 : 1;
+    if (a.ch != b.ch) return a.ch < b.ch ? -1 : 1;
+    return 0;
+}
+
 static struct {
     HWND hwnd;
     MdBlock* root;
@@ -49,9 +62,27 @@ static struct {
     BOOL imgTimerOn;     /* 图片到达合并窗口已挂起 */
     int layIdx, layY;    /* 增量布局：下一个顶层块索引 / 已布局到的 y */
     BOOL layDone;
+    BOOL selActive;      /* 存在选区锚点 */
+    BOOL selDrag;        /* 正在拖选 */
+    MdPos selAnchor, selCaret;
+    wchar_t* pendLink;   /* 按下点的链接：未拖开时抬起才打开 */
+    POINT downPt;
 } V;
 
 #define TID_MDIMG 2         /* WM_MDIMG_READY 的 120ms 合并定时器 */
+
+/* 重排会重建 items，选区索引随之失效——统一在此复位 */
+static void SelReset(void) {
+    V.selActive = FALSE;
+    V.selDrag = FALSE;
+    if (V.pendLink) { free(V.pendLink); V.pendLink = NULL; }
+    ZeroMemory(&V.selAnchor, sizeof(MdPos));
+    ZeroMemory(&V.selCaret, sizeof(MdPos));
+}
+
+static BOOL SelHasText(void);
+static BOOL SelPointCovered(int item, int line, int frag);
+static void SelFragRange(int item, int line, int frag, int len, int* a, int* b);
 
 typedef void* GpImage;
 typedef void* GpGraphics;
@@ -1310,6 +1341,7 @@ static HFONT FontFor(unsigned style, int role) {
 }
 
 static void ItemResetAll(void) {
+    SelReset();
     for (int i = 0; i < V.nItems; i++) {
         if (V.items[i].type == ITM_LINES) {
             for (int l = 0; l < V.items[i].nLines; l++)
@@ -2212,7 +2244,7 @@ void MdTheme_Build(MdTheme* th) {
 
 static int SbThickness(void) { return UI_Scale(12); }
 
-static void PaintContent(HDC hdc, const MdTheme* th) {
+static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
     RECT rcClient;
     GetClientRect(V.hwnd, &rcClient);
     int top = V.scrollY, bot = V.scrollY + V.clientH;
@@ -2226,6 +2258,9 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
     HBRUSH quoteBr = CreateSolidBrush(th->quoteBar);
     HBRUSH hruleBr = CreateSolidBrush(th->hrule);
     HBRUSH canvasBr = CreateSolidBrush(th->selBg);
+    HBRUSH selBr = NULL;
+    if (drawSel)
+        selBr = CreateSolidBrush(g_dark ? RGB(64,96,160) : RGB(0,120,215));
 
     for (int i = 0; i < V.nItems; i++) {
         MdItem* it = &V.items[i];
@@ -2324,6 +2359,11 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
             }
             case ITM_MATH: {
                 if (it->mathRun && it->mathRun->math) {
+                    if (selBr && SelPointCovered(i, 0, 0)) {
+                        RECT sr = it->rc;
+                        OffsetRect(&sr, 0, -V.scrollY);
+                        FillRect(hdc, &sr, selBr);
+                    }
                     Math_Draw(it->mathRun->math, hdc,
                               it->rc.left, it->rc.top + Math_Ascent(it->mathRun->math) - V.scrollY,
                               th, &V.fonts);
@@ -2342,6 +2382,12 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                         MdRun* run = fr->run;
                         if ((run->style & STY_MATH) && run->math) {
                             int fx2 = it->rc.left + fr->x;
+                            if (selBr && SelPointCovered(i, l, k)) {
+                                RECT mr = { fx2, baseY - ln->asc,
+                                            fx2 + (fr->w > 0 ? fr->w : UI_Scale(12)),
+                                            baseY - ln->asc + ln->h };
+                                FillRect(hdc, &mr, selBr);
+                            }
                             Math_Draw(run->math, hdc, fx2, baseY, th, &V.fonts);
                             continue;
                         }
@@ -2370,8 +2416,33 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
                         } else {
                             SetTextColor(hdc, th->fg);
                         }
+                        int sa = 0, sb = 0;
+                        SIZE za = { 0, 0 }, zb = { 0, 0 };
+                        if (selBr) {
+                            SelFragRange(i, l, k, fr->len, &sa, &sb);
+                            if (sb > sa) {
+                                GetTextExtentPoint32W(hdc, fr->s, sa, &za);
+                                GetTextExtentPoint32W(hdc, fr->s, sb, &zb);
+                                RECT sr = { fx + za.cx, baseY - ln->asc,
+                                            fx + zb.cx, baseY - ln->asc + ln->h };
+                                FillRect(hdc, &sr, selBr);
+                            } else {
+                                sa = sb = 0;
+                            }
+                        }
                         SetTextAlign(hdc, TA_LEFT | TA_BASELINE);
-                        TextOutW(hdc, fx, baseY, fr->s, fr->len);
+                        if (sb > sa) {
+                            /* 部分选中分三段画：未选中段须保持原色，
+                               整段一次 TextOut 会把它也反白 */
+                            if (sa > 0) TextOutW(hdc, fx, baseY, fr->s, sa);
+                            SetTextColor(hdc, RGB(255,255,255));
+                            TextOutW(hdc, fx + za.cx, baseY, fr->s + sa, sb - sa);
+                            if (sb < fr->len)
+                                TextOutW(hdc, fx + zb.cx, baseY, fr->s + sb,
+                                         fr->len - sb);
+                        } else {
+                            TextOutW(hdc, fx, baseY, fr->s, fr->len);
+                        }
                         if (run->style & STY_LINK) {
                             HPEN op = (HPEN)SelectObject(hdc, ulPen);
                             MoveToEx(hdc, fx, baseY + 1, NULL);
@@ -2400,6 +2471,7 @@ static void PaintContent(HDC hdc, const MdTheme* th) {
     DeleteObject(quoteBr);
     DeleteObject(hruleBr);
     DeleteObject(canvasBr);
+    if (selBr) DeleteObject(selBr);
 }
 
 static void PaintScrollbar(HDC hdc, const MdTheme* th) {
@@ -2471,7 +2543,7 @@ static void Paint(void) {
     DeleteObject(bg);
 
     if (!V.fontsOk) { HDC tmp = GetDC(V.hwnd); FontsEnsure(tmp); ReleaseDC(V.hwnd, tmp); }
-    PaintContent(mem, &th);
+    PaintContent(mem, &th, TRUE);
     PaintScrollbar(mem, &th);
 
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
@@ -2541,6 +2613,348 @@ static void OpenLink(const wchar_t* href) {
         ShellExecuteW(V.hwnd, L"open", full, NULL, NULL, SW_SHOWNORMAL);
 }
 
+/* ===================== 文本选区与复制 ===================== */
+
+static BOOL SelHasText(void) {
+    return V.selActive && PosCmp(V.selAnchor, V.selCaret) != 0;
+}
+
+/* 选区无向区间：anchor→caret 可能反向 */
+static void SelBounds(MdPos* s, MdPos* e) {
+    *s = V.selAnchor; *e = V.selCaret;
+    if (PosCmp(*s, *e) > 0) { MdPos t = *s; *s = *e; *e = t; }
+}
+
+/* 零宽位置（行内公式）是否被选区跨过 */
+static BOOL SelPointCovered(int item, int line, int frag) {
+    if (!V.selActive) return FALSE;
+    MdPos s, e;
+    SelBounds(&s, &e);
+    MdPos p = { item, line, frag, 0 };
+    return PosCmp(s, p) <= 0 && PosCmp(e, p) > 0;
+}
+
+/* 片段内被选中的字符区间 [a,b) */
+static void SelFragRange(int item, int line, int frag, int len, int* a, int* b) {
+    *a = *b = 0;
+    if (!V.selActive) return;
+    MdPos s, e;
+    SelBounds(&s, &e);
+    MdPos fs = { item, line, frag, 0 };
+    MdPos fe = { item, line, frag, len };
+    if (PosCmp(e, fs) <= 0 || PosCmp(s, fe) >= 0) return;
+    *a = PosCmp(s, fs) <= 0 ? 0 : s.ch;
+    *b = PosCmp(e, fe) >= 0 ? len : e.ch;
+}
+
+/* 片段内偏移 off 处的字符序号（前缀宽度二分，与布局同字体度量） */
+static int ChAtX(HDC hdc, MdItem* it, MdFrag* fr, int off) {
+    if (fr->len <= 0 || !fr->s || off <= 0) return 0;
+    HFONT of = (HFONT)SelectObject(hdc, FontFor(fr->run->style, it->role));
+    int lo = 0, hi = fr->len;
+    while (lo < hi) {              /* 最小 k：width(s[0..k)) >= off */
+        int mid = lo + (hi - lo) / 2;
+        SIZE sz;
+        GetTextExtentPoint32W(hdc, fr->s, mid, &sz);
+        if (sz.cx < off) lo = mid + 1;
+        else hi = mid;
+    }
+    SelectObject(hdc, of);
+    return lo;
+}
+
+/* 客户区坐标 → 最近文本位置；空隙/空白吸附相邻行，保证跨行拖选顺滑 */
+static BOOL HitTextPos(int px, int py, MdPos* out) {
+    if (!V.nItems) return FALSE;
+    HDC hdc = GetDC(V.hwnd);
+    if (!hdc) return FALSE;
+    if (!V.fontsOk) FontsEnsure(hdc);
+    int dy = py + V.scrollY;
+    int dx = px;
+    int best = -1, bestV = 0, bestH = 0;
+    for (int i = 0; i < V.nItems; i++) {
+        MdItem* it = &V.items[i];
+        if (it->type != ITM_LINES && it->type != ITM_MATH) continue;
+        int dv, dh;
+        if (dy < it->rc.top) dv = it->rc.top - dy;
+        else if (dy >= it->rc.bottom) dv = dy - it->rc.bottom + 1;
+        else dv = 0;
+        if (dx < it->rc.left) dh = it->rc.left - dx;
+        else if (dx >= it->rc.right) dh = dx - it->rc.right + 1;
+        else dh = 0;
+        /* 垂直优先，水平打破平局：同一垂直带有多个并排项（同行表格
+           单元格、列表符号与正文首行），只看垂直会永远命中最前一个 */
+        if (best < 0 || dv < bestV || (dv == bestV && dh < bestH)) {
+            best = i; bestV = dv; bestH = dh;
+        }
+    }
+    if (best < 0) { ReleaseDC(V.hwnd, hdc); return FALSE; }
+    MdItem* it = &V.items[best];
+    if (it->type == ITM_MATH) {    /* 整块公式：左右半区 = 起点/终点 */
+        out->item = best; out->line = 0; out->frag = 0;
+        out->ch = (dx < (it->rc.left + it->rc.right) / 2) ? 0 : 1;
+        ReleaseDC(V.hwnd, hdc);
+        return TRUE;
+    }
+    int bl = 0, blDist = -1;
+    for (int l = 0; l < it->nLines; l++) {
+        MdLine* ln = &it->lines[l];
+        int top = it->rc.top + ln->y, bot = top + ln->h;
+        int d;
+        if (dy < top) d = top - dy;
+        else if (dy >= bot) d = dy - bot + 1;
+        else d = 0;
+        if (blDist < 0 || d < blDist) { bl = l; blDist = d; }
+    }
+    MdLine* ln = &it->lines[bl];
+    out->item = best; out->line = bl;
+    int kf = -1;
+    for (int k = 0; k < ln->nF; k++) {
+        MdFrag* fr = &ln->frags[k];
+        if (fr->len == 0 && !(fr->run->style & STY_MATH)) continue;
+        kf = k;                    /* 记住末个有效片段（越过末段时用） */
+        if (dx < it->rc.left + fr->x + (fr->w > 0 ? fr->w : 1)) break;
+    }
+    if (kf < 0) {
+        out->frag = 0; out->ch = 0;
+    } else {
+        out->frag = kf;
+        MdFrag* fr = &ln->frags[kf];
+        out->ch = (fr->len > 0)
+            ? ChAtX(hdc, it, fr, dx - (it->rc.left + fr->x)) : 0;
+    }
+    ReleaseDC(V.hwnd, hdc);
+    return TRUE;
+}
+
+/* 全选：补全布局后取首/末文本位置 */
+static void SelectAllDoc(void) {
+    LayoutEnsure(0x7FFFFFFF);
+    if (!V.nItems) return;
+    MdPos a = { 0, 0, 0, 0 };
+    MdPos b = a;
+    for (int i = V.nItems - 1; i >= 0; i--) {
+        MdItem* it = &V.items[i];
+        if (it->type == ITM_LINES && it->nLines > 0) {
+            MdLine* ln = &it->lines[it->nLines - 1];
+            b.item = i; b.line = it->nLines - 1; b.frag = ln->nF; b.ch = 0;
+            break;
+        }
+        if (it->type == ITM_MATH) {
+            b.item = i; b.line = 0; b.frag = 0; b.ch = 1;
+            break;
+        }
+    }
+    if (PosCmp(a, b) == 0) return;
+    V.selAnchor = a; V.selCaret = b; V.selActive = TRUE;
+    InvalidateRect(V.hwnd, NULL, FALSE);
+}
+
+static BOOL AppEnd(wchar_t** buf, int* len, int* cap, const wchar_t* s, int n) {
+    if (n <= 0 || !s) return TRUE;
+    if (*len + n + 1 > *cap) {
+        int nc = *cap;
+        while (nc < *len + n + 1) nc *= 2;
+        wchar_t* nb = (wchar_t*)realloc(*buf, (size_t)nc * sizeof(wchar_t));
+        if (!nb) return FALSE;
+        *buf = nb; *cap = nc;
+    }
+    memcpy(*buf + *len, s, (size_t)n * sizeof(wchar_t));
+    *len += n;
+    return TRUE;
+}
+
+/* ---- 复制为 Markdown：行内标记按 run 边界开合 ----
+   同一 run 的多个片段只开/合一组标记；开合顺序互为镜像，链接在最外层。 */
+static void MdInlineOpen(wchar_t** buf, int* len, int* cap, MdRun* run) {
+    unsigned st = run->style;
+    if ((st & STY_IMG) && run->href && run->href[0])
+        AppEnd(buf, len, cap, L"![", 2);
+    else if ((st & STY_LINK) && run->href && run->href[0])
+        AppEnd(buf, len, cap, L"[", 1);
+    if (st & STY_STRIKE) AppEnd(buf, len, cap, L"~~", 2);
+    if (st & STY_BOLD)   AppEnd(buf, len, cap, L"**", 2);
+    if (st & STY_EM)     AppEnd(buf, len, cap, L"*", 1);
+    if (st & STY_CODE)   AppEnd(buf, len, cap, L"`", 1);
+}
+
+static void MdInlineClose(wchar_t** buf, int* len, int* cap, MdRun* run) {
+    unsigned st = run->style;
+    if (st & STY_CODE)   AppEnd(buf, len, cap, L"`", 1);
+    if (st & STY_EM)     AppEnd(buf, len, cap, L"*", 1);
+    if (st & STY_BOLD)   AppEnd(buf, len, cap, L"**", 2);
+    if (st & STY_STRIKE) AppEnd(buf, len, cap, L"~~", 2);
+    if (((st & STY_IMG) || (st & STY_LINK)) && run->href && run->href[0]) {
+        AppEnd(buf, len, cap, L"](", 2);
+        AppEnd(buf, len, cap, run->href, (int)wcslen(run->href));
+        AppEnd(buf, len, cap, L")", 1);
+    }
+}
+
+/* 列表符号项：ownRun 独字、无样式、role 为正文、内容为 •/☑/☐/N. 之一
+   （代码块 ownRun 是哑头 run、style 也为 0，必须用 role 排除） */
+static BOOL IsListMarkItem(MdItem* it) {
+    return it->type == ITM_LINES && it->role == ROLE_BODY && it->ownRun &&
+           it->nLines == 1 && it->ownRun->style == 0 && it->ownRun->text &&
+           (it->ownRun->text[0] == L'•' || it->ownRun->text[0] == L'☑' ||
+            it->ownRun->text[0] == L'☐' ||
+            (it->ownRun->text[0] >= L'0' && it->ownRun->text[0] <= L'9'));
+}
+
+static const wchar_t* MdListMarkText(const wchar_t* m) {
+    if (m[0] == L'☑') return L"- [x]";
+    if (m[0] == L'☐') return L"- [ ]";
+    if (m[0] == L'•') return L"-";
+    return m;             /* "1."/"1)" 本身就是合法 Markdown 标记 */
+}
+
+/* 选区 → Markdown 文本：链接/强调/行内码/公式重建语法，标题补 # 前缀，
+   列表符号转回 Markdown 标记；可视行以 \n 连接；并排项（同行表格单元
+   格）以 \t 连接保持列结构；代码块内容保持纯文本 */
+static wchar_t* BuildSelText(void) {
+    if (!SelHasText()) return NULL;
+    MdPos s, e;
+    SelBounds(&s, &e);
+    int cap = 4096, len = 0;
+    wchar_t* buf = (wchar_t*)malloc((size_t)cap * sizeof(wchar_t));
+    if (!buf) return NULL;
+    int prevTop = 0, prevBot = 0;
+    BOOL havePrev = FALSE, prevWasMark = FALSE;
+    for (int i = 0; i < V.nItems; i++) {
+        MdItem* it = &V.items[i];
+        MdPos is = { i, 0, 0, 0 }, ie = { i + 1, 0, 0, 0 };
+        if (PosCmp(e, is) <= 0) break;             /* 选区到此为止 */
+        if (PosCmp(s, ie) >= 0) continue;
+        if (it->type == ITM_MATH) {
+            if (it->mathRun && it->mathRun->text && PosCmp(s, is) <= 0) {
+                AppEnd(&buf, &len, &cap, L"$$", 2);
+                AppEnd(&buf, &len, &cap, it->mathRun->text,
+                       (int)wcslen(it->mathRun->text));
+                AppEnd(&buf, &len, &cap, L"$$", 2);
+                AppEnd(&buf, &len, &cap, L"\n", 1);
+                prevTop = it->rc.top; prevBot = it->rc.bottom;
+                havePrev = TRUE; prevWasMark = FALSE;
+            }
+            continue;
+        }
+        if (it->type != ITM_LINES || it->nLines == 0) continue;
+        MdLine* lastLn = &it->lines[it->nLines - 1];
+        int curTop = it->rc.top + it->lines[0].y;
+        int curBot = it->rc.top + lastLn->y + lastLn->h;
+        if (havePrev && curTop < prevBot && prevTop < curBot &&
+            len > 0 && buf[len - 1] == L'\n') {
+            len--;          /* 并排：表格单元格以 \t、列表符号后以空格连接 */
+            AppEnd(&buf, &len, &cap, prevWasMark ? L" " : L"\t", 1);
+        }
+        BOOL wasMark = FALSE;
+        if (IsListMarkItem(it) && PosCmp(s, is) <= 0) {
+            AppEnd(&buf, &len, &cap, MdListMarkText(it->ownRun->text),
+                   (int)wcslen(MdListMarkText(it->ownRun->text)));
+            AppEnd(&buf, &len, &cap, L"\n", 1);
+            wasMark = TRUE;
+        } else {
+            if (it->role >= ROLE_H1 && it->role <= ROLE_H1 + 5 &&
+                PosCmp(s, is) <= 0) {              /* 标题补 # 前缀 */
+                for (int h = 0; h < it->role; h++)
+                    AppEnd(&buf, &len, &cap, L"#", 1);
+                AppEnd(&buf, &len, &cap, L" ", 1);
+            }
+            MdRun* curRun = NULL;
+            for (int l = 0; l < it->nLines; l++) {
+                MdLine* ln = &it->lines[l];
+                MdPos ls = { i, l, 0, 0 }, le = { i, l + 1, 0, 0 };
+                if (PosCmp(e, ls) <= 0) break;
+                if (PosCmp(s, le) >= 0) continue;
+                for (int k = 0; k < ln->nF; k++) {
+                    MdFrag* fr = &ln->frags[k];
+                    if (fr->len == 0) {
+                        if ((fr->run->style & STY_MATH) && fr->run->text &&
+                            SelPointCovered(i, l, k)) {
+                            if (curRun) {
+                                MdInlineClose(&buf, &len, &cap, curRun);
+                                curRun = NULL;
+                            }
+                            int dl = (fr->run->style & STY_MATHDISP) ? 2 : 1;
+                            AppEnd(&buf, &len, &cap, dl == 2 ? L"$$" : L"$", dl);
+                            AppEnd(&buf, &len, &cap, fr->run->text,
+                                   (int)wcslen(fr->run->text));
+                            AppEnd(&buf, &len, &cap, dl == 2 ? L"$$" : L"$", dl);
+                        }
+                        continue;
+                    }
+                    int a, b;
+                    SelFragRange(i, l, k, fr->len, &a, &b);
+                    if (b > a) {
+                        if (fr->run != curRun) {   /* run 边界开合标记 */
+                            if (curRun)
+                                MdInlineClose(&buf, &len, &cap, curRun);
+                            MdInlineOpen(&buf, &len, &cap, fr->run);
+                            curRun = fr->run;
+                        }
+                        AppEnd(&buf, &len, &cap, fr->s + a, b - a);
+                    }
+                }
+                AppEnd(&buf, &len, &cap, L"\n", 1);
+            }
+            if (curRun) MdInlineClose(&buf, &len, &cap, curRun);
+        }
+        prevTop = curTop; prevBot = curBot;
+        havePrev = TRUE; prevWasMark = wasMark;
+    }
+    while (len > 0 && buf[len - 1] == L'\n') len--;
+    if (len == 0) { free(buf); return NULL; }
+    buf[len] = L'\0';
+    return buf;
+}
+
+static void DoCopySelection(void) {
+    wchar_t* txt = BuildSelText();
+    if (!txt) return;
+    if (OpenClipboard(V.hwnd)) {
+        EmptyClipboard();
+        size_t bytes = ((size_t)wcslen(txt) + 1) * sizeof(wchar_t);
+        HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        BOOL ok = FALSE;
+        if (h) {
+            wchar_t* p = (wchar_t*)GlobalLock(h);
+            if (p) {
+                memcpy(p, txt, bytes);
+                GlobalUnlock(h);
+                ok = (SetClipboardData(CF_UNICODETEXT, h) != NULL);
+            }
+            if (!ok) GlobalFree(h);
+        }
+        CloseClipboard();
+    }
+    free(txt);
+}
+
+enum { MDVC_COPY = 1, MDVC_SELALL = 2 };   /* 预览私有菜单命令 */
+
+static void ShowContextMenu(HWND hwnd, LPARAM lp) {
+    POINT pt;
+    if (lp == (LPARAM)-1) {         /* 键盘触发（Shift+F10）：客户区中心 */
+        RECT rc;
+        GetClientRect(hwnd, &rc);
+        pt.x = (rc.left + rc.right) / 2;
+        pt.y = (rc.top + rc.bottom) / 2;
+        ClientToScreen(hwnd, &pt);
+    } else {
+        pt.x = GET_X_LPARAM(lp);
+        pt.y = GET_Y_LPARAM(lp);
+    }
+    HMENU m = CreatePopupMenu();
+    UINT on = MF_STRING, off = MF_STRING | MF_GRAYED;
+    I18n_OwnerAppend(m, SelHasText() ? on : off, MDVC_COPY, T(STR_ITEM_COPY));
+    I18n_OwnerAppend(m, on, MDVC_SELALL, T(STR_ITEM_SELECTALL));
+    I18n_ApplyMenuTheme(m);
+    int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                             pt.x, pt.y, 0, hwnd, NULL);
+    DestroyMenu(m);
+    if (cmd == MDVC_COPY) DoCopySelection();
+    else if (cmd == MDVC_SELALL) SelectAllDoc();
+}
+
 static void LoadContentEx(int index, BOOL force);
 
 static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -2590,8 +3004,25 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return 0;
             }
+            /* 选区优先：按下即锚定；链接记下，未拖开时抬起才打开 */
+            MdPos pos;
+            BOOL havePos = HitTextPos(px, py, &pos);
             const wchar_t* href = HitLink(px, py);
-            if (href) OpenLink(href);
+            if (V.pendLink) { free(V.pendLink); V.pendLink = NULL; }
+            if (href) V.pendLink = _wcsdup(href);
+            V.downPt.x = px; V.downPt.y = py;
+            if (havePos) {
+                if ((GetKeyState(VK_SHIFT) & 0x8000) && V.selActive) {
+                    V.selCaret = pos;               /* Shift+点击：扩展选区 */
+                } else {
+                    V.selAnchor = pos;
+                    V.selCaret = pos;
+                }
+                V.selActive = TRUE;
+            }
+            V.selDrag = TRUE;
+            SetCapture(hwnd);
+            InvalidateRect(hwnd, NULL, FALSE);
             return 0;
         }
         case WM_MOUSEMOVE: {
@@ -2623,16 +3054,78 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return 0;
             }
+            if (V.selDrag) {
+                /* 拖近上下缘自动滚动；坐标吸回客户区再命中 */
+                int edge = UI_Scale(24);
+                if (py < edge && V.scrollY > 0) ScrollBy(-V.fonts.lineH * 2);
+                else if (py >= V.clientH - edge && V.scrollY < V.docH - V.clientH)
+                    ScrollBy(V.fonts.lineH * 2);
+                int mx = px < 0 ? 0 : (px >= V.clientW ? V.clientW - 1 : px);
+                int my = py < 0 ? 0 : (py >= V.clientH ? V.clientH - 1 : py);
+                MdPos pos;
+                if (HitTextPos(mx, my, &pos) && PosCmp(pos, V.selCaret) != 0) {
+                    V.selCaret = pos;
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
+                return 0;
+            }
             const wchar_t* href = HitLink(px, py);
             SetCursor(href ? V.hHand : LoadCursorW(NULL, IDC_ARROW));
             return 0;
         }
-        case WM_LBUTTONUP:
-            if (V.sbDrag) { V.sbDrag = FALSE; ReleaseCapture(); }
+        case WM_LBUTTONUP: {
+            if (V.sbDrag) {
+                V.sbDrag = FALSE;
+                if (GetCapture() == hwnd) ReleaseCapture();
+                return 0;
+            }
+            /* 重排可能已把 selDrag 复位，捕获仍需解除 */
+            if (V.selDrag || GetCapture() == hwnd) {
+                V.selDrag = FALSE;
+                if (GetCapture() == hwnd) ReleaseCapture();
+                if (V.pendLink) {
+                    int thr = GetSystemMetrics(SM_CXDRAG);
+                    int ty = GetSystemMetrics(SM_CYDRAG);
+                    if (thr < ty) thr = ty;
+                    int dxp = GET_X_LPARAM(lp) - V.downPt.x;
+                    int dyp = GET_Y_LPARAM(lp) - V.downPt.y;
+                    if (dxp * dxp + dyp * dyp <= thr * thr)
+                        OpenLink(V.pendLink);
+                    free(V.pendLink);
+                    V.pendLink = NULL;
+                }
+            }
+            return 0;
+        }
+        case WM_CAPTURECHANGED:
+            if (V.selDrag) {
+                V.selDrag = FALSE;
+                if (V.pendLink) { free(V.pendLink); V.pendLink = NULL; }
+            }
+            return 0;
+        case WM_CONTEXTMENU:
+            ShowContextMenu(hwnd, lp);
             return 0;
         case WM_KEYDOWN:
+            if (GetKeyState(VK_CONTROL) & 0x8000) {
+                if (wp == 'C' || wp == 'c' || wp == VK_INSERT) {
+                    if (!SelHasText()) SelectAllDoc();   /* 无选区：复制全文 */
+                    DoCopySelection();
+                    return 0;
+                }
+                if (wp == 'A' || wp == 'a') {
+                    SelectAllDoc();
+                    return 0;
+                }
+            }
             switch (wp) {
                 case VK_ESCAPE:
+                    if (SelHasText()) {   /* 先清选区，再次按下才退出预览 */
+                        V.selActive = FALSE;
+                        V.selCaret = V.selAnchor;
+                        InvalidateRect(hwnd, NULL, FALSE);
+                        return 0;
+                    }
                     if (g_mdSplit) {
                         if (g_curDoc >= 0 && g_curDoc < g_docCount &&
                             g_docs[g_curDoc].hwndEdit)
@@ -2896,7 +3389,7 @@ BOOL MdView_PrintPages(HDC hdc, int pw, int ph) {
         SetWorldTransform(hdc, &xf);
         V.scrollY = p * pageH;
         V.clientH = pageH + 8;
-        PaintContent(hdc, &th);
+        PaintContent(hdc, &th, FALSE);
         XFORM id = { 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f };
         SetWorldTransform(hdc, &id);
         EndPage(hdc);
