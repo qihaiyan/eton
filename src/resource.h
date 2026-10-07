@@ -50,6 +50,7 @@
 #define IDM_THEME       1320
 #define IDM_VIEW_MD     1321
 #define IDM_VIEW_MDSPLT 1322
+#define IDM_VIEW_MDOUTLINE 1323
 
 #define IDM_ENC_ANSI     1400
 #define IDM_ENC_UTF8     1401

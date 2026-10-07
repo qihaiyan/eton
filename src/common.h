@@ -304,6 +304,20 @@ void MdView_SyncScrollFromEdit(double frac);
 double MdView_GetScrollFraction(void);
 void MdTheme_Build(MdTheme* th);
 
+/* mdoutline.c — Markdown 大纲面板 */
+extern BOOL g_mdOutline;
+void MdOutline_Register(void);
+void MdOutline_Create(HWND parent);
+BOOL MdOutline_IsVisible(void);
+int  MdOutline_Width(void);
+void MdOutline_OnLayout(int x, int y, int w, int h);
+void MdOutline_OnDocChange(void);
+void MdOutline_Toggle(void);
+void MdOutline_NotifyModified(int index);
+void MdOutline_OnCaretLine(int line);
+void MdOutline_OnThemeChange(void);
+void MdOutline_OnDpiChanged(void);
+
 /* mdimg.c — 远程图片下载与缓存 */
 void MdImg_Init(HWND notifyWnd);
 BOOL MdImg_CachePath(const wchar_t* url, wchar_t* out, int cch);

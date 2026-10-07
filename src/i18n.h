@@ -200,6 +200,10 @@ typedef enum {
     STR_MSG_DT_BIG,
     STR_TS_ERR,
 
+    STR_ITEM_MDOUTLINE,
+    STR_MD_OUTLINE_TITLE,
+    STR_MD_OUTLINE_EMPTY,
+
     STR_COUNT
 } StrId;
 

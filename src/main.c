@@ -39,6 +39,7 @@ BOOL g_draftsDirty = FALSE;
 BOOL g_sessionDirty = FALSE;
 BOOL g_mdSplit = FALSE;
 BOOL g_mdSyncLock = FALSE;
+BOOL g_mdOutline = TRUE;
 
 void ShowError(const wchar_t* msg) {
     MessageBoxW(NULL, msg, T(STR_APP_TITLE), MB_ICONERROR);
@@ -145,6 +146,9 @@ static void UpdateMenuChecks(void) {
     Check(m, IDM_VIEW_MDSPLT, isMd && g_mdSplit);
     EnableMenuItem(m, IDM_VIEW_MDSPLT, isMd ? MF_BYCOMMAND | MF_ENABLED
                                             : MF_BYCOMMAND | MF_GRAYED);
+    Check(m, IDM_VIEW_MDOUTLINE, isMd && g_mdOutline);
+    EnableMenuItem(m, IDM_VIEW_MDOUTLINE, isMd ? MF_BYCOMMAND | MF_ENABLED
+                                               : MF_BYCOMMAND | MF_GRAYED);
     EnableMenuItem(m, IDM_EXPORT_HTML, isMd ? MF_BYCOMMAND | MF_ENABLED
                                             : MF_BYCOMMAND | MF_GRAYED);
     EnableMenuItem(m, IDM_EXPORT_PDF, isMd ? MF_BYCOMMAND | MF_ENABLED
@@ -355,6 +359,7 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             I18n_ApplySystemThemeMode();
             for (int i = 0; i < g_docCount; i++) Editor_ApplyTheme(i);
             MdView_OnThemeChange();
+            MdOutline_OnThemeChange();
             ApplyTitleBarTheme(hwnd);
             InvalidateRect(g_hwndTab, NULL, FALSE);
             InvalidateRect(g_hwndTool, NULL, FALSE);
@@ -386,6 +391,10 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             break;
         case IDM_VIEW_MDSPLT:
             MdView_ToggleSplit();
+            break;
+        case IDM_VIEW_MDOUTLINE:
+            MdOutline_Toggle();
+            UpdateMenuChecks();
             break;
         case IDM_EXPORT_HTML:
             MdExport_Html();
@@ -429,6 +438,7 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
                 RebuildMainMenu(hwnd);
                 UpdateMenuChecks();
                 Editor_OnLanguageChanged();
+                MdOutline_OnThemeChange();
                 InvalidateRect(g_hwndTab, NULL, FALSE);
             }
             break;

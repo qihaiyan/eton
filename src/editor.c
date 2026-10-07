@@ -57,6 +57,7 @@ void Editor_SetFont(void) {
 
 void Editor_OnDpiChanged(void) {
     RecreateTabFont();
+    MdOutline_OnDpiChanged();
     Editor_Layout();
     InvalidateRect(g_hwndTab, NULL, TRUE);
 }
@@ -67,6 +68,8 @@ BOOL Editor_Init(void) {
     TabBar_Register();
     MdView_Register();
     MdView_Create(g_hwndMain);
+    MdOutline_Register();
+    MdOutline_Create(g_hwndMain);
     Editor_ApplyThemeColors();
     Editor_SetFont();
     return TRUE;
@@ -515,6 +518,7 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
 void Editor_Activate(int index) {
     if (index < 0 || index >= g_docCount) return;
     g_curDoc = index;
+    MdOutline_OnDocChange();   /* 先于布局：面板可见性决定编辑区起点 */
     for (int i = 0; i < g_docCount; i++) {
         BOOL hideFull = g_docs[i].previewOn && g_docs[i].lang == LANG_MD && !g_mdSplit;
         BOOL show = (i == index) && !hideFull;
@@ -585,18 +589,23 @@ void Editor_Layout(void) {
     int bottom = cy - statusH;
     int h = bottom - top;
 
+    /* Markdown 大纲：左侧停靠，编辑区/预览整体右移 */
+    int olw = MdOutline_IsVisible() ? MdOutline_Width() : 0;
+    if (olw) MdOutline_OnLayout(0, top, olw, h);
+
     if (MdView_IsVisible() && g_mdSplit) {
         int sbw = ScrollBars_Thickness();
-        int splitX = cx / 2;
-        int minSplit = UI_Scale(120) + sbw;
+        int avail = cx - olw;
+        int splitX = olw + avail / 2;
+        int minSplit = olw + UI_Scale(120) + sbw;
         if (splitX < minSplit) splitX = minSplit;
         int editW = splitX - sbw;
         BOOL showH = !g_wordWrap;
-        ScrollBars_Layout(0, top, splitX, h, sbw, showH);
+        ScrollBars_Layout(olw, top, splitX - olw, h, sbw, showH);
         if (g_curDoc >= 0 && g_curDoc < g_docCount) {
             Editor_ComputeGutterWidth(g_curDoc);
-            SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, 0, top,
-                         editW, h - (showH ? sbw : 0), SWP_NOZORDER | SWP_SHOWWINDOW);
+            SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, olw, top,
+                         editW - olw, h - (showH ? sbw : 0), SWP_NOZORDER | SWP_SHOWWINDOW);
         }
         ScrollBars_Update();
         MdView_OnLayout(splitX, top, cx - splitX, h);
@@ -605,19 +614,19 @@ void Editor_Layout(void) {
 
     if (MdView_IsVisible()) {
         ScrollBars_Layout(0, 0, 0, 0, 0, FALSE);
-        MdView_OnLayout(0, top, cx, h);
+        MdView_OnLayout(olw, top, cx - olw, h);
         return;
     }
 
     int sbw = ScrollBars_Thickness();
     BOOL showH = !g_wordWrap;
 
-    ScrollBars_Layout(0, top, cx, h, sbw, showH);
+    ScrollBars_Layout(olw, top, cx - olw, h, sbw, showH);
 
     if (g_curDoc >= 0 && g_curDoc < g_docCount) {
         Editor_ComputeGutterWidth(g_curDoc);
-        SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, 0, top,
-                     cx - sbw, h - (showH ? sbw : 0), SWP_NOZORDER);
+        SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, olw, top,
+                     cx - olw - sbw, h - (showH ? sbw : 0), SWP_NOZORDER);
     }
     ScrollBars_Update();
 }
@@ -635,6 +644,8 @@ void Editor_Zoom(int delta) {
 void Editor_SetLang(int index, LangID lang) {
     g_docs[index].lang = lang;
     ApplyLexer(g_docs[index].hwndEdit, lang);
+    MdOutline_OnDocChange();   /* 切到/切出 Markdown：面板显隐随之变化 */
+    Editor_Layout();
 }
 
 void Editor_ApplyTheme(int index) {
@@ -656,6 +667,11 @@ void Editor_OnNotify(LPARAM lp) {
 
     if (scn->nmhdr.code == SCN_UPDATEUI) {
         Editor_UpdateStatus();
+        if (g_curDoc >= 0 && g_curDoc < g_docCount) {
+            HWND ched = g_docs[g_curDoc].hwndEdit;
+            MdOutline_OnCaretLine((int)SendMessage(ched, SCI_LINEFROMPOSITION,
+                (WPARAM)SendMessage(ched, SCI_GETCURRENTPOS, 0, 0), 0));
+        }
         if (g_mdSplit && MdView_IsVisible() && !g_mdSyncLock &&
             (scn->updated & (SC_UPDATE_V_SCROLL | SC_UPDATE_SELECTION))) {
             int first = (int)SendMessage(hed, SCI_GETFIRSTVISIBLELINE, 0, 0);
@@ -678,6 +694,7 @@ void Editor_OnNotify(LPARAM lp) {
     } else if (scn->nmhdr.code == SCN_MODIFIED) {
         if (scn->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) {
             g_docs[idx].modGen++;
+            MdOutline_NotifyModified(idx);
             if (!g_suppressDirty) {
                 Editor_MarkDirty(idx, TRUE);
                 Editor_UpdateStatus();

@@ -201,6 +201,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"当前内容为空，没有可处理的内容。",
         L"文档过大（超过 %d MB），开发者工具仅支持较小的文档。",
         L"无法识别的输入（支持 Unix 时间戳或 YYYY-MM-DD HH:MM:SS）。",
+
+        L"大纲(&O)\tF6",
+        L"大纲",
+        L"（无标题）",
     },
 
     {
@@ -397,6 +401,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"The document is empty — nothing to process.",
         L"The document is too large (over %d MB) for the developer tools.",
         L"Unrecognized input (expected a Unix timestamp or YYYY-MM-DD HH:MM:SS).",
+
+        L"&Outline\tF6",
+        L"Outline",
+        L"(no headings)",
     },
 };
 
@@ -715,6 +723,7 @@ HMENU I18n_BuildMainMenu(void) {
     AddSep(mView);
     AddIt(mView, STR_ITEM_THEME, IDM_THEME);
     AddSep(mView);
+    AddIt(mView, STR_ITEM_MDOUTLINE, IDM_VIEW_MDOUTLINE);
     AddIt(mView, STR_ITEM_MDPREVIEW, IDM_VIEW_MD);
     AddIt(mView, STR_ITEM_MDSPLIT, IDM_VIEW_MDSPLT);
     AddBar(bar, (UINT_PTR)mView, STR_MENU_VIEW);
