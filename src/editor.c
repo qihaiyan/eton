@@ -130,6 +130,14 @@ static void ApplyScintillaStyle(HWND hed) {
 
     SendMessage(hed, SCI_SETVIEWEOL, 0, 0);
 
+    /* 列式（矩形）选择：Alt+拖拽的多行选区在内部是逐行选区，
+       默认输入会折叠回主选区（只改一行）；打开逐行输入/删除/粘贴，
+       并允许矩形选区跨行尾虚拟空格对齐短行 */
+    SendMessage(hed, SCI_SETMULTIPLESELECTION, TRUE, 0);
+    SendMessage(hed, SCI_SETADDITIONALSELECTIONTYPING, TRUE, 0);
+    SendMessage(hed, SCI_SETMULTIPASTE, SC_MULTIPASTE_EACH, 0);
+    SendMessage(hed, SCI_SETVIRTUALSPACEOPTIONS, SCVS_RECTANGULARSELECTION, 0);
+
     SendMessage(hed, SCI_USEPOPUP, 0, 0);
 
     SendMessage(hed, SCI_SETVSCROLLBAR, 0, 0);

@@ -2929,7 +2929,28 @@ static void DoCopySelection(void) {
     free(txt);
 }
 
-enum { MDVC_COPY = 1, MDVC_SELALL = 2 };   /* 预览私有菜单命令 */
+/* 剪切：预览是只读投影视图，无法从原文删字——复制选区并取消选择 */
+static void DoCutSelection(HWND hwnd) {
+    if (!SelHasText()) return;
+    DoCopySelection();
+    V.selActive = FALSE;
+    V.selCaret = V.selAnchor;
+    InvalidateRect(hwnd, NULL, FALSE);
+}
+
+/* 粘贴：目标是被预览的编辑器，插入其光标处；预览随后刷新 */
+static void DoPasteIntoEditor(void) {
+    if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return;
+    HWND hed = g_docs[g_curDoc].hwndEdit;
+    if (!hed) return;
+    SendMessage(hed, SCI_PASTE, 0, 0);
+    MdView_RefreshIfActive(g_curDoc);   /* 全预览模式下立即看到粘贴结果 */
+    if (g_mdSplit && IsWindowVisible(hed)) SetFocus(hed);
+}
+
+enum { MDVC_COPY = 1, MDVC_SELALL = 2, MDVC_CUT = 3, MDVC_PASTE = 4 };
+                                    /* 预览私有菜单命令 */
 
 static void ShowContextMenu(HWND hwnd, LPARAM lp) {
     POINT pt;
@@ -2945,13 +2966,22 @@ static void ShowContextMenu(HWND hwnd, LPARAM lp) {
     }
     HMENU m = CreatePopupMenu();
     UINT on = MF_STRING, off = MF_STRING | MF_GRAYED;
-    I18n_OwnerAppend(m, SelHasText() ? on : off, MDVC_COPY, T(STR_ITEM_COPY));
+    I18n_OwnerAppend(m, on, MDVC_COPY, T(STR_ITEM_COPY));
+    I18n_OwnerAppend(m, SelHasText() ? on : off, MDVC_CUT, T(STR_ITEM_CUT));
+    I18n_OwnerAppend(m, IsClipboardFormatAvailable(CF_UNICODETEXT) ? on : off,
+                     MDVC_PASTE, T(STR_ITEM_PASTE));
+    I18n_OwnerAppend(m, MF_OWNERDRAW, 0, NULL);   /* 主题色分隔线 */
     I18n_OwnerAppend(m, on, MDVC_SELALL, T(STR_ITEM_SELECTALL));
     I18n_ApplyMenuTheme(m);
     int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON,
                              pt.x, pt.y, 0, hwnd, NULL);
     DestroyMenu(m);
-    if (cmd == MDVC_COPY) DoCopySelection();
+    if (cmd == MDVC_COPY) {
+        if (!SelHasText()) SelectAllDoc();   /* 无选区：复制全文 */
+        DoCopySelection();
+    }
+    else if (cmd == MDVC_CUT) DoCutSelection(hwnd);
+    else if (cmd == MDVC_PASTE) DoPasteIntoEditor();
     else if (cmd == MDVC_SELALL) SelectAllDoc();
 }
 
@@ -3113,8 +3143,18 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     DoCopySelection();
                     return 0;
                 }
+                if (wp == 'X' || wp == 'x') {
+                    DoCutSelection(hwnd);
+                    return 0;
+                }
+                if (wp == 'V' || wp == 'v') {
+                    DoPasteIntoEditor();
+                    return 0;
+                }
                 if (wp == 'A' || wp == 'a') {
+                    /* Ctrl+A = 全复制：全选并复制全文 */
                     SelectAllDoc();
+                    if (SelHasText()) DoCopySelection();
                     return 0;
                 }
             }
