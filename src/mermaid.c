@@ -1,13 +1,11 @@
 #include "common.h"
 #include <math.h>
-
 static wchar_t* TrimW(wchar_t* s) {
     while (*s == L' ' || *s == L'\t') s++;
     size_t n = wcslen(s);
     while (n > 0 && (s[n-1] == L' ' || s[n-1] == L'\t' || s[n-1] == L'\r')) s[--n] = L'\0';
     return s;
 }
-
 static BOOL LineToWide(const char* src, int len, int* ppos, wchar_t* out, int cch) {
     int pos = *ppos, s = pos;
     while (pos < len && src[pos] != '\n') pos++;
@@ -19,8 +17,6 @@ static BOOL LineToWide(const char* src, int len, int* ppos, wchar_t* out, int cc
     out[n ? n : 0] = L'\0';
     return n > 0;
 }
-
-/* 文本宽度按 (字体代, 内容) 记忆化：布局+绘制期间同一字符串反复测量是热路径 */
 static unsigned s_twGen = 0;
 #define TW_CACHE_N 64
 #define TW_MAX_STR 48
@@ -28,7 +24,6 @@ static struct {
     unsigned gen; HFONT f; int len; int w;
     wchar_t s[TW_MAX_STR];
 } s_tw[TW_CACHE_N];
-
 static int TextW(HDC hdc, HFONT f, const wchar_t* s) {
     int len = (int)wcslen(s);
     if (len > 0 && len < TW_MAX_STR && f) {
@@ -58,10 +53,8 @@ static int TextW(HDC hdc, HFONT f, const wchar_t* s) {
     SelectObject(hdc, of);
     return sz.cx;
 }
-
 static struct { HFONT f; int h; } s_fhCache[8];
 static int s_fhUsed = 0;
-
 static int FontH(HDC hdc, HFONT f) {
     for (int i = 0; i < s_fhUsed; i++)
         if (s_fhCache[i].f == f) return s_fhCache[i].h;
@@ -74,19 +67,15 @@ static int FontH(HDC hdc, HFONT f) {
     s_fhCache[slot].h = tm.tmHeight;
     return tm.tmHeight;
 }
-
 void Mermaid_FontsChanged(void) {
     s_fhUsed = 0;
     ZeroMemory(s_fhCache, sizeof(s_fhCache));
     s_twGen++;
 }
-
 typedef enum { MER_RECT, MER_ROUND, MER_CIRCLE, MER_DIAMOND, MER_FLAG,
                MER_START, MER_END, MER_STADIUM } MerShape;
-
 typedef enum { MRE_PLAIN, MRE_INHERIT, MRE_COMPOSE, MRE_AGGREG,
                MRE_ASSOC, MRE_DEPEND } MerRel;
-
 typedef struct MerNode {
     wchar_t id[64];
     wchar_t label[256];
@@ -98,7 +87,6 @@ typedef struct MerNode {
     void* extra;
     int nExtraA, nExtraB;
 } MerNode;
-
 typedef struct MerEdge {
     int a, b;
     BOOL arrow, dash, thick;
@@ -110,17 +98,13 @@ typedef struct MerEdge {
     int corrX;
     BOOL back;
 } MerEdge;
-
 typedef struct MerSub {
     wchar_t title[160];
     int x, y, w, h;
 } MerSub;
-
 typedef enum { MSI_MSG, MSI_NOTE, MSI_FRAME_BEGIN, MSI_FRAME_ELSE, MSI_FRAME_END } MerSeqType;
 typedef enum { MSF_LOOP, MSF_ALT, MSF_OPT, MSF_PAR, MSF_CRITICAL, MSF_BREAK, MSF_RECT, MSF_ELSE } MerFrameKind;
-
 typedef struct MerPart { wchar_t id[64], name[256]; int x; } MerPart;
-
 typedef struct MerSeqItem {
     MerSeqType type;
     int from, to;
@@ -133,7 +117,6 @@ typedef struct MerSeqItem {
     wchar_t label[160];
     int y, h;
 } MerSeqItem;
-
 struct MermaidDiagram {
     int kind;
     MerNode* nodes; int nNodes;
@@ -145,7 +128,6 @@ struct MermaidDiagram {
     void* ext;
     SIZE sz;
 };
-
 static void* MerGrow(void* p, int* cap, int need, int elem) {
     if (need < *cap) return p;
     int nc = *cap ? *cap * 2 : 16;
@@ -154,12 +136,9 @@ static void* MerGrow(void* p, int* cap, int need, int elem) {
     *cap = nc;
     return q;
 }
-
-/* GDI 对象按 (样式,宽度,颜色) / 颜色 缓存，避免绘制热路径反复创建销毁 */
 #define MER_CACHE_N 64
 static struct { int style, w; COLORREF c; HPEN p; } s_mpc[MER_CACHE_N];
 static struct { COLORREF c; HBRUSH b; } s_mbc[MER_CACHE_N];
-
 static HPEN MerPenC(int style, int w, COLORREF c) {
     unsigned i = (((unsigned)c * 2654435761u) ^ ((unsigned)style << 6) ^ (unsigned)(w * 7))
                  % MER_CACHE_N;
@@ -170,7 +149,6 @@ static HPEN MerPenC(int style, int w, COLORREF c) {
     }
     return s_mpc[i].p;
 }
-
 static HBRUSH MerBrushC(COLORREF c) {
     unsigned i = ((unsigned)c * 2654435761u) % MER_CACHE_N;
     if (!s_mbc[i].b || s_mbc[i].c != c) {
@@ -180,20 +158,17 @@ static HBRUSH MerBrushC(COLORREF c) {
     }
     return s_mbc[i].b;
 }
-
 typedef struct {
     MerNode* ns; int nN, capN;
     MerEdge* es; int nE, capE;
     MerSub*  ss; int nS, capS;
     int curSub;
 } FlowCtx;
-
 static int FlowFind(FlowCtx* c, const wchar_t* id) {
     for (int i = 0; i < c->nN; i++)
         if (wcscmp(c->ns[i].id, id) == 0) return i;
     return -1;
 }
-
 static int FlowAdd(FlowCtx* c, const wchar_t* id, const wchar_t* label, int shape) {
     int ex = FlowFind(c, id);
     if (ex >= 0) {
@@ -210,7 +185,6 @@ static int FlowAdd(FlowCtx* c, const wchar_t* id, const wchar_t* label, int shap
     n->rank = 0;
     return c->nN++;
 }
-
 static void FlowAddEdge(FlowCtx* c, int a, int b, BOOL arrow, BOOL dash, BOOL thick, const wchar_t* label) {
     c->es = (MerEdge*)MerGrow(c->es, &c->capE, c->nE + 1, sizeof(MerEdge));
     MerEdge* e = &c->es[c->nE++];
@@ -219,7 +193,6 @@ static void FlowAddEdge(FlowCtx* c, int a, int b, BOOL arrow, BOOL dash, BOOL th
     e->arrow = arrow; e->dash = dash; e->thick = thick;
     wcscpy_s(e->label, 160, label ? label : L"");
 }
-
 static BOOL FlowParseNode(const wchar_t* line, int* pos, wchar_t* id, wchar_t* label, int* shape) {
     int p = *pos;
     while (line[p] == L' ' || line[p] == L'\t') p++;
@@ -269,7 +242,6 @@ static BOOL FlowParseNode(const wchar_t* line, int* pos, wchar_t* id, wchar_t* l
     *pos = p;
     return TRUE;
 }
-
 static BOOL FlowParseOp(const wchar_t* s, int* pos, BOOL* arrow, BOOL* dash, BOOL* thick, wchar_t* label) {
     int p = *pos;
     if (!(s[p] == L'-' || s[p] == L'=')) return FALSE;
@@ -329,20 +301,17 @@ static BOOL FlowParseOp(const wchar_t* s, int* pos, BOOL* arrow, BOOL* dash, BOO
     *pos = p;
     return TRUE;
 }
-
 static BOOL StartsWithWord(const wchar_t* s, const wchar_t* w) {
     size_t n = wcslen(w);
     if (_wcsnicmp(s, w, n) != 0) return FALSE;
     return s[n] == L'\0' || s[n] == L' ' || s[n] == L'\t';
 }
-
 static void FlowParseLine(FlowCtx* c, wchar_t* line) {
     wchar_t* s = TrimW(line);
     if (!*s || wcsncmp(s, L"%%", 2) == 0) return;
     if (StartsWithWord(s, L"classDef") || StartsWithWord(s, L"class") ||
         StartsWithWord(s, L"style") || StartsWithWord(s, L"linkStyle") ||
         StartsWithWord(s, L"click") || StartsWithWord(s, L"direction")) return;
-
     if (StartsWithWord(s, L"subgraph")) {
         wchar_t* rest = TrimW(s + 9);
         c->ss = (MerSub*)MerGrow(c->ss, &c->capS, c->nS + 1, sizeof(MerSub));
@@ -363,7 +332,6 @@ static void FlowParseLine(FlowCtx* c, wchar_t* line) {
         return;
     }
     if (wcscmp(s, L"end") == 0) { c->curSub = -1; return; }
-
     int pos = 0;
     wchar_t id[64], label[256]; int shape;
     int lhs[32], nLhs = 0;
@@ -407,19 +375,16 @@ static void FlowParseLine(FlowCtx* c, wchar_t* line) {
         c->es[c->nE - 1].label[159] = 0;
     }
 }
-
 typedef struct {
     MerPart* ps; int nP, capP;
     MerSeqItem* is; int nI, capI;
     int frameStack[32]; int depth;
 } SeqCtx;
-
 static int SeqFind(SeqCtx* c, const wchar_t* id) {
     for (int i = 0; i < c->nP; i++)
         if (wcscmp(c->ps[i].id, id) == 0) return i;
     return -1;
 }
-
 static int SeqAddPart(SeqCtx* c, const wchar_t* id, const wchar_t* name) {
     int ex = SeqFind(c, id);
     if (ex >= 0) return ex;
@@ -431,7 +396,6 @@ static int SeqAddPart(SeqCtx* c, const wchar_t* id, const wchar_t* name) {
     p->name[255] = 0;
     return c->nP++;
 }
-
 static MerSeqItem* SeqPush(SeqCtx* c) {
     c->is = (MerSeqItem*)MerGrow(c->is, &c->capI, c->nI + 1, sizeof(MerSeqItem));
     MerSeqItem* it = &c->is[c->nI++];
@@ -439,7 +403,6 @@ static MerSeqItem* SeqPush(SeqCtx* c) {
     it->from = it->to = it->over2 = -1;
     return it;
 }
-
 static BOOL SeqParseMsg(const wchar_t* s, wchar_t* from, wchar_t* to, BOOL* dash, int* head) {
     static const struct { const wchar_t* op; BOOL dash; int head; } ops[] = {
         { L"-->>", TRUE,  0 }, { L"-.->", TRUE,  0 },
@@ -471,17 +434,14 @@ static BOOL SeqParseMsg(const wchar_t* s, wchar_t* from, wchar_t* to, BOOL* dash
     *head = ops[best].head;
     return TRUE;
 }
-
 static void SeqParseLine(SeqCtx* c, wchar_t* line) {
     wchar_t* s = TrimW(line);
     if (!*s || wcsncmp(s, L"%%", 2) == 0) return;
-
     if (StartsWithWord(s, L"autonumber") || StartsWithWord(s, L"activate") ||
         StartsWithWord(s, L"deactivate") || StartsWithWord(s, L"title")) return;
-
     if (StartsWithWord(s, L"participant") || StartsWithWord(s, L"actor")) {
         wchar_t* rest = TrimW(s + (StartsWithWord(s, L"participant") ? 11 : 5));
-        wchar_t id[64] = L""; 
+        wchar_t id[64] = L"";
         int i = 0;
         while (*rest && *rest != L' ' && *rest != L'\t' && i < 63) id[i++] = *rest++;
         id[i] = 0;
@@ -491,7 +451,6 @@ static void SeqParseLine(SeqCtx* c, wchar_t* line) {
         SeqAddPart(c, id, name);
         return;
     }
-
     if (StartsWithWord(s, L"Note") || StartsWithWord(s, L"note")) {
         wchar_t* rest = TrimW(s + 4);
         int side = 2; wchar_t ids[128] = L"";
@@ -518,7 +477,6 @@ static void SeqParseLine(SeqCtx* c, wchar_t* line) {
         wcsncpy(it->text, text, 255);
         return;
     }
-
     MerFrameKind kind;
     BOOL isFrame = FALSE, isElse = FALSE;
     if      (StartsWithWord(s, L"loop"))      { kind = MSF_LOOP;      isFrame = TRUE; }
@@ -559,7 +517,6 @@ static void SeqParseLine(SeqCtx* c, wchar_t* line) {
         wcsncpy(it->label, TrimW(rest), 159);
         return;
     }
-
     wchar_t* colon = wcschr(s, L':');
     if (!colon) return;
     *colon = 0;
@@ -576,19 +533,16 @@ static void SeqParseLine(SeqCtx* c, wchar_t* line) {
     it->dash = dash; it->head = head;
     wcsncpy(it->text, text, 255);
 }
-
 static BOOL ExtParse(MermaidDiagram* d, const char* src, int len, int pos);
 static void ExtFree(MermaidDiagram* d);
 static void ClassErFixSizeReal(MermaidDiagram* d, HDC hdc, const MdFonts* f);
 static void ExtLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f);
 static void ExtDraw(MermaidDiagram* d, HDC hdc, int ox, int oy,
                     const MdFonts* f, const MdTheme* th);
-
 MermaidDiagram* Mermaid_Parse(const char* src, int len) {
     if (!src || len <= 0) return NULL;
     wchar_t line[1024];
     int pos = 0;
-
     int kind = -1, dirLR = 0, dirBT = 0;
     while (pos < len) {
         if (!LineToWide(src, len, &pos, line, 1024)) continue;
@@ -619,12 +573,10 @@ MermaidDiagram* Mermaid_Parse(const char* src, int len) {
         return NULL;
     }
     if (kind < 0) return NULL;
-
     MermaidDiagram* d = (MermaidDiagram*)calloc(1, sizeof(MermaidDiagram));
     if (!d) return NULL;
     d->kind = kind;
     d->dirLR = dirLR; d->dirBT = dirBT;
-
     if (kind == 0) {
         FlowCtx c; ZeroMemory(&c, sizeof(c));
         c.curSub = -1;
@@ -666,7 +618,6 @@ MermaidDiagram* Mermaid_Parse(const char* src, int len) {
     }
     return d;
 }
-
 void Mermaid_Free(MermaidDiagram* d) {
     if (!d) return;
     for (int i = 0; i < d->nNodes; i++) free(d->nodes[i].extra);
@@ -675,14 +626,11 @@ void Mermaid_Free(MermaidDiagram* d) {
     free(d->parts); free(d->items);
     free(d);
 }
-
 static COLORREF MerPal(const MdTheme* th, int i);
-
 static COLORREF StatePal(const MdTheme* th, int i) {
     static const int map[8] = { 0, 2, 3, 1, 4, 5, 6, 7 };
     return MerPal(th, map[i & 7]);
 }
-
 static COLORREF MixClr(COLORREF a, COLORREF b, double t) {
     if (t < 0) t = 0; if (t > 1) t = 1;
     int r = (int)(GetRValue(a) + (GetRValue(b) - GetRValue(a)) * t + 0.5);
@@ -690,7 +638,6 @@ static COLORREF MixClr(COLORREF a, COLORREF b, double t) {
     int bl = (int)(GetBValue(a) + (GetBValue(b) - GetBValue(a)) * t + 0.5);
     return RGB(r, g, bl);
 }
-
 static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     int n = d->nNodes;
     BOOL isState = (d->kind == 2);
@@ -699,10 +646,8 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     int hgap = isState ? UI_Scale(40) : UI_Scale(44);
     int vgap = isState ? UI_Scale(60) : UI_Scale(52);
     int margin = UI_Scale(12);
-
     if (d->kind == 3 || d->kind == 4)
         ClassErFixSizeReal(d, hdc, f);
-
     for (int i = 0; i < n; i++) {
         MerNode* nd = &d->nodes[i];
         if (nd->wFix > 0 && nd->hFix > 0) {
@@ -727,7 +672,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
             nd->h = (th + padY * 2) * 2;
         }
     }
-
     {
         int* head = (int*)malloc((size_t)(n > 0 ? n : 1) * sizeof(int));
         int* eit  = (int*)malloc((size_t)(n > 0 ? n : 1) * sizeof(int));
@@ -757,7 +701,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         }
         free(head); free(eit); free(nxt); free(mark); free(stack);
     }
-
     for (int pass = 0; pass < n; pass++) {
         BOOL changed = FALSE;
         for (int i = 0; i < d->nEdges; i++) {
@@ -768,7 +711,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         }
         if (!changed) break;
     }
-
     if (isState) {
         for (int i = 0; i < n; i++) {
             MerNode* nd = &d->nodes[i];
@@ -788,7 +730,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
             }
         }
     }
-
     int maxRank = 0;
     for (int i = 0; i < n; i++)
         if (d->nodes[i].rank > maxRank) maxRank = d->nodes[i].rank;
@@ -804,7 +745,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         rankOf[i] = fill[r];
         buckets[r][fill[r]++] = i;
     }
-
     for (int sweep = 0; sweep < 4; sweep++) {
         for (int r = 1; r < nr; r++) {
             for (int k = 0; k < fill[r]; k++) {
@@ -834,7 +774,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
             for (int k2 = 0; k2 < fill[r]; k2++) rankOf[buckets[r][k2]] = k2;
         }
     }
-
     int* rankSize = (int*)calloc((size_t)nr, sizeof(int));
     int* rankMain = (int*)calloc((size_t)nr, sizeof(int));
     for (int r = 0; r < nr; r++) {
@@ -874,7 +813,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         }
         mainPos += rankMain[r] + vgap;
     }
-
     if (d->dirBT) {
         for (int i = 0; i < n; i++) d->nodes[i].y = mainTotal + margin * 2 - d->nodes[i].y - d->nodes[i].h;
     }
@@ -884,7 +822,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
             if (d->nodes[i].x + d->nodes[i].w > maxX2) maxX2 = d->nodes[i].x + d->nodes[i].w;
         for (int i = 0; i < n; i++) d->nodes[i].x = maxX2 - d->nodes[i].x - d->nodes[i].w;
     }
-
     if (!d->dirLR) {
         int minX2 = 0x7FFFFFFF, maxX2 = 0;
         for (int i = 0; i < n; i++) {
@@ -919,7 +856,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
                 if (d->edges[e].side) d->edges[e].corrX += shift;
         }
     }
-
     for (int s = 0; s < d->nSubs; s++) {
         MerSub* sub = &d->subs[s];
         int l = 0x7FFFFFFF, t = 0x7FFFFFFF, rgt = 0, bot = 0, cnt2 = 0;
@@ -938,7 +874,6 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         sub->w = (rgt - l) + sp * 2;
         sub->h = (bot - t) + sp * 2 + titleH;
     }
-
     int maxX = 0, maxY = 0;
     for (int i = 0; i < n; i++) {
         if (d->nodes[i].x + d->nodes[i].w > maxX) maxX = d->nodes[i].x + d->nodes[i].w;
@@ -968,20 +903,17 @@ static void FlowLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     }
     d->sz.cx = maxX + margin;
     d->sz.cy = maxY + margin;
-
     free(cnt); free(rankOf); free(fill); free(rankSize); free(rankMain);
     for (int r = 0; r < nr; r++) free(buckets[r]);
     free(buckets);
     (void)crossMax;
 }
-
 static void SeqLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     int margin = UI_Scale(12);
     int boxH = FontH(hdc, f->bold) + UI_Scale(12);
     int gap = UI_Scale(64);
     int itemH = UI_Scale(26);
     int noteW = UI_Scale(170);
-
     int totalW = margin * 2;
     for (int i = 0; i < d->nParts; i++) {
         int w = TextW(hdc, f->bold, d->parts[i].name) + UI_Scale(24);
@@ -990,14 +922,12 @@ static void SeqLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     }
     for (int i = 0; i < d->nParts; i++)
         totalW += d->parts[i].x + (i + 1 < d->nParts ? gap : 0);
-
     int x = margin;
     for (int i = 0; i < d->nParts; i++) {
         int w = d->parts[i].x;
         d->parts[i].x = x + w / 2;
         x += w + gap;
     }
-
     int y = margin + boxH + UI_Scale(34);
     int depth = 0;
     for (int i = 0; i < d->nItems; i++) {
@@ -1038,11 +968,9 @@ static void SeqLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         }
     }
     if (depth > 0) y += UI_Scale(24);
-
     d->sz.cx = totalW;
     d->sz.cy = y + margin;
 }
-
 static void DrawArrowHead(HDC hdc, COLORREF clr, BOOL filled, int x, int y, double dx, double dy) {
     double len = sqrt(dx * dx + dy * dy);
     if (len < 0.001) return;
@@ -1063,7 +991,6 @@ static void DrawArrowHead(HDC hdc, COLORREF clr, BOOL filled, int x, int y, doub
     SelectObject(hdc, ob);
     SelectObject(hdc, op);
 }
-
 static void EdgeClip(int* px, int* py, int cx, int cy, int w, int h, double fx, double fy) {
     double dx = fx, dy = fy;
     double len = sqrt(dx * dx + dy * dy);
@@ -1076,10 +1003,8 @@ static void EdgeClip(int* px, int* py, int cx, int cy, int w, int h, double fx, 
     *px = cx + (int)(dx * t);
     *py = cy + (int)(dy * t);
 }
-
 static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f, const MdTheme* th) {
     SetBkMode(hdc, TRANSPARENT);
-
     HPEN dashPen = CreatePen(PS_DASH, 1, th->frame);
     HBRUSH subBr = CreateSolidBrush(th->tableHeadBg);
     for (int s = 0; s < d->nSubs; s++) {
@@ -1100,7 +1025,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     }
     DeleteObject(dashPen);
     DeleteObject(subBr);
-
     HPEN penSolid = CreatePen(PS_SOLID, 1, th->merEdge);
     HPEN penDash  = CreatePen(PS_DASH, 1, th->merEdge);
     HPEN penThick = CreatePen(PS_SOLID, 2, th->merEdge);
@@ -1112,11 +1036,9 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         MerNode* b = &d->nodes[ed->b];
         HPEN pen = ed->thick ? penThick : (ed->dash ? penDash : penSolid);
         HPEN op = (HPEN)SelectObject(hdc, pen);
-
         int ax = a->x + a->w / 2, ay = a->y + a->h / 2;
         int bx = b->x + b->w / 2, by = b->y + b->h / 2;
         double fx = (double)(bx - ax), fy = (double)(by - ay);
-
         int x1 = ax, y1 = ay, x2 = bx, y2 = by;
         double adx = 0, ady = 0;
         int lbx = -1, lby = -1;
@@ -1133,7 +1055,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             EdgeClip(&qx, &qy, bx, by, (int)(b->w * shrinkB), (int)(b->h * shrinkB), -fx, -fy);
             x2 = qx; y2 = qy;
         }
-
         if (ed->a == ed->b) {
             int top = a->y;
             int cx = a->x + a->w / 2;
@@ -1265,7 +1186,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             }
         }
         SelectObject(hdc, op);
-
         if (ed->cardA[0] || ed->cardB[0]) {
             SetTextColor(hdc, th->fgMuted);
             HFONT of = (HFONT)SelectObject(hdc, f->sm);
@@ -1278,7 +1198,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
                          ed->cardB, (int)wcslen(ed->cardB));
             SelectObject(hdc, of);
         }
-
         if (ed->label[0]) {
             int mx = (lbx >= 0) ? lbx : (x1 + x2) / 2;
             int my = (lby >= 0) ? lby : (y1 + y2) / 2;
@@ -1299,7 +1218,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     }
     SetViewportOrgEx(hdc, voOld.x, voOld.y, NULL);
     DeleteObject(penSolid); DeleteObject(penDash); DeleteObject(penThick);
-
     HPEN nodePen = CreatePen(PS_SOLID, 1, th->merNodeBorder);
     HBRUSH nodeBr = CreateSolidBrush(th->merNodeFill);
     int stateColorIdx = 0;
@@ -1368,7 +1286,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         }
         SelectObject(hdc, ob);
         SelectObject(hdc, op);
-
         SetTextColor(hdc, th->merNodeText);
         if ((d->kind == 3 || d->kind == 4) && nd->extra) {
             int lineH = FontH(hdc, f->sm) + UI_Scale(2);
@@ -1405,7 +1322,6 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
     DeleteObject(nodePen);
     DeleteObject(nodeBr);
 }
-
 static const wchar_t* FrameKindLabel(MerFrameKind k) {
     switch (k) {
         case MSF_LOOP: return L"loop";
@@ -1418,12 +1334,10 @@ static const wchar_t* FrameKindLabel(MerFrameKind k) {
         default: return L"";
     }
 }
-
 static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f, const MdTheme* th) {
     SetBkMode(hdc, TRANSPARENT);
     int margin = UI_Scale(12);
     int boxH = FontH(hdc, f->bold) + UI_Scale(12);
-
     int indent = 0;
     for (int i = 0; i < d->nItems; i++) {
         MerSeqItem* it = &d->items[i];
@@ -1437,7 +1351,6 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
                 else if (jt->type == MSI_FRAME_ELSE && depth == 1) yEnd = jt->y;
             }
             if (j >= d->nItems) yEnd = it->y + UI_Scale(40);
-
             int l = ox + margin + indent, r = ox + d->sz.cx - margin - indent;
             int t = oy + it->y - UI_Scale(4), b = oy + yEnd;
             HPEN pen = MerPenC(PS_SOLID, 1, th->frame);
@@ -1446,7 +1359,6 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
             RoundRect(hdc, l, t, r, b, UI_Scale(6), UI_Scale(6));
             SelectObject(hdc, ob);
             SelectObject(hdc, op);
-
             if (it->kind != MSF_RECT) {
                 const wchar_t* kindLabel = FrameKindLabel(it->kind);
                 wchar_t buf[200];
@@ -1477,7 +1389,6 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
             SelectObject(hdc, of);
         }
     }
-
     HPEN lifePen = CreatePen(PS_DOT, 1, th->fgMuted);
     HPEN op0 = (HPEN)SelectObject(hdc, lifePen);
     for (int i = 0; i < d->nParts; i++) {
@@ -1487,7 +1398,6 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     }
     SelectObject(hdc, op0);
     DeleteObject(lifePen);
-
     HPEN boxPen = CreatePen(PS_SOLID, 1, th->merNodeBorder);
     HBRUSH boxBr = CreateSolidBrush(th->merNodeFill);
     for (int i = 0; i < d->nParts; i++) {
@@ -1507,7 +1417,6 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     }
     DeleteObject(boxPen);
     DeleteObject(boxBr);
-
     HPEN msgPen = CreatePen(PS_SOLID, 1, th->merEdge);
     HPEN msgDash = CreatePen(PS_DASH, 1, th->merEdge);
     HBRUSH noteBr = CreateSolidBrush(th->seqNoteBg);
@@ -1585,7 +1494,6 @@ static void SeqDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* f
     DeleteObject(msgPen); DeleteObject(msgDash);
     DeleteObject(noteBr); DeleteObject(notePen);
 }
-
 SIZE Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     if (!d) { SIZE z = { 0, 0 }; return z; }
     if (d->kind == 0 || (d->kind >= 2 && d->kind <= 4)) FlowLayout(d, hdc, f);
@@ -1595,7 +1503,6 @@ SIZE Mermaid_Measure(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     d->sz.cy += UI_Scale(4);
     return d->sz;
 }
-
 void Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
                   const MdFonts* f, const MdTheme* th) {
     if (!d) return;
@@ -1604,7 +1511,6 @@ void Mermaid_Draw(MermaidDiagram* d, HDC hdc, int x, int y,
     else if (d->kind == 1) SeqDraw(d, hdc, x, y, f, th);
     else ExtDraw(d, hdc, x, y, f, th);
 }
-
 #include "mermaid_ext1.inc"
 #include "mermaid_ext2.inc"
 #include "mermaid_ext3.inc"

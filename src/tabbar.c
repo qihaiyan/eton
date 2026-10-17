@@ -1,15 +1,12 @@
 #include "common.h"
-
 static const int ARROW_W_96 = 16;
 #define MTBH_SCROLL_STEP UI_Scale(80)
-
 static int  s_scroll = 0;
 static int  s_hoverTab = -1;
 static BOOL s_hoverClose = FALSE;
 static int  s_hoverArrow = -1;
 static BOOL s_tracking = FALSE;
 static HWND s_tip = NULL;
-
 void TabBar_ApplyTheme(void) {
     if (!s_tip) return;
     typedef BOOL (WINAPI *SetThemeFn)(HWND, LPCWSTR, LPCWSTR);
@@ -21,15 +18,12 @@ void TabBar_ApplyTheme(void) {
 }
 static wchar_t s_tipText[1024];
 static int  s_tipTab = -1;
-
-/* 标签宽度缓存：标题/DPI/字体代不变时复用，避免每次鼠标移动都做 GDI 文本测量 */
 static struct {
     wchar_t title[256];
     int w;
     UINT dpi;
     int fontGen;
 } s_wcache[MAX_DOCS];
-
 static int TabWidth(HWND hwnd, int i) {
     if (i >= 0 && i < MAX_DOCS &&
         s_wcache[i].fontGen == g_fontGen && s_wcache[i].dpi == g_dpi &&
@@ -50,7 +44,6 @@ static int TabWidth(HWND hwnd, int i) {
     }
     return w;
 }
-
 static void TabBar_Rects(HWND hwnd, RECT* out, int* n) {
     RECT rc; GetClientRect(hwnd, &rc);
     int count = g_docCount;
@@ -63,21 +56,17 @@ static void TabBar_Rects(HWND hwnd, RECT* out, int* n) {
     }
     *n = count;
 }
-
 static int ArrowW(void) { return UI_Scale(ARROW_W_96); }
-
 static BOOL TabBar_Overflow(HWND hwnd, int totalW) {
     RECT rc; GetClientRect(hwnd, &rc);
     return totalW > rc.right;
 }
-
 static void TabBar_ClampScroll(int totalW, int visible) {
     int maxScroll = totalW - visible;
     if (maxScroll < 0) maxScroll = 0;
     if (s_scroll > maxScroll) s_scroll = maxScroll;
     if (s_scroll < 0) s_scroll = 0;
 }
-
 static int TabBar_HitTest(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow) {
     *closeHit = FALSE;
     if (arrow) *arrow = -1;
@@ -103,7 +92,6 @@ static int TabBar_HitTest(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow)
     }
     return -1;
 }
-
 static void TabBar_SetTipText(HWND hwnd, int tab) {
     if (!s_tip) return;
     if (tab == s_tipTab) return;
@@ -123,7 +111,6 @@ static void TabBar_SetTipText(HWND hwnd, int tab) {
     ti.lpszText = s_tipText;
     SendMessage(s_tip, TTM_UPDATETIPTEXT, 0, (LPARAM)&ti);
 }
-
 static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_CREATE) {
         s_tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL,
@@ -159,7 +146,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         RECT rc; GetClientRect(hwnd, &rc);
         HBRUSH bg = CreateSolidBrush(g_dark ? RGB(37,37,38) : RGB(225,225,228));
         FillRect(hdc, &rc, bg); DeleteObject(bg);
-
         RECT rects[MAX_DOCS]; int n = 0;
         TabBar_Rects(hwnd, rects, &n);
         int totalW = n ? rects[n - 1].right : 0;
@@ -167,7 +153,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         int aw = ArrowW();
         int visible = ovf ? (rc.right - 2 * aw) : rc.right;
         TabBar_ClampScroll(totalW, visible);
-
         if (g_curDoc >= 0 && g_curDoc < n && n > 0) {
             if (rects[g_curDoc].left < s_scroll)
                 s_scroll = rects[g_curDoc].left;
@@ -175,7 +160,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 s_scroll = rects[g_curDoc].right - visible;
             TabBar_ClampScroll(totalW, visible);
         }
-
         if (n > 0) {
             HRGN clip = CreateRectRgn(0, 0, visible, rc.bottom);
             SelectClipRgn(hdc, clip);
@@ -215,7 +199,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SelectClipRgn(hdc, NULL);
             DeleteObject(clip);
         }
-
         if (ovf) {
             HFONT mar = CreateFontW(-UI_Scale(10), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -236,7 +219,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SelectObject(hdc, old);
             DeleteObject(mar);
         }
-
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -312,7 +294,6 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-
 void TabBar_Register(void) {
     WNDCLASSEXW tc; memset(&tc, 0, sizeof(tc));
     tc.cbSize = sizeof(tc);
@@ -324,7 +305,6 @@ void TabBar_Register(void) {
     tc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     RegisterClassExW(&tc);
 }
-
 int TabBar_HitTestPublic(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow) {
     return TabBar_HitTest(hwnd, mx, my, closeHit, arrow);
 }

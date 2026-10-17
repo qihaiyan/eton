@@ -1,21 +1,13 @@
 #include "common.h"
 #include <process.h>
-
-/* ---- 后台写盘 ----
-   10 秒定时器的草稿/自动备份原先在 UI 线程同步整篇写盘，大文档时造成周期性
-   输入停顿（慢盘/杀软实时扫描下更明显）。现在 UI 线程只做文本快照（SCI_GETTEXT
-   必须在 UI 线程），CreateFile/WriteFile 交给单个后台线程；上一轮还没写完则
-   跳过本轮。退出前 Session_WaitBackupDone 等待收尾，避免备份文件被截断。 */
 typedef struct BkJob {
     struct BkJob* next;
     wchar_t path[MAX_PATH];
     char* text;
     DWORD len;
 } BkJob;
-
 static HANDLE s_bkThread = NULL;
 static volatile LONG s_bkBusy = 0;
-
 static void BkWriteSync(BkJob* j) {
     while (j) {
         BkJob* nx = j->next;
@@ -31,13 +23,11 @@ static void BkWriteSync(BkJob* j) {
         j = nx;
     }
 }
-
 static unsigned __stdcall BkWriter(void* param) {
     BkWriteSync((BkJob*)param);
     InterlockedDecrement(&s_bkBusy);
     return 0;
 }
-
 static void BkPush(BkJob** head, const wchar_t* path, char* text, DWORD len) {
     BkJob* j = (BkJob*)malloc(sizeof(BkJob));
     if (!j) { free(text); return; }
@@ -47,7 +37,6 @@ static void BkPush(BkJob** head, const wchar_t* path, char* text, DWORD len) {
     j->next = *head;
     *head = j;
 }
-
 static BOOL Session_GetDir(wchar_t* out, DWORD cch) {
     wchar_t appdata[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
@@ -57,7 +46,6 @@ static BOOL Session_GetDir(wchar_t* out, DWORD cch) {
     CreateDirectoryW(out, NULL);
     return TRUE;
 }
-
 BOOL Session_IniPath(wchar_t* out, DWORD cch) {
     wchar_t dir[MAX_PATH];
     if (!Session_GetDir(dir, MAX_PATH)) return FALSE;
@@ -73,7 +61,6 @@ BOOL Session_IniPath(wchar_t* out, DWORD cch) {
     }
     return TRUE;
 }
-
 static BOOL Session_GetDraftDir(wchar_t* out, DWORD cch) {
     wchar_t dir[MAX_PATH];
     if (!Session_GetDir(dir, MAX_PATH)) return FALSE;
@@ -82,7 +69,6 @@ static BOOL Session_GetDraftDir(wchar_t* out, DWORD cch) {
     CreateDirectoryW(out, NULL);
     return TRUE;
 }
-
 void Session_Save(void) {
     wchar_t ini[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
@@ -110,8 +96,7 @@ void Session_Save(void) {
     WFmt(at, L"%d", activeTab);
     WritePrivateProfileStringW(L"session", L"activetab", at, ini);
 }
-
-static void DraftsCollect(BkJob** q) {   /* q == NULL → 同步写（退出路径） */
+static void DraftsCollect(BkJob** q) {
     wchar_t ini[MAX_PATH], dir[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
     if (!Session_GetDraftDir(dir, MAX_PATH)) return;
@@ -128,7 +113,7 @@ static void DraftsCollect(BkJob** q) {   /* q == NULL → 同步写（退出路�
             }
             continue;
         }
-        if (d->bkpGen == d->modGen && d->draft[0]) continue;   /* 自上次写盘未修改 */
+        if (d->bkpGen == d->modGen && d->draft[0]) continue;
         if (!d->draft[0]) {
             for (int k = 1; k < 1000; k++) {
                 wchar_t nm[32], p[MAX_PATH];
@@ -147,7 +132,7 @@ static void DraftsCollect(BkJob** q) {   /* q == NULL → 同步写（退出路�
         wchar_t p[MAX_PATH];
         WFmt(p, L"%s\\%s", dir, d->draft);
         d->bkpGen = d->modGen;
-        n++;                                   /* 写盘交给后台，簿记在 UI 线程完成 */
+        n++;
         wchar_t key[16];
         WFmt(key, L"draft%d", n);
         WritePrivateProfileStringW(L"session", key, d->draft, ini);
@@ -168,11 +153,9 @@ static void DraftsCollect(BkJob** q) {   /* q == NULL → 同步写（退出路�
     WritePrivateProfileStringW(L"session", L"drafts", v, ini);
     g_draftsDirty = FALSE;
 }
-
 void Session_SaveDrafts(void) {
     DraftsCollect(NULL);
 }
-
 void Session_DiscardDraft(int index) {
     if (index < 0 || index >= g_docCount) return;
     Doc* d = &g_docs[index];
@@ -184,7 +167,6 @@ void Session_DiscardDraft(int index) {
     DeleteFileW(p);
     d->draft[0] = L'\0';
 }
-
 static int Session_OpenDraft(const wchar_t* draftdir, const wchar_t* name, int seq) {
     wchar_t dp[MAX_PATH], title[32];
     WFmt(dp, L"%s\\%s", draftdir, name);
@@ -210,14 +192,12 @@ static int Session_OpenDraft(const wchar_t* draftdir, const wchar_t* name, int s
     free(buf);
     return ni;
 }
-
 int Session_Restore(void) {
     wchar_t ini[MAX_PATH], draftdir[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return 0;
     if (!Session_GetDraftDir(draftdir, MAX_PATH)) return 0;
     int count = (int)GetPrivateProfileIntW(L"session", L"count", 0, ini);
     if (count > MAX_DOCS) count = MAX_DOCS;
-
     static wchar_t tabs[MAX_DOCS][MAX_PATH];
     BOOL isDraft[MAX_DOCS];
     int nTabs = 0;
@@ -232,7 +212,6 @@ int Session_Restore(void) {
         wcscpy_s(tabs[nTabs], MAX_PATH, v);
         nTabs++;
     }
-
     int drafts = (int)GetPrivateProfileIntW(L"session", L"drafts", 0, ini);
     if (drafts > MAX_DOCS) drafts = MAX_DOCS;
     static wchar_t dnames[MAX_DOCS][64];
@@ -242,12 +221,10 @@ int Session_Restore(void) {
         GetPrivateProfileStringW(L"session", key, L"", dnames[k - 1], 64, ini);
         if (!dnames[k - 1][0]) WFmt(dnames[k - 1], L"draft%d.txt", k);
     }
-
     int savedActiveTab = (int)GetPrivateProfileIntW(L"session", L"activetab", 0, ini);
     wchar_t savedActiveFile[MAX_PATH] = L"";
     GetPrivateProfileStringW(L"session", L"activefile", L"", savedActiveFile, MAX_PATH, ini);
     int savedActiveDraft = (int)GetPrivateProfileIntW(L"session", L"activedraft", 0, ini);
-
     int docIdx[MAX_DOCS * 2];
     int total = 0, opened = 0, nextDraft = 1;
     for (int t = 0; t < nTabs; t++) {
@@ -272,7 +249,6 @@ int Session_Restore(void) {
             if (di >= 0) opened++;
         }
     }
-
     {
         wchar_t find[MAX_PATH];
         WFmt(find, L"%s\\*.txt", draftdir);
@@ -292,9 +268,7 @@ int Session_Restore(void) {
             FindClose(hf);
         }
     }
-
     if (opened == 0) return 0;
-
     if (savedActiveTab >= 1 && savedActiveTab <= total && docIdx[savedActiveTab - 1] >= 0) {
         Editor_Activate(docIdx[savedActiveTab - 1]);
     } else if (savedActiveFile[0]) {
@@ -307,9 +281,7 @@ int Session_Restore(void) {
     }
     return opened;
 }
-
 #define WIN_MINVIS 60
-
 static void Session_CenterOnMonitor(HWND hwnd) {
     RECT rc;
     if (!GetWindowRect(hwnd, &rc)) return;
@@ -321,7 +293,6 @@ static void Session_CenterOnMonitor(HWND hwnd) {
                  mi.rcWork.top  + ((mi.rcWork.bottom - mi.rcWork.top)  - (rc.bottom - rc.top)) / 2,
                  0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
 }
-
 void Session_SaveWindow(HWND hwnd) {
     WINDOWPLACEMENT wp; wp.length = sizeof(wp);
     if (!GetWindowPlacement(hwnd, &wp)) return;
@@ -336,7 +307,6 @@ void Session_SaveWindow(HWND hwnd) {
     WritePrivateProfileStringW(L"window", L"max", wp.showCmd == SW_SHOWMAXIMIZED ? L"1" : L"0", ini);
     WritePrivateProfileStringW(L"window", L"valid", L"1", ini);
 }
-
 int Session_RestoreWindow(HWND hwnd, int nShowCmd) {
     wchar_t ini[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) { Session_CenterOnMonitor(hwnd); return nShowCmd; }
@@ -367,7 +337,6 @@ int Session_RestoreWindow(HWND hwnd, int nShowCmd) {
     SetWindowPos(hwnd, NULL, rc.left, rc.top, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
     return max ? SW_SHOWMAXIMIZED : nShowCmd;
 }
-
 void Settings_Load(void) {
     wchar_t ini[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
@@ -378,7 +347,6 @@ void Settings_Load(void) {
     int fs = (int)GetPrivateProfileIntW(L"settings", L"fontsize", 11, ini);
     if (fs >= 6 && fs <= 48) g_fontSize = fs;
 }
-
 void Settings_Save(void) {
     wchar_t ini[MAX_PATH];
     if (!Session_IniPath(ini, MAX_PATH)) return;
@@ -389,9 +357,7 @@ void Settings_Save(void) {
     wchar_t v[16]; WFmt(v, L"%d", g_fontSize);
     WritePrivateProfileStringW(L"settings", L"fontsize", v, ini);
 }
-
 #define AUTOBACK_MAX (4 * 1024 * 1024)
-
 static BOOL Session_AutoBackupPath(const wchar_t* path, wchar_t* out, DWORD cch) {
     if (!path || !path[0]) return FALSE;
     wchar_t dir[MAX_PATH];
@@ -406,12 +372,11 @@ static BOOL Session_AutoBackupPath(const wchar_t* path, wchar_t* out, DWORD cch)
     if (cch) out[cch - 1] = L'\0';
     return TRUE;
 }
-
-static void AutoBackupCollect(int index, BkJob** q) {   /* q == NULL → 同步写 */
+static void AutoBackupCollect(int index, BkJob** q) {
     if (index < 0 || index >= g_docCount) return;
     Doc* d = &g_docs[index];
     if (d->isNew || !d->dirty || d->path[0] == L'\0') return;
-    if (d->bkpGen == d->modGen) return;                   /* 自上次写盘未修改 */
+    if (d->bkpGen == d->modGen) return;
     if (!d->hwndEdit ||
         SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) > (LRESULT)AUTOBACK_MAX) return;
     wchar_t p[MAX_PATH];
@@ -431,13 +396,11 @@ static void AutoBackupCollect(int index, BkJob** q) {   /* q == NULL → 同步�
         free(text);
     }
 }
-
 void Session_AutoBackupWrite(int index) {
     AutoBackupCollect(index, NULL);
 }
-
 void Session_FlushDirtyAsync(void) {
-    if (InterlockedCompareExchange(&s_bkBusy, 1, 0) != 0) return;  /* 上一轮还在写 */
+    if (InterlockedCompareExchange(&s_bkBusy, 1, 0) != 0) return;
     BkJob* jobs = NULL;
     DraftsCollect(&jobs);
     for (int i = 0; i < g_docCount; i++)
@@ -449,14 +412,13 @@ void Session_FlushDirtyAsync(void) {
     }
     uintptr_t t = _beginthreadex(NULL, 0, BkWriter, jobs, 0, NULL);
     if (!t) {
-        BkWriteSync(jobs);            /* 线程创建失败：退化为同步写 */
+        BkWriteSync(jobs);
         InterlockedDecrement(&s_bkBusy);
         return;
     }
     if (s_bkThread) CloseHandle(s_bkThread);
     s_bkThread = (HANDLE)t;
 }
-
 void Session_WaitBackupDone(void) {
     if (s_bkThread) {
         WaitForSingleObject(s_bkThread, 3000);
@@ -464,21 +426,17 @@ void Session_WaitBackupDone(void) {
         s_bkThread = NULL;
     }
 }
-
 static BOOL Session_AutoBackupPathOf(const wchar_t* path, wchar_t* out, DWORD cch) {
     return Session_AutoBackupPath(path, out, cch);
 }
-
 void Session_AutoBackupDiscard(const wchar_t* path) {
     wchar_t p[MAX_PATH];
     if (Session_AutoBackupPathOf(path, p, MAX_PATH)) DeleteFileW(p);
 }
-
 BOOL Session_AutoBackupExists(const wchar_t* path) {
     wchar_t p[MAX_PATH];
     return Session_AutoBackupPathOf(path, p, MAX_PATH) ? PathFileExistsW(p) : FALSE;
 }
-
 BOOL Session_AutoBackupRead(const wchar_t* path, char** out, DWORD* len) {
     *out = NULL; *len = 0;
     wchar_t p[MAX_PATH];

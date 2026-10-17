@@ -1,10 +1,7 @@
-
 #include "common.h"
 #include "md4c-html.h"
 #include <commdlg.h>
-
 typedef struct { char* p; size_t len, cap; } StrBuf;
-
 static void SbReserve(StrBuf* b, size_t need) {
     if (b->len + need + 1 <= b->cap) return;
     size_t nc = b->cap ? b->cap * 2 : 4096;
@@ -20,11 +17,9 @@ static void SbPut(StrBuf* b, const char* s, size_t n) {
     b->p[b->len] = 0;
 }
 static void SbStr(StrBuf* b, const char* s) { SbPut(b, s, strlen(s)); }
-
 static void MdHtmlOut(const MD_CHAR* s, MD_SIZE n, void* ud) {
     SbPut((StrBuf*)ud, s, n);
 }
-
 static void MathDelimit(StrBuf* in) {
     static const char openD[] = "<x-equation type=\"display\">";
     static const char openI[] = "<x-equation>";
@@ -62,7 +57,6 @@ static void MathDelimit(StrBuf* in) {
     *in = out;
     (void)depth;
 }
-
 static void MermaidBlocks(StrBuf* in) {
     static const char pat[] = "<pre><code class=\"language-mermaid\">";
     static const char end[] = "</code></pre>";
@@ -92,7 +86,6 @@ static void MermaidBlocks(StrBuf* in) {
     free(in->p);
     *in = out;
 }
-
 static const char* kHtmlCss =
 "body{font-family:'Segoe UI','Microsoft YaHei',sans-serif;max-width:820px;"
 "margin:24px auto;padding:0 16px;color:#1f2328;line-height:1.6}"
@@ -103,7 +96,6 @@ static const char* kHtmlCss =
 "blockquote{border-left:4px solid #d0d7de;margin:8px 0;padding:2px 14px;color:#57606a}"
 "table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:6px 10px}"
 "th{background:#ecf0f3}img{max-width:100%}";
-
 static void AppendMermaidScript(StrBuf* html, BOOL* usedRes) {
     HRSRC hr = FindResourceW(g_hInst, MAKEINTRESOURCEW(IDR_MERMAID_JS), RT_RCDATA);
     if (hr) {
@@ -122,16 +114,13 @@ static void AppendMermaidScript(StrBuf* html, BOOL* usedRes) {
                 "</script>\n<script>mermaid.initialize({startOnLoad:true});</script>");
     *usedRes = FALSE;
 }
-
 void MdExport_Html(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     if (g_docs[g_curDoc].lang != LANG_MD) return;
-
     DWORD len = 0;
     char* utf8 = Editor_GetTextUtf8(g_curDoc, &len);
     if (!utf8) return;
     MdNormalizeMathDelims(utf8, &len);
-
     StrBuf body = { 0 };
     md_html(utf8, (MD_SIZE)len, MdHtmlOut, &body,
             MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH |
@@ -139,7 +128,6 @@ void MdExport_Html(void) {
     free(utf8);
     MathDelimit(&body);
     MermaidBlocks(&body);
-
     wchar_t fname[MAX_PATH];
     wcscpy_s(fname, MAX_PATH, g_docs[g_curDoc].title);
     wchar_t* dot = wcsrchr(fname, L'.');
@@ -155,7 +143,6 @@ void MdExport_Html(void) {
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
     if (!GetSaveFileNameW(&ofn)) { free(body.p); return; }
-
     StrBuf html = { 0 };
     SbStr(&html, "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>");
     SbStr(&html, "<title>Document</title>\n");
@@ -167,7 +154,6 @@ void MdExport_Html(void) {
     AppendMermaidScript(&html, &usedRes);
     SbStr(&html, "\n<script src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js\"></script>\n");
     SbStr(&html, "</body>\n</html>\n");
-
     HANDLE f = CreateFileW(fname, GENERIC_WRITE, 0, NULL,
                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (f != INVALID_HANDLE_VALUE) {
@@ -180,23 +166,19 @@ void MdExport_Html(void) {
     free(html.p);
     (void)usedRes; (void)filter;
 }
-
 void MdExport_Pdf(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     if (g_docs[g_curDoc].lang != LANG_MD) return;
-
     PRINTDLGW pd; ZeroMemory(&pd, sizeof(pd));
     pd.lStructSize = sizeof(pd);
     pd.hwndOwner = g_hwndMain;
     pd.Flags = PD_RETURNDC | PD_NOSELECTION;
     if (!PrintDlgW(&pd) || !pd.hDC) return;
-
     int pw = GetDeviceCaps(pd.hDC, HORZRES);
     int ph = GetDeviceCaps(pd.hDC, VERTRES);
     DOCINFOW di; ZeroMemory(&di, sizeof(di));
     di.cbSize = sizeof(di);
     di.lpszDocName = g_docs[g_curDoc].title;
-
     if (StartDocW(pd.hDC, &di) > 0) {
         MdView_PrintPages(pd.hDC, pw, ph);
         EndDoc(pd.hDC);

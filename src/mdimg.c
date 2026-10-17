@@ -1,29 +1,14 @@
-/*
- * mdimg.c — Markdown 预览的远程图片获取与缓存
- *
- * 布局在 UI 线程同步进行，网络请求不能阻塞：首次遇到 http(s) 图片时
- * MdImg_Ensure() 派生工作线程下载到 %TEMP%\eton_mdimg，完成后向预览
- * 窗口投递 WM_MDIMG_READY，由 mdview.c 强制重排。
- * 同一 URL 会话内只尝试一次（成功缓存 / 失败记为不再重试），
- * 下载先写 .part 再改名，保证缓存文件始终完整。
- */
 #include "common.h"
 #include <winhttp.h>
-
-/* 任务状态：0 空闲 1 下载中 2 已缓存 3 失败（本会话不再重试） */
 typedef struct { wchar_t url[2048]; volatile LONG st; } MdImgJob;
 #define MDIMG_MAX_JOBS 48
-
 static MdImgJob s_jobs[MDIMG_MAX_JOBS];
 static CRITICAL_SECTION s_cs;
 static BOOL s_csOk = FALSE;
 static HWND s_notify = NULL;
 static wchar_t s_dir[MAX_PATH];
-
-#define MDIMG_MAX_BYTES (8 * 1024 * 1024)   /* 单图 8MB 上限 */
+#define MDIMG_MAX_BYTES (8 * 1024 * 1024)
 #define MDIMG_MAX_REDIRECTS 5
-
-/* FNV-1a 64：URL → 缓存文件名（十六进制） */
 static unsigned __int64 MdImgUrlHash(const wchar_t* url) {
     unsigned __int64 h = 1469598103934665603ULL;
     for (const wchar_t* p = url; *p; p++) {
@@ -32,7 +17,6 @@ static unsigned __int64 MdImgUrlHash(const wchar_t* url) {
     }
     return h;
 }
-
 static BOOL UrlExt(const wchar_t* url, wchar_t* ext, int cch) {
     const wchar_t* slash = wcsrchr(url, L'/');
     const wchar_t* dot = wcsrchr(url, L'.');
@@ -49,7 +33,6 @@ static BOOL UrlExt(const wchar_t* url, wchar_t* ext, int cch) {
     ext[n] = L'\0';
     return TRUE;
 }
-
 BOOL MdImg_CachePath(const wchar_t* url, wchar_t* out, int cch) {
     if (!url || !*url || !s_dir[0]) { out[0] = L'\0'; return FALSE; }
     wchar_t ext[8] = L".img";
@@ -62,8 +45,6 @@ BOOL MdImg_CachePath(const wchar_t* url, wchar_t* out, int cch) {
                        s_dir, MdImgUrlHash(url), ext);
     return n > 0;
 }
-
-/* 启动时清理两周前的缓存，避免无限增长 */
 static void PurgeOld(void) {
     if (!s_dir[0]) return;
     ULARGE_INTEGER cutoff;
@@ -87,7 +68,6 @@ static void PurgeOld(void) {
     } while (FindNextFileW(h, &fd));
     FindClose(h);
 }
-
 void MdImg_Init(HWND notifyWnd) {
     s_notify = notifyWnd;
     InitializeCriticalSection(&s_cs);
@@ -99,14 +79,11 @@ void MdImg_Init(HWND notifyWnd) {
     CreateDirectoryW(s_dir, NULL);
     PurgeOld();
 }
-
-/* 单次请求：跟随 3xx 跳转（上限 MDIMG_MAX_REDIRECTS），200 才落盘 */
 static BOOL DownloadOne(const wchar_t* url) {
     wchar_t cur[2048];
     wcsncpy_s(cur, 2048, url, _TRUNCATE);
     wchar_t finalPath[MAX_PATH];
     if (!MdImg_CachePath(url, finalPath, MAX_PATH)) return FALSE;
-
     for (int hop = 0; hop <= MDIMG_MAX_REDIRECTS; hop++) {
         URL_COMPONENTSW uc;
         ZeroMemory(&uc, sizeof(uc));
@@ -117,10 +94,8 @@ static BOOL DownloadOne(const wchar_t* url) {
         uc.lpszUrlPath = path;     uc.dwUrlPathLength = 1800;
         uc.lpszExtraInfo = extra;  uc.dwExtraInfoLength = 512;
         if (!WinHttpCrackUrl(cur, 0, 0, &uc)) return FALSE;
-
         wchar_t obj[2300];
         if (swprintf_s(obj, 2300, L"%s%s", path, extra) <= 0) return FALSE;
-
         BOOL ok = FALSE;
         HINTERNET hs = NULL, hc = NULL, hr = NULL;
         HANDLE hf = INVALID_HANDLE_VALUE;
@@ -152,7 +127,6 @@ static BOOL DownloadOne(const wchar_t* url) {
                             _wcsnicmp(loc, L"https://", 8) == 0) {
                             wcsncpy_s(next, 2048, loc, _TRUNCATE);
                         } else if (loc[0] == L'/') {
-                            /* 站内绝对路径：保留原 scheme://host:port */
                             wchar_t scheme[16];
                             scheme[0] = L'\0';
                             URL_COMPONENTSW u2;
@@ -223,11 +197,9 @@ static BOOL DownloadOne(const wchar_t* url) {
     }
     return FALSE;
 }
-
 static DWORD WINAPI FetchThread(LPVOID p) {
     wchar_t* url = (wchar_t*)p;
     BOOL ok = DownloadOne(url);
-
     int slot = -1;
     if (s_csOk) {
         EnterCriticalSection(&s_cs);
@@ -241,12 +213,10 @@ static DWORD WINAPI FetchThread(LPVOID p) {
         PostMessageW(s_notify, WM_MDIMG_READY, 0, 0);
     return 0;
 }
-
 void MdImg_Ensure(const wchar_t* url) {
     if (!s_csOk || !url || !*url) return;
     if (_wcsnicmp(url, L"http://", 7) != 0 && _wcsnicmp(url, L"https://", 8) != 0)
         return;
-
     int slot = -1;
     EnterCriticalSection(&s_cs);
     for (int i = 0; i < MDIMG_MAX_JOBS; i++) {
@@ -268,7 +238,6 @@ void MdImg_Ensure(const wchar_t* url) {
     }
     LeaveCriticalSection(&s_cs);
     if (slot < 0) return;
-
     wchar_t* copy = _wcsdup(url);
     HANDLE h = copy ? CreateThread(NULL, 0, FetchThread, copy, 0, NULL) : NULL;
     if (!h) {

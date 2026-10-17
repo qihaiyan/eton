@@ -4,7 +4,6 @@
 #include <shlwapi.h>
 #include <shellapi.h>
 #include <stdarg.h>
-
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -12,11 +11,9 @@
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "comdlg32.lib")
-
 HINSTANCE g_hInst;
 HWND g_hwndMain, g_hwndTab, g_hwndTool, g_hwndStatus;
 UINT g_dpi = 96;
-
 int UI_Scale(int px) {
     return MulDiv(px, (int)g_dpi, 96);
 }
@@ -39,11 +36,9 @@ BOOL g_sessionDirty = FALSE;
 BOOL g_mdSplit = FALSE;
 BOOL g_mdSyncLock = FALSE;
 BOOL g_mdOutline = TRUE;
-
 void ShowError(const wchar_t* msg) {
     MessageBoxW(NULL, msg, T(STR_APP_TITLE), MB_ICONERROR);
 }
-
 int WFmtV(wchar_t* buf, int cch, const wchar_t* fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
@@ -52,8 +47,6 @@ int WFmtV(wchar_t* buf, int cch, const wchar_t* fmt, ...) {
     if (n < 0 || n >= cch) buf[cch - 1] = L'\0';
     return n;
 }
-
-/* 暗色主题：用菜单背景色覆盖菜单栏底边的主题分隔线（WM_NCPAINT/WM_NCACTIVATE 共用） */
 static void DarkMenuEdge(HWND hwnd) {
     if (!g_dark) return;
     MENUBARINFO mbi;
@@ -74,7 +67,6 @@ static void DarkMenuEdge(HWND hwnd) {
     DeleteObject(pen);
     ReleaseDC(hwnd, hdc);
 }
-
 void ApplyTitleBarTheme(HWND hwnd) {
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -87,10 +79,8 @@ void ApplyTitleBarTheme(HWND hwnd) {
     BOOL v = g_dark ? TRUE : FALSE;
     p(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &v, sizeof(v));
     InvalidateRect(hwnd, NULL, TRUE);
-    /* 菜单栏在非客户区，普通 InvalidateRect 刷不到；带 RDW_FRAME 重绘框架 */
     RedrawWindow(hwnd, NULL, NULL, RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW);
 }
-
 void AddRecent(const wchar_t* path) {
     for (int i = 0; i < g_recentCount; i++) {
         if (_wcsicmp(g_recent[i], path) == 0) {
@@ -107,7 +97,6 @@ void AddRecent(const wchar_t* path) {
     }
     RefreshRecentMenu();
 }
-
 void RefreshRecentMenu(void) {
     if (!g_hMenuRecent) return;
     HMENU sub = g_hMenuRecent;
@@ -121,14 +110,12 @@ void RefreshRecentMenu(void) {
             I18n_OwnerAppend(sub, MF_STRING, IDM_RECENT_FIRST + i, g_recent[i]);
     }
 }
-
 static void RebuildMainMenu(HWND hwnd) {
     HMENU old = GetMenu(hwnd);
     SetMenu(hwnd, I18n_BuildMainMenu());
     if (old) DestroyMenu(old);
     RefreshRecentMenu();
 }
-
 static void Check(HMENU m, UINT id, BOOL on) {
     CheckMenuItem(m, id, on ? MF_CHECKED : MF_UNCHECKED);
 }
@@ -164,7 +151,6 @@ static void UpdateMenuChecks(void) {
         Check(m, IDM_LANG_NONE + i, (LangID)i == lg);
     Check(m, IDM_UI_LANG_ZH, I18n_Lang() == UI_LANG_ZH);
     Check(m, IDM_UI_LANG_EN, I18n_Lang() == UI_LANG_EN);
-
     HWND edit = Editor_ActiveEdit();
     BOOL hasDoc = (edit != NULL);
     BOOL canUndo = hasDoc && SendMessage(edit, SCI_CANUNDO, 0, 0) != 0;
@@ -184,7 +170,6 @@ static void UpdateMenuChecks(void) {
     EnableMenuItem(m, IDM_SAVEAS, hasDoc ? on : off);
     EnableMenuItem(m, IDM_CLOSE, hasDoc ? on : off);
 }
-
 static void OpenFiles(HWND hwnd) {
     wchar_t buf[32768]; memset(buf, 0, sizeof(buf));
     wchar_t filter[512];
@@ -211,7 +196,6 @@ static void OpenFiles(HWND hwnd) {
         }
     }
 }
-
 static void OpenRecent(int ri) {
     if (ri < 0 || ri >= g_recentCount) return;
     wchar_t path[MAX_PATH]; wcscpy_s(path, MAX_PATH, g_recent[ri]);
@@ -222,7 +206,6 @@ static void OpenRecent(int ri) {
     }
     OpenFileByPath(path);
 }
-
 static void InsertDateTime(void) {
     HWND edit = Editor_ActiveEdit();
     if (!edit) return;
@@ -231,7 +214,6 @@ static void InsertDateTime(void) {
     sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d", st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
     SendMessage(edit, SCI_REPLACESEL, 0, (LPARAM)buf);
 }
-
 static void FindNextAccel(HWND hwnd, BOOL down) {
     HWND edit = Editor_ActiveEdit();
     if (!edit) return;
@@ -282,7 +264,6 @@ static void FindNextAccel(HWND hwnd, BOOL down) {
         }
     }
 }
-
 static void ResizeStatus(void) {
     RECT rc; GetClientRect(g_hwndMain, &rc);
     int cx = rc.right;
@@ -290,10 +271,9 @@ static void ResizeStatus(void) {
     p[0] = cx * 45 / 100; p[1] = cx * 65 / 100; p[2] = cx * 78 / 100; p[3] = cx * 90 / 100; p[4] = -1;
     StatusBar_SetParts(p, 5);
 }
-
 static BOOL ConfirmExit(void) {
     for (int i = 0; i < g_docCount; i++) {
-        if (g_docs[i].dirty && !g_docs[i].isNew) {
+        if (g_docs[i].dirty && !g_docs[i].isNew && !g_docs[i].bakRestored) {
             wchar_t msg[300];
             WFmt(msg, T(STR_MSG_FILE_NOT_SAVED), g_docs[i].title);
             int r = MessageBoxW(g_hwndMain, msg, T(STR_APP_TITLE), MB_YESNOCANCEL | MB_ICONQUESTION);
@@ -303,11 +283,9 @@ static BOOL ConfirmExit(void) {
     }
     return TRUE;
 }
-
 static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
     int id = LOWORD(wp);
     HWND edit = Editor_ActiveEdit();
-
     switch (id) {
         case IDM_NEW: { int ni = Editor_NewDoc(NULL, T(STR_UNTITLED), TRUE); if (ni >= 0) Editor_Activate(ni); } break;
         case IDM_OPEN: OpenFiles(hwnd); break;
@@ -447,7 +425,6 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
     }
     return 0;
 }
-
 static void ShowEditContextMenu(HWND hwnd, POINT pt) {
     HWND edit = Editor_ActiveEdit();
     if (!edit) return;
@@ -460,7 +437,7 @@ static void ShowEditContextMenu(HWND hwnd, POINT pt) {
     I18n_OwnerAppend(m, hasSel ? on : off, IDM_COPY, T(STR_ITEM_COPY));
     I18n_OwnerAppend(m, canPaste ? on : off, IDM_PASTE, T(STR_ITEM_PASTE));
     I18n_OwnerAppend(m, hasSel ? on : off, IDM_DELETE, T(STR_ITEM_DELETE));
-    I18n_OwnerAppend(m, MF_OWNERDRAW, 0, NULL);   /* 主题色分隔线 */
+    I18n_OwnerAppend(m, MF_OWNERDRAW, 0, NULL);
     I18n_OwnerAppend(m, on, IDM_SELECTALL, T(STR_ITEM_SELECTALL));
     I18n_OwnerAppend(m, MF_OWNERDRAW, 0, NULL);
     if (g_curDoc >= 0 && !g_docs[g_curDoc].isNew && g_docs[g_curDoc].path[0])
@@ -470,7 +447,6 @@ static void ShowEditContextMenu(HWND hwnd, POINT pt) {
     DestroyMenu(m);
     if (cmd) PostMessage(hwnd, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
 }
-
 static void ShowTabContextMenu(HWND hwnd, POINT pt, int tabIndex) {
     HMENU m = CreatePopupMenu();
     UINT on = MF_STRING, off = MF_STRING | MF_GRAYED;
@@ -490,7 +466,6 @@ static void ShowTabContextMenu(HWND hwnd, POINT pt, int tabIndex) {
         PostMessage(hwnd, WM_COMMAND, MAKEWPARAM(IDM_CLOSE_ALL, 0), 0);
     }
 }
-
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE: {
@@ -508,7 +483,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g_hwndStatus = CreateWindowExW(0, L"ETONStatus", NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, g_hInst, NULL);
             ResizeStatus();
             DragAcceptFiles(hwnd, TRUE);
-
             int argc = 0;
             wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
             if (argv) {
@@ -517,7 +491,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 LocalFree(argv);
             }
             BOOL haveArg = (g_docCount > 0);
-
             if (!haveArg && Session_Restore() == 0) {
                 int ni = Editor_NewDoc(NULL, T(STR_UNTITLED), TRUE);
                 Editor_Activate(ni);
@@ -532,14 +505,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             Editor_Layout();
             return 0;
         case WM_NCACTIVATE:
-            /* 失活/激活时框架由 WM_NCACTIVATE 直接重画（不走 WM_NCPAINT），
-               打开对话框等导致主窗口失活后菜单栏白线会重新出现 */
             DefWindowProcW(hwnd, msg, wp, lp);
             DarkMenuEdge(hwnd);
             return TRUE;
         case WM_NCPAINT: {
-            /* 暗色主题：菜单栏底边那条 1px 浅色分隔线由视觉样式绘制在
-               非客户区，SetMenuInfo 的画刷盖不到；这里画完后用菜单同色覆盖 */
             LRESULT r = DefWindowProcW(hwnd, msg, wp, lp);
             DarkMenuEdge(hwnd);
             return r;
@@ -636,14 +605,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     Session_Save();
                     g_sessionDirty = FALSE;
                 }
-                Session_FlushDirtyAsync();   /* 草稿+自动备份：快照后交后台线程写盘 */
+                Session_FlushDirtyAsync();
             }
             return 0;
         case WM_CLOSE:
             if (ConfirmExit()) DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
-            Session_WaitBackupDone();   /* 等后台写盘收尾，避免备份/草稿被截断 */
+            Session_WaitBackupDone();
             Session_SaveDrafts();
             Session_Save();
             Settings_Save();
@@ -653,7 +622,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     (void)cmdLine; (void)hPrev;
     g_hInst = hInst;
@@ -672,7 +640,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.lpszClassName = L"etonClass";
     RegisterClassExW(&wc);
-
     HWND hwnd = CreateWindowExW(0, L"etonClass", L"ETON",
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT,
         UI_Scale(900), UI_Scale(640), NULL, NULL, hInst, NULL);
@@ -683,7 +650,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     }
     ShowWindow(hwnd, Session_RestoreWindow(hwnd, nShow));
     UpdateWindow(hwnd);
-
     HACCEL accel = LoadAcceleratorsW(hInst, MAKEINTRESOURCEW(IDR_ACCEL));
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {

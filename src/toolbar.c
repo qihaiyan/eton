@@ -1,7 +1,5 @@
 #include "common.h"
-
 typedef struct { int cmd; int strId; int icon; } TbBtn;
-
 static const TbBtn kBtns[] = {
     { IDM_NEW,     STR_ITEM_NEW,        0 },
     { IDM_OPEN,    STR_ITEM_OPEN,       1 },
@@ -26,7 +24,6 @@ static const TbBtn kBtns[] = {
     { IDM_EXPORT_DOCX, STR_ITEM_EXPDOCX, 14 },
 };
 #define BTN_N ((int)(sizeof(kBtns) / sizeof(kBtns[0])))
-
 static int  s_hover = -1;
 static int  s_pressBtn = -1;
 static BOOL s_tracking = FALSE;
@@ -35,11 +32,9 @@ static HWND s_tip = NULL;
 static HWND s_tipOwner = NULL;
 static wchar_t s_tipText[128];
 static int  s_tipBtn = -1;
-
 static int BtnW(void) { return UI_Scale(30); }
 static int SepW(void) { return UI_Scale(7); }
 static int PadL(void) { return UI_Scale(2); }
-
 static void TbRects(RECT rc, RECT* out) {
     int x = PadL();
     for (int i = 0; i < BTN_N; i++) {
@@ -49,7 +44,6 @@ static void TbRects(RECT rc, RECT* out) {
         x += w;
     }
 }
-
 static int HitBtn(HWND hwnd, int mx, int my) {
     RECT rc; GetClientRect(hwnd, &rc);
     if (mx < 0 || mx >= rc.right || my < 0 || my >= rc.bottom) return -1;
@@ -58,7 +52,6 @@ static int HitBtn(HWND hwnd, int mx, int my) {
         if (mx >= rects[i].left && mx < rects[i].right) return i;
     return -1;
 }
-
 static BOOL BtnEnabled(int i) {
     HWND hed = Editor_ActiveEdit();
     if (!hed) return FALSE;
@@ -74,7 +67,6 @@ static BOOL BtnEnabled(int i) {
     }
     return TRUE;
 }
-
 static BOOL BtnChecked(int i) {
     switch (kBtns[i].cmd) {
     case IDM_WRAP:    return g_wordWrap;
@@ -83,7 +75,6 @@ static BOOL BtnChecked(int i) {
     }
     return FALSE;
 }
-
 void Toolbar_UpdateStates(void) {
     BOOL mdDoc = (g_curDoc >= 0 && g_curDoc < g_docCount &&
                   g_docs[g_curDoc].lang == LANG_MD);
@@ -97,9 +88,7 @@ void Toolbar_UpdateStates(void) {
         if (g_hwndTool) InvalidateRect(g_hwndTool, NULL, FALSE);
     }
 }
-
 #define CLR_GRAY ((COLORREF)-1)
-
 static void TbDrawIcon(HDC hdc, const RECT* r, int icon, BOOL en) {
     static const struct { COLORREF m, a; } kClr[15] = {
         { RGB(96,164,222),  CLR_GRAY       },
@@ -267,7 +256,6 @@ static void TbDrawIcon(HDC hdc, const RECT* r, int icon, BOOL en) {
 #undef X
 #undef Y
 }
-
 static void SetTip(int i) {
     if (!s_tip) return;
     if (i == s_tipBtn) return;
@@ -283,8 +271,6 @@ static void SetTip(int i) {
     ti.lpszText = s_tipText;
     SendMessage(s_tip, TTM_UPDATETIPTEXT, 0, (LPARAM)&ti);
 }
-
-/* 导出下拉：HTML / PDF / Word 三选 */
 static void ShowExportMenu(HWND hwnd, int btnIndex) {
     RECT rc; GetClientRect(hwnd, &rc);
     RECT rects[BTN_N]; TbRects(rc, rects);
@@ -296,14 +282,11 @@ static void ShowExportMenu(HWND hwnd, int btnIndex) {
     I18n_OwnerAppend(m, on, IDM_EXPORT_PDF,  T(STR_ITEM_EXPPDF));
     I18n_OwnerAppend(m, on, IDM_EXPORT_DOCX, T(STR_ITEM_EXPDOCX));
     I18n_ApplyMenuTheme(m);
-    /* owner 必须是主窗口：owner-drawn 菜单的 WM_MEASUREITEM/WM_DRAWITEM
-       由主窗口过程绘制（工具栏不处理，传自己会导致菜单空白） */
     int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_LEFTBUTTON,
                              pt.x, pt.y, 0, g_hwndMain, NULL);
     DestroyMenu(m);
     if (cmd) PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
 }
-
 static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_CREATE) {
         s_tipOwner = hwnd;
@@ -438,7 +421,6 @@ static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-
 void Toolbar_Register(void) {
     WNDCLASSEXW tc; memset(&tc, 0, sizeof(tc));
     tc.cbSize = sizeof(tc);

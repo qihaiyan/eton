@@ -1,5 +1,4 @@
 #include "common.h"
-
 enum {
     JOK = 0,
     JERR_EMPTY,
@@ -18,9 +17,7 @@ enum {
     JERR_DEPTH,
     JERR_MEM
 };
-
 #define JMAX_DEPTH 500
-
 typedef struct {
     const char* s;
     size_t n;
@@ -34,11 +31,9 @@ typedef struct {
     size_t errPos;
     int errCode;
 } J;
-
 static void jfail(J* j, size_t pos, int code) {
     j->errPos = pos; j->errCode = code;
 }
-
 static int jout(J* j, const char* p, size_t n) {
     if (j->ol + n + 1 > j->oc) {
         size_t nc = j->oc ? j->oc : 256;
@@ -52,7 +47,6 @@ static int jout(J* j, const char* p, size_t n) {
     j->o[j->ol] = '\0';
     return 1;
 }
-
 static void jws(J* j) {
     while (j->i < j->n) {
         char c = j->s[j->i];
@@ -60,7 +54,6 @@ static void jws(J* j) {
         else break;
     }
 }
-
 static int jnlind(J* j, int depth) {
     if (j->minify) return 1;
     if (!jout(j, j->nl, strlen(j->nl))) return 0;
@@ -68,11 +61,9 @@ static int jnlind(J* j, int depth) {
         if (!jout(j, j->ind, strlen(j->ind))) return 0;
     return 1;
 }
-
 static int jhex(char c) {
     return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 }
-
 static int jstr(J* j) {
     size_t start = j->i;
     j->i++;
@@ -102,7 +93,6 @@ static int jstr(J* j) {
     }
     return jout(j, j->s + start, j->i - start);
 }
-
 static int jnum(J* j) {
     size_t start = j->i;
     if (j->i < j->n && j->s[j->i] == '-') j->i++;
@@ -134,7 +124,6 @@ static int jnum(J* j) {
     }
     return jout(j, j->s + start, j->i - start);
 }
-
 static int jlit(J* j, const char* word) {
     size_t wl = strlen(word);
     if (j->i + wl > j->n || memcmp(j->s + j->i, word, wl) != 0) {
@@ -143,9 +132,7 @@ static int jlit(J* j, const char* word) {
     j->i += wl;
     return jout(j, word, wl);
 }
-
 static int jval(J* j);
-
 static int jobj(J* j) {
     if (j->depth >= JMAX_DEPTH) { jfail(j, j->i, JERR_DEPTH); return 0; }
     j->i++;
@@ -182,7 +169,6 @@ static int jobj(J* j) {
         jfail(j, j->i, JERR_COMMA_OBJ); return 0;
     }
 }
-
 static int jarr(J* j) {
     if (j->depth >= JMAX_DEPTH) { jfail(j, j->i, JERR_DEPTH); return 0; }
     j->i++;
@@ -211,7 +197,6 @@ static int jarr(J* j) {
         jfail(j, j->i, JERR_COMMA_ARR); return 0;
     }
 }
-
 static int jval(J* j) {
     jws(j);
     if (j->i >= j->n) { jfail(j, j->i, JERR_EOF); return 0; }
@@ -229,7 +214,6 @@ static int jval(J* j) {
             return 0;
     }
 }
-
 static int Json_Reprint(const char* src, size_t len, int minify,
                         const char* nl, const char* ind,
                         char** out, size_t* outLen,
@@ -252,13 +236,11 @@ static int Json_Reprint(const char* src, size_t len, int minify,
     *out = j.o; *outLen = j.ol;
     return 1;
 }
-
 static const wchar_t* JsonErrText(int code) {
     if (code >= JERR_EMPTY && code <= JERR_MEM)
         return T((StrId)(STR_JERR_EMPTY + (code - JERR_EMPTY)));
     return T(STR_JERR_UNKNOWN);
 }
-
 void Json_FormatActiveDoc(BOOL minify) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     Doc* d = &g_docs[g_curDoc];
@@ -274,7 +256,6 @@ void Json_FormatActiveDoc(BOOL minify) {
                     minify ? T(STR_JSON_TITLE_MIN) : T(STR_JSON_TITLE_FMT), MB_ICONINFORMATION);
         return;
     }
-
     if (end - start > (Sci_Position)(100 * 1024 * 1024)) {
         wchar_t msg[128];
         WFmt(msg, T(STR_MSG_JSON_BIG), 100);
@@ -282,7 +263,6 @@ void Json_FormatActiveDoc(BOOL minify) {
                     minify ? T(STR_JSON_TITLE_MIN) : T(STR_JSON_TITLE_FMT), MB_ICONINFORMATION);
         return;
     }
-
     Sci_Position rlen = end - start;
     char* src = (char*)malloc((size_t)rlen + 1);
     if (!src) return;
@@ -291,7 +271,6 @@ void Json_FormatActiveDoc(BOOL minify) {
     tr.chrg.cpMax = (Sci_PositionCR)end;
     tr.lpstrText = src;
     SendMessage(hed, SCI_GETTEXTRANGE, 0, (LPARAM)&tr);
-
     char ind[16];
     int useTabs = (int)SendMessage(hed, SCI_GETUSETABS, 0, 0);
     int tabW = (int)SendMessage(hed, SCI_GETTABWIDTH, 0, 0);
@@ -304,7 +283,6 @@ void Json_FormatActiveDoc(BOOL minify) {
         ind[tabW] = '\0';
     }
     const char* nl = (d->eol == 1) ? "\n" : ((d->eol == 2) ? "\r" : "\r\n");
-
     char* out = NULL; size_t outLen = 0; size_t errPos = 0; int errCode = JOK;
     int ok = Json_Reprint(src, (size_t)rlen, minify, nl, ind, &out, &outLen, &errPos, &errCode);
     free(src);
@@ -323,7 +301,6 @@ void Json_FormatActiveDoc(BOOL minify) {
         SendMessage(hed, SCI_SCROLLCARET, 0, 0);
         return;
     }
-
     SendMessage(hed, SCI_BEGINUNDOACTION, 0, 0);
     SendMessage(hed, SCI_SETTARGETSTART, start, 0);
     SendMessage(hed, SCI_SETTARGETEND, end, 0);

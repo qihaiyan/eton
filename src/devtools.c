@@ -1,13 +1,5 @@
-/* devtools.c — 开发者工具 UI 层：选区/文档编解码、哈希对话框、UUID、时间戳。
-   算法实现在 devtutil.c（纯函数，独立自测）。 */
-
 #include "common.h"
 #include <bcrypt.h>
-
-/* ---------------- 取选区/全文 ---------------- */
-
-/* 选区优先，否则全文；返回 malloc 的 UTF-8 缓冲（调用方 free）。
-   返回 NULL 表示无活动文档或内存不足。 */
 static char* Dt_GetRange(size_t* pLen, Sci_Position* pStart, Sci_Position* pEnd,
                          BOOL* pIsSel) {
     *pLen = 0; *pStart = 0; *pEnd = 0;
@@ -37,19 +29,14 @@ static char* Dt_GetRange(size_t* pLen, Sci_Position* pStart, Sci_Position* pEnd,
     *pLen = len;
     return buf;
 }
-
-/* ---------------- 编解码：直接替换选区/全文（同 JSON 工具交互） ---------------- */
-
 void DevTools_TransformActiveDoc(int op) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     HWND hed = g_docs[g_curDoc].hwndEdit;
     if (!hed) return;
-
     size_t len = 0;
     Sci_Position start = 0, end = 0;
     char* src = Dt_GetRange(&len, &start, &end, NULL);
     if (!src) return;
-
     if (len == 0) {
         MessageBoxW(g_hwndMain, T(STR_DT_EMPTY), T(STR_APP_TITLE), MB_ICONINFORMATION);
         free(src);
@@ -62,7 +49,6 @@ void DevTools_TransformActiveDoc(int op) {
         free(src);
         return;
     }
-
     char* out = NULL;
     size_t outLen = 0, errPos = 0;
     BOOL ok = FALSE;
@@ -76,7 +62,6 @@ void DevTools_TransformActiveDoc(int op) {
         default: free(src); return;
     }
     free(src);
-
     if (!ok) {
         Sci_Position abs = start + (Sci_Position)errPos;
         if (abs > end) abs = end;
@@ -88,11 +73,10 @@ void DevTools_TransformActiveDoc(int op) {
         SendMessage(hed, SCI_SCROLLCARET, 0, 0);
         return;
     }
-    if (!out) {   /* 编码内存不足 */
+    if (!out) {
         MessageBoxW(g_hwndMain, T(STR_JERR_MEM), T(STR_ERROR), MB_ICONERROR);
         return;
     }
-
     SendMessage(hed, SCI_BEGINUNDOACTION, 0, 0);
     SendMessage(hed, SCI_SETTARGETSTART, start, 0);
     SendMessage(hed, SCI_SETTARGETEND, end, 0);
@@ -102,9 +86,6 @@ void DevTools_TransformActiveDoc(int op) {
     SendMessage(hed, SCI_SCROLLCARET, 0, 0);
     free(out);
 }
-
-/* ---------------- UUID ---------------- */
-
 void DevTools_InsertUuid(void) {
     char uuid[37];
     if (!DevUtil_UuidV4(uuid)) {
@@ -124,9 +105,6 @@ void DevTools_InsertUuid(void) {
     SendMessage(hed, SCI_SETSEL, caret, caret);
     SendMessage(hed, SCI_SCROLLCARET, 0, 0);
 }
-
-/* ---------------- 剪贴板 ---------------- */
-
 static BOOL Dt_CopyText(HWND owner, const wchar_t* text) {
     if (!text || !*text) return FALSE;
     if (!OpenClipboard(owner)) return FALSE;
@@ -146,22 +124,17 @@ static BOOL Dt_CopyText(HWND owner, const wchar_t* text) {
     CloseClipboard();
     return ok;
 }
-
-/* ---------------- 哈希对话框 ---------------- */
-
 static const wchar_t* const kHashAlgs[4] = {
     BCRYPT_MD5_ALGORITHM, BCRYPT_SHA1_ALGORITHM,
     BCRYPT_SHA256_ALGORITHM, BCRYPT_SHA512_ALGORITHM
 };
 static const DWORD kHashLens[4] = { 16, 20, 32, 64 };
 static const int kHashEdits[4] = { IDC_HASH_MD5, IDC_HASH_SHA1, IDC_HASH_SHA256, IDC_HASH_SHA512 };
-
 typedef struct {
     BYTE md5[16], sha1[20], sha256[32], sha512[64];
     BYTE* digs[4];
     BOOL ok[4];
 } DtHashData;
-
 static void ToHexW(const BYTE* d, DWORD n, BOOL upper, wchar_t* out) {
     const wchar_t* hx = upper ? L"0123456789ABCDEF" : L"0123456789abcdef";
     for (DWORD i = 0; i < n; i++) {
@@ -170,7 +143,6 @@ static void ToHexW(const BYTE* d, DWORD n, BOOL upper, wchar_t* out) {
     }
     out[n * 2] = L'\0';
 }
-
 static void Hash_Render(HWND hdlg, const DtHashData* hd, BOOL upper) {
     wchar_t hex[129];
     for (int i = 0; i < 4; i++) {
@@ -179,7 +151,6 @@ static void Hash_Render(HWND hdlg, const DtHashData* hd, BOOL upper) {
         SetDlgItemTextW(hdlg, kHashEdits[i], hex);
     }
 }
-
 static INT_PTR CALLBACK HashDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static DtHashData s_hd;
     if (msg == WM_INITDIALOG) {
@@ -234,13 +205,9 @@ static INT_PTR CALLBACK HashDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         return (INT_PTR)I18n_DlgCtlColor(hdlg, (HDC)wp, msg);
     return FALSE;
 }
-
 void DevTools_ShowHashDlg(HWND parent) {
     DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_HASH), parent, HashDlgProc, 0);
 }
-
-/* ---------------- 时间戳转换对话框 ---------------- */
-
 static const wchar_t* TsNum(const wchar_t* p, int* v, int maxDigits) {
     if (*p < L'0' || *p > L'9') return NULL;
     int acc = 0, k = 0;
@@ -251,9 +218,6 @@ static const wchar_t* TsNum(const wchar_t* p, int* v, int maxDigits) {
     *v = acc;
     return p;
 }
-
-/* 解析 YYYY-MM-DD[ HH:MM[:SS]]（'/' 与 'T' 分隔符兼容，月/日/时/分/秒可单个数字）；
-   输入按本地时间解释。合法性由 SystemTimeToFileTime 兜底校验。 */
 static BOOL TsParseDateTime(const wchar_t* s, SYSTEMTIME* st) {
     wchar_t buf[64];
     if (wcslen(s) >= 64) return FALSE;
@@ -293,14 +257,12 @@ static BOOL TsParseDateTime(const wchar_t* s, SYSTEMTIME* st) {
     FILETIME ft;
     return SystemTimeToFileTime(st, &ft) != 0;
 }
-
 static void TsAppendLine(wchar_t* out, int cch, const wchar_t* line) {
     int l = (int)wcslen(out);
     if (l >= cch - 3) return;
     _snwprintf(out + l, cch - l, L"%s\r\n", line);
     out[cch - 1] = L'\0';
 }
-
 static void TsFillNow(HWND hdlg) {
     FILETIME f;
     GetSystemTimeAsFileTime(&f);
@@ -313,7 +275,6 @@ static void TsFillNow(HWND hdlg) {
     buf[31] = L'\0';
     SetDlgItemTextW(hdlg, IDC_TS_IN, buf);
 }
-
 static void TsConvert(HWND hdlg) {
     wchar_t in[128];
     GetDlgItemTextW(hdlg, IDC_TS_IN, in, 128);
@@ -326,18 +287,15 @@ static void TsConvert(HWND hdlg) {
         SetDlgItemTextW(hdlg, IDC_TS_OUT, T(STR_TS_ERR));
         return;
     }
-
     BOOL numeric = TRUE;
     const wchar_t* p = s;
     if (*p == L'-' || *p == L'+') p++;
     if (!*p) numeric = FALSE;
     for (; *p; p++)
         if (*p < L'0' || *p > L'9') { numeric = FALSE; break; }
-
     wchar_t out[640];
     out[0] = L'\0';
     wchar_t line[160];
-
     if (numeric) {
         long long v = _wcstoi64(s, NULL, 10);
         BOOL isMs = (v >= 100000000000LL || v <= -100000000000LL);
@@ -395,11 +353,10 @@ static void TsConvert(HWND hdlg) {
     }
     SetDlgItemTextW(hdlg, IDC_TS_OUT, out);
 }
-
 static INT_PTR CALLBACK TsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_INITDIALOG) {
         I18n_ApplyDialog(hdlg, IDD_TS);
-        TsFillNow(hdlg);       /* 默认带入当前时间戳，直接可对照转换 */
+        TsFillNow(hdlg);
         TsConvert(hdlg);
         return TRUE;
     }
@@ -414,7 +371,6 @@ static INT_PTR CALLBACK TsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         return (INT_PTR)I18n_DlgCtlColor(hdlg, (HDC)wp, msg);
     return FALSE;
 }
-
 void DevTools_ShowTsDlg(HWND parent) {
     DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_TS), parent, TsDlgProc, 0);
 }

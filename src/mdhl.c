@@ -1,18 +1,7 @@
-/* mdhl.c — Markdown 预览代码块的语法着色（轻量词法分析）
- *
- * MdHl_Tokenize 把代码文本切为带类型的高亮片段（CodeSpan，仅输出非普通
- * 文本片段，按 pos 升序、互不重叠），由 mdview 的 LayoutCodeBlock 转成
- * 彩色 run。支持：C/C++/C#/Java/JS/TS/Go/Rust（C 风格）、Python、JSON、
- * XML/HTML、SQL、Bash。纯函数、无全局状态。
- */
 #include "common.h"
 #include <wchar.h>
 #include <string.h>
-
-/* ---------------- 语言关键字表 ---------------- */
-
 enum { HLNG_C = 0, HLNG_PY, HLNG_JSON, HLNG_XML, HLNG_SQL, HLNG_SH };
-
 static const wchar_t* const kwC[] = {
     L"auto", L"bool", L"break", L"case", L"catch", L"char", L"class",
     L"const", L"constexpr", L"continue", L"default", L"delete", L"do",
@@ -106,19 +95,16 @@ static const wchar_t* const kwSh[] = {
     L"while", NULL
 };
 static const wchar_t* const kwJson[] = { L"true", L"false", L"null", NULL };
-
-/* C 风格语言的差异配置：行注释 / 块注释 / 字符串引号 / 预处理 */
 typedef struct {
     const wchar_t*const* kw;
-    BOOL kwCI;            /* 关键字大小写不敏感 */
+    BOOL kwCI;
     const wchar_t* lineCom;
     const wchar_t* bOpen, *bClose;
     const wchar_t* quotes;
-    BOOL esc;             /* 字符串内反斜杠转义 */
-    BOOL triple;          /* Python 三引号 */
-    BOOL preproc;         /* 行首 # 为预处理指令 */
+    BOOL esc;
+    BOOL triple;
+    BOOL preproc;
 } HlCfg;
-
 static const HlCfg kCfgs[] = {
     [HLNG_C]  = { kwC,    FALSE, L"//", L"/*", L"*/", L"\"'", TRUE,  FALSE, TRUE },
     [HLNG_PY] = { kwPy,   FALSE, L"#",  NULL, NULL,  L"\"'", TRUE,  TRUE,  FALSE },
@@ -126,7 +112,6 @@ static const HlCfg kCfgs[] = {
     [HLNG_SQL]= { kwSql,  TRUE,  L"--", L"/*", L"*/", L"'\"", FALSE, FALSE, FALSE },
     [HLNG_SH] = { kwSh,   FALSE, L"#",  NULL, NULL,  L"\"'", TRUE,  FALSE, FALSE },
 };
-
 static int LangFromFence(const char* lang) {
     if (!lang || !lang[0]) return -1;
     static const struct { const char* fence; int lang; } map[] = {
@@ -159,22 +144,17 @@ static int LangFromFence(const char* lang) {
         if (strcmp(buf, map[i].fence) == 0) return map[i].lang;
     return -1;
 }
-
 static const HlCfg* CfgFor(int lang) {
     if (lang == HLNG_XML) return NULL;
     return &kCfgs[lang];
 }
-
-/* ---------------- 输出收集 ---------------- */
-
 typedef struct {
     CodeSpan* v; int n, cap;
 } Spans;
-
 static void Emit(Spans* s, int pos, int len, int type) {
     if (len <= 0) return;
     if (s->n && s->v[s->n - 1].pos + s->v[s->n - 1].len == pos &&
-        s->v[s->n - 1].type == (unsigned char)type) {   /* 相邻同类型合并 */
+        s->v[s->n - 1].type == (unsigned char)type) {
         s->v[s->n - 1].len += len;
         return;
     }
@@ -188,19 +168,16 @@ static void Emit(Spans* s, int pos, int len, int type) {
     s->v[s->n].type = (unsigned char)type;
     s->n++;
 }
-
 static BOOL StartsWith(const wchar_t* s, int len, int i, const wchar_t* pre) {
     for (int k = 0; pre[k]; k++) {
         if (i + k >= len || s[i + k] != pre[k]) return FALSE;
     }
     return TRUE;
 }
-
 static BOOL IsIdentCh(wchar_t c, int first) {
     return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || c == L'_' ||
-           c == L'$' || (c >= L'0' && c <= L'9' && !first) || c > 0x7F /* 允许 Unicode 标识符 */;
+           c == L'$' || (c >= L'0' && c <= L'9' && !first) || c > 0x7F ;
 }
-
 static BOOL KwHit(const wchar_t*const* kw, BOOL ci, const wchar_t* w, int len) {
     for (int i = 0; kw[i]; i++) {
         int kl = (int)wcslen(kw[i]);
@@ -215,9 +192,6 @@ static BOOL KwHit(const wchar_t*const* kw, BOOL ci, const wchar_t* w, int len) {
     }
     return FALSE;
 }
-
-/* ---------------- C 风格 / Python / SQL / Bash / JSON 通用扫描 ---------------- */
-
 static void ScanGeneric(const wchar_t* s, int len, const HlCfg* g, Spans* out) {
     BOOL preLine = TRUE;
     int i = 0;
@@ -225,7 +199,6 @@ static void ScanGeneric(const wchar_t* s, int len, const HlCfg* g, Spans* out) {
         wchar_t c = s[i];
         if (c == L'\n') { preLine = TRUE; i++; continue; }
         if (c == L' ' || c == L'\t' || c == L'\r') { i++; continue; }
-        /* 行首预处理（C 系）：#include/#define... 整行 */
         if (g->preproc && preLine && c == L'#') {
             int j = i;
             while (j < len && s[j] != L'\n') j++;
@@ -249,7 +222,6 @@ static void ScanGeneric(const wchar_t* s, int len, const HlCfg* g, Spans* out) {
             i = j;
             continue;
         }
-        /* 三引号（Python）优先 */
         if (g->triple && (c == L'"' || c == L'\'') && i + 2 < len &&
             s[i+1] == c && s[i+2] == c) {
             int j = i + 3;
@@ -301,9 +273,6 @@ static void ScanGeneric(const wchar_t* s, int len, const HlCfg* g, Spans* out) {
         i++;
     }
 }
-
-/* ---------------- XML/HTML ---------------- */
-
 static void ScanXml(const wchar_t* s, int len, Spans* out) {
     int i = 0;
     while (i < len) {
@@ -320,11 +289,10 @@ static void ScanXml(const wchar_t* s, int len, Spans* out) {
             if (j < len && s[j] == L'/') j++;
             int ns = j;
             while (j < len && s[j] != L'>' && s[j] != L'\n' &&
-                   !IsIdentCh(s[j], FALSE) && s[j] != L':') j++;  /* 名字（含冒号） */
+                   !IsIdentCh(s[j], FALSE) && s[j] != L':') j++;
             if (j > ns) Emit(out, ns, j - ns, HL_KW);
             int tagEnd = j;
             while (tagEnd < len && s[tagEnd] != L'>' && s[tagEnd] != L'\n') tagEnd++;
-            /* 标签内部：属性名 / 字符串 */
             int k = j;
             while (k < tagEnd) {
                 if (s[k] == L'"' || s[k] == L'\'') {
@@ -344,9 +312,6 @@ static void ScanXml(const wchar_t* s, int len, Spans* out) {
         i++;
     }
 }
-
-/* ---------------- 入口 ---------------- */
-
 int MdHl_Tokenize(const wchar_t* code, int len, const char* lang, CodeSpan** out) {
     *out = NULL;
     if (!code || len <= 0) return 0;
@@ -355,7 +320,6 @@ int MdHl_Tokenize(const wchar_t* code, int len, const char* lang, CodeSpan** out
     Spans s = { NULL, 0, 0 };
     if (lg == HLNG_XML) ScanXml(code, len, &s);
     else {
-        /* C 家族关键字按语言选表 */
         HlCfg cfg = kCfgs[lg];
         if (lg == HLNG_C) {
             char l24[24]; int i;

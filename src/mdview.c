@@ -2,21 +2,17 @@
 #include "md4c.h"
 #include "nanosvg.h"
 #include "nanosvgrast.h"
-
 typedef enum { ITM_LINES, ITM_RECT, ITM_FRAME, ITM_DIAGRAM, ITM_IMAGE, ITM_MATH } MdItemType;
 enum { RCT_CODEBG = 0, RCT_QUOTEBAR, RCT_HRULE, RCT_TABLEHEAD, RCT_CANVAS };
-
 typedef struct MdFrag {
     MdRun* run;
     const wchar_t* s; int len;
     int x, w;
 } MdFrag;
-
 typedef struct MdLine {
     int y, h, asc;
     MdFrag* frags; int nF;
 } MdLine;
-
 typedef struct MdItem {
     int type;
     RECT rc;
@@ -26,18 +22,13 @@ typedef struct MdItem {
     MermaidDiagram* diag;
     void* image;
     UINT imageW, imageH;
-    void* thumb;            /* 按显示尺寸预渲染的位图（滚动时免逐帧重采样） */
+    void* thumb;
     UINT thumbW, thumbH;
     MdRun* mathRun;
     MdRun* ownRun;
-    wchar_t* href;      /* 图片项的点击目标（来自包裹链接或图片源） */
+    wchar_t* href;
 } MdItem;
-
-/* ---- 文本选区 ----
-   位置 = 项/行/片段/字符 的字典序；跨项拖选即比较两端大小。
-   布局只会向后追加项，既有索引稳定；重排（ItemResetAll）时选区一并复位。 */
 typedef struct { int item, line, frag, ch; } MdPos;
-
 static int PosCmp(MdPos a, MdPos b) {
     if (a.item != b.item) return a.item < b.item ? -1 : 1;
     if (a.line != b.line) return a.line < b.line ? -1 : 1;
@@ -45,7 +36,6 @@ static int PosCmp(MdPos a, MdPos b) {
     if (a.ch != b.ch) return a.ch < b.ch ? -1 : 1;
     return 0;
 }
-
 static struct {
     HWND hwnd;
     MdBlock* root;
@@ -59,19 +49,16 @@ static struct {
     HCURSOR hHand;
     BOOL sbDrag; int sbDragOff;
     int lastLayoutW;
-    BOOL imgTimerOn;     /* 图片到达合并窗口已挂起 */
-    int layIdx, layY;    /* 增量布局：下一个顶层块索引 / 已布局到的 y */
+    BOOL imgTimerOn;
+    int layIdx, layY;
     BOOL layDone;
-    BOOL selActive;      /* 存在选区锚点 */
-    BOOL selDrag;        /* 正在拖选 */
+    BOOL selActive;
+    BOOL selDrag;
     MdPos selAnchor, selCaret;
-    wchar_t* pendLink;   /* 按下点的链接：未拖开时抬起才打开 */
+    wchar_t* pendLink;
     POINT downPt;
 } V;
-
-#define TID_MDIMG 2         /* WM_MDIMG_READY 的 120ms 合并定时器 */
-
-/* 重排会重建 items，选区索引随之失效——统一在此复位 */
+#define TID_MDIMG 2
 static void SelReset(void) {
     V.selActive = FALSE;
     V.selDrag = FALSE;
@@ -79,11 +66,9 @@ static void SelReset(void) {
     ZeroMemory(&V.selAnchor, sizeof(MdPos));
     ZeroMemory(&V.selCaret, sizeof(MdPos));
 }
-
 static BOOL SelHasText(void);
 static BOOL SelPointCovered(int item, int line, int frag);
 static void SelFragRange(int item, int line, int frag, int len, int* a, int* b);
-
 typedef void* GpImage;
 typedef void* GpGraphics;
 typedef struct { UINT32 GdiplusVersion; void* Deb; BOOL sbt, sec; } GdipStartupInput;
@@ -103,7 +88,6 @@ static int  (WINAPI* p_GdipCreateBitmapFromGraphics)(int, int, GpGraphics*, GpIm
 static int  (WINAPI* p_GdipGetImageGraphicsContext)(GpImage*, GpGraphics**);
 static int  (WINAPI* p_GdipCreateBitmapFromScan0)(int, int, int, int, void*, GpImage**);
 static BOOL s_gdipOk = FALSE;
-
 static void GdipInit(void) {
     HMODULE g = LoadLibraryW(L"gdiplus.dll");
     if (!g) return;
@@ -128,21 +112,16 @@ static void GdipInit(void) {
     ULONG_PTR tok = 0;
     if (p_GdipStartup(&tok, &si, NULL) == 0) s_gdipOk = TRUE;
 }
-
 typedef struct { wchar_t path[MAX_PATH]; GpImage* img; UINT w, h; unsigned gen;
-                 void* px; } ImgEnt;   /* px：SVG 光栅缓冲（位图直接引用，随槽位释放） */
+                 void* px; } ImgEnt;
 static ImgEnt s_imgs[16];
 static int s_nImgs = 0;
 static unsigned s_imgGen = 0;
-
 static ImgEnt* ImgFind(const wchar_t* full) {
     for (int i = 0; i < s_nImgs; i++)
         if (_wcsicmp(s_imgs[i].path, full) == 0) return &s_imgs[i];
     return NULL;
 }
-
-/* SVG → 位图：nanosvg 解析 + 2 倍光栅（位图细节高于逻辑尺寸，缩放显示更清晰）。
- * GdipCreateBitmapFromScan0 不拷贝扫描线，缓冲由 ImgEnt.px 持有。 */
 static GpImage* LoadSvgBitmap(const wchar_t* full, UINT* ow, UINT* oh, void** pxOut) {
     *pxOut = NULL;
     HANDLE f = CreateFileW(full, GENERIC_READ, FILE_SHARE_READ, NULL,
@@ -160,7 +139,6 @@ static GpImage* LoadSvgBitmap(const wchar_t* full, UINT* ow, UINT* oh, void** px
     CloseHandle(f);
     if (!ok) { free(buf); return NULL; }
     buf[n] = 0;
-
     NSVGimage* img = nsvgParse(buf, "px", 96.0f);
     free(buf);
     if (!img || img->width <= 0 || img->height <= 0) {
@@ -181,15 +159,12 @@ static GpImage* LoadSvgBitmap(const wchar_t* full, UINT* ow, UINT* oh, void** px
     if (!px || !rast) { free(px); if (rast) nsvgDeleteRasterizer(rast); nsvgDelete(img); return NULL; }
     nsvgRasterize(rast, img, 0, 0, scale, px, (int)rw, (int)rh, (int)rw * 4);
     nsvgDeleteRasterizer(rast);
-    /* nanosvg 输出按内存 R,G,B,A；GDI+ 32bppARGB 的内存序是 B,G,R,A —— 原地换 R/B */
     for (unsigned char* p = px, *end = px + (size_t)rw * rh * 4; p < end; p += 4) {
         unsigned char t = p[0];
         p[0] = p[2];
         p[2] = t;
     }
-
     GpImage* bmp = NULL;
-    /* PixelFormat32bppARGB */
     if (!p_GdipCreateBitmapFromScan0 || p_GdipCreateBitmapFromScan0((int)rw, (int)rh,
             (int)rw * 4, 0x26200A, px, &bmp) != 0 || !bmp) {
         free(px);
@@ -202,7 +177,6 @@ static GpImage* LoadSvgBitmap(const wchar_t* full, UINT* ow, UINT* oh, void** px
     *oh = lh;
     return bmp;
 }
-
 static ImgEnt* ImgGet(const wchar_t* full) {
     if (!s_gdipOk || !full || !full[0]) return NULL;
     ImgEnt* hit = ImgFind(full);
@@ -224,7 +198,6 @@ static ImgEnt* ImgGet(const wchar_t* full) {
         free(svgPx);
         return NULL;
     }
-    /* 满时淘汰最久未使用（gen 最小）的槽位，而不是固定挤掉 0 号 */
     int slot = 0;
     if (s_nImgs < 16) slot = s_nImgs++;
     else {
@@ -240,8 +213,6 @@ static ImgEnt* ImgGet(const wchar_t* full) {
     s_imgs[slot].px = svgPx;
     return &s_imgs[slot];
 }
-
-/* 释放本次布局未引用的位图（换文档/内容变更后） */
 static void ImgSweep(void) {
     int keep = 0;
     for (int i = 0; i < s_nImgs; i++) {
@@ -253,13 +224,11 @@ static void ImgSweep(void) {
     }
     s_nImgs = keep;
 }
-
 static MdBlock* BlkNew(int type) {
     MdBlock* b = (MdBlock*)calloc(1, sizeof(MdBlock));
     if (b) b->type = type;
     return b;
 }
-
 #define MD_GROW(arr, need, cap, type) do { \
     if ((need) >= (cap)) { \
         int nc_ = (cap) ? (cap) * 2 : 16; \
@@ -268,18 +237,11 @@ static MdBlock* BlkNew(int type) {
         (cap) = nc_; \
     } \
 } while (0)
-
 static void BlkAppend(MdBlock* parent, MdBlock* child) {
     MD_GROW(parent->children, parent->nChildren, parent->capChildren, MdBlock*);
     if (!parent->children) return;
     parent->children[parent->nChildren++] = child;
 }
-
-/* ---- 图表/公式解析缓存 ----
-   LoadContentEx 每次重载（保存后刷新、图片下载完成）都会 BlkFree 整棵块树再
-   重建，其中 Mermaid_Parse / Math_Build 是最贵的两步。这里以"源码文本"为键，
-   释放时把解析结果收回缓存、重解析时取回——内容未变就零重算。测量不在缓存
-   范围，字号/DPI/缩放变化仍会重新测量。容量 FIFO 淘汰，内存有界。 */
 typedef struct { unsigned hash; int len; char* key; void* obj; } MCacheEnt;
 #define MCACHE_MAX 96
 typedef struct {
@@ -291,14 +253,12 @@ static void FreeDiagObj(void* o) { Mermaid_Free((MermaidDiagram*)o); }
 static void FreeMathObj(void* o) { Math_Free((MathBox*)o); }
 static MCache s_diagC = { { { 0 } }, 0, FreeDiagObj };
 static MCache s_mathC = { { { 0 } }, 0, FreeMathObj };
-
 static unsigned McHash(const void* p, int n) {
     unsigned h = 2166136261u;
     const unsigned char* b = (const unsigned char*)p;
     for (int i = 0; i < n; i++) { h ^= b[i]; h *= 16777619u; }
     return h;
 }
-
 static void* McTake(MCache* c, const void* key, int len) {
     if (!key || len <= 0) return NULL;
     unsigned h = McHash(key, len);
@@ -314,7 +274,6 @@ static void* McTake(MCache* c, const void* key, int len) {
     }
     return NULL;
 }
-
 static void McPut(MCache* c, const void* key, int len, void* obj) {
     if (!obj) return;
     if (!key || len <= 0) { c->freeObj(obj); return; }
@@ -333,14 +292,12 @@ static void McPut(MCache* c, const void* key, int len, void* obj) {
     c->e[c->n].obj = obj;
     c->n++;
 }
-
 static MathBox* MathAcquire(const wchar_t* text) {
     if (!text) return NULL;
     MathBox* m = (MathBox*)McTake(&s_mathC, text, (int)(wcslen(text) * sizeof(wchar_t)));
     if (!m) m = Math_Build(text);
     return m;
 }
-
 static void BlkFree(MdBlock* b) {
     if (!b) return;
     for (int i = 0; i < b->nRuns; i++) {
@@ -348,7 +305,6 @@ static void BlkFree(MdBlock* b) {
         free(b->runs[i].href);
         free(b->runs[i].link);
         if (b->runs[i].math) {
-            /* 解析结果回收进缓存，重载时按源码取回（见 MCache 注释） */
             McPut(&s_mathC, b->runs[i].text,
                   (int)(b->runs[i].text ? wcslen(b->runs[i].text) * sizeof(wchar_t) : 0),
                   b->runs[i].math);
@@ -369,7 +325,6 @@ static void BlkFree(MdBlock* b) {
     free(b->children);
     free(b);
 }
-
 static wchar_t* Utf8ToW(const char* s, int len) {
     if (len <= 0) len = (int)strlen(s);
     int n = MultiByteToWideChar(CP_UTF8, 0, s, len, NULL, 0);
@@ -379,19 +334,17 @@ static wchar_t* Utf8ToW(const char* s, int len) {
     w[n] = L'\0';
     return w;
 }
-
 typedef struct {
-    int tag;            /* TAG_A / TAG_B / ... */
+    int tag;
     unsigned bits;
-    wchar_t* href;      /* 仅 TAG_A */
+    wchar_t* href;
 } HEnt;
-
 typedef struct {
     MdBlock* stack[64]; int depth;
     MdBlock* textBlk;
     unsigned style;
-    HEnt hstk[8]; int hDepth;   /* <a>/<b>/<i>... 与 markdown 链接共用的样式栈 */
-    wchar_t* imgSrc;            /* 当前 MD_SPAN_IMG 或 <img> 的图片源 */
+    HEnt hstk[8]; int hDepth;
+    wchar_t* imgSrc;
     char* codeBuf; int codeLen, codeCap;
     char* mathBuf; int mathLen;
     int inMath; BOOL mathDisp;
@@ -401,11 +354,8 @@ typedef struct {
     MdBlock* table;
     int cellCount;
 } MdParseCtx;
-
 static MdParseCtx* P;
-
 static const wchar_t* CurLinkHref(void);
-
 static void AddRun(const wchar_t* s, int len, unsigned style) {
     if (!P->textBlk) {
         MdBlock* top = P->stack[P->depth];
@@ -439,7 +389,6 @@ static void AddRun(const wchar_t* s, int len, unsigned style) {
     }
     r->imgW = 0;
 }
-
 static void CodeAppend(const char* s, int len) {
     if (P->codeLen + len + 1 > P->codeCap) {
         int nc = P->codeCap ? P->codeCap * 2 : 512;
@@ -452,22 +401,12 @@ static void CodeAppend(const char* s, int len) {
     P->codeLen += len;
     P->codeBuf[P->codeLen] = 0;
 }
-
 static void AttrToWide(MD_ATTRIBUTE a, wchar_t* out, int cch) {
     int n = MultiByteToWideChar(CP_UTF8, 0, a.text, (int)a.size, out, cch - 1);
     if (n < 0) n = 0;
     out[n] = L'\0';
 }
-
-/* ===================== 行内 HTML（<a>/<img>/<br>/样式标签）=====================
- * md4c 把原始 HTML 以 MD_TEXT_HTML 交给渲染方，这里把标签映射到既有 run 体系：
- * <a href> → STY_LINK、<img src alt width> → STY_IMG 运行、<br> → STY_BR、
- * b/strong/i/em/del/s/code → 对应样式位，其余标签剥掉、保留内部文本。
- * markdown 原生 [![](img)](link) 与 HTML 标签共用同一套链接样式栈。
- */
-
 enum { TAG_A = 1, TAG_B, TAG_I, TAG_DEL, TAG_CODE, TAGS_IMG = 101, TAGS_BR = 102 };
-
 static void HtmlPushTag(int id, unsigned bits, const wchar_t* href) {
     if (P->hDepth >= 8) return;
     P->hstk[P->hDepth].tag = id;
@@ -476,7 +415,6 @@ static void HtmlPushTag(int id, unsigned bits, const wchar_t* href) {
     P->hDepth++;
     P->style |= bits;
 }
-
 static void HtmlPopTag(int id) {
     for (int k = P->hDepth - 1; k >= 0; k--) {
         if (P->hstk[k].tag == id) {
@@ -490,14 +428,11 @@ static void HtmlPopTag(int id) {
         }
     }
 }
-
 static const wchar_t* CurLinkHref(void) {
     for (int k = P->hDepth - 1; k >= 0; k--)
         if (P->hstk[k].tag == TAG_A) return P->hstk[k].href;
     return NULL;
 }
-
-/* 段落结束时复位，防止未闭合标签跨段泄漏状态 */
 static void ResetInlineHtml(void) {
     while (P->hDepth > 0) {
         P->hDepth--;
@@ -508,8 +443,6 @@ static void ResetInlineHtml(void) {
     free(P->imgSrc);
     P->imgSrc = NULL;
 }
-
-/* 解码一个 &entity;（常用命名 + 十进制/十六进制数字），返回消耗字节数 */
 static int DecodeOneEntity(const char* s, int rem, char* out, int* outLen) {
     *outLen = 0;
     if (rem < 3 || s[0] != '&') return 0;
@@ -523,7 +456,7 @@ static int DecodeOneEntity(const char* s, int rem, char* out, int* outLen) {
             if (rem >= 1 + n && strncmp(s + 1, kNamed[i].name, n) == 0) {
                 out[0] = kNamed[i].ch;
                 *outLen = 1;
-                return 1 + n;   /* '&' + 名字；多吞一字节会吃掉紧随的内容 */
+                return 1 + n;
             }
         }
         return 0;
@@ -563,7 +496,6 @@ static int DecodeOneEntity(const char* s, int rem, char* out, int* outLen) {
     *outLen = n;
     return i + 1;
 }
-
 static int DecodeEntitiesUtf8(const char* in, int len, char* out, int cap) {
     int o = 0;
     for (int i = 0; i < len; ) {
@@ -581,8 +513,6 @@ static int DecodeEntitiesUtf8(const char* in, int len, char* out, int cap) {
     }
     return o;
 }
-
-/* 文本节点 → run；blockMode 时按 HTML 规则折叠空白（连续空白 → 单空格） */
 static void HtmlAddText(const char* s, int len, BOOL blockMode) {
     if (len <= 0) return;
     char* dbuf = (char*)malloc((size_t)len);
@@ -617,9 +547,8 @@ static void HtmlAddText(const char* s, int len, BOOL blockMode) {
     }
     free(w);
 }
-
 typedef struct {
-    int consumed;       /* 整个标签（含 <>）字节数；0 = 不是标签 */
+    int consumed;
     int tagId;
     BOOL closing;
     char href[2048]; int hrefLen;
@@ -627,11 +556,9 @@ typedef struct {
     char alt[512];   int altLen;
     int width;
 } HtmlTag;
-
 static char TagCharLower(char c) {
     return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
 }
-
 static int TagNameToId(const char* name) {
     if (!strcmp(name, "a")) return TAG_A;
     if (!strcmp(name, "b") || !strcmp(name, "strong")) return TAG_B;
@@ -642,13 +569,10 @@ static int TagNameToId(const char* name) {
     if (!strcmp(name, "br")) return TAGS_BR;
     return 0;
 }
-
 static BOOL TagIsNameChar(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
            (c >= '0' && c <= '9') || c == '-' || c == '_' || c == ':';
 }
-
-/* 在标签属性区（不含 <name 与 >）解析需要的属性 */
 static void ParseAttrs(const char* s, int len, HtmlTag* t) {
     int i = 0;
     while (i < len) {
@@ -659,7 +583,7 @@ static void ParseAttrs(const char* s, int len, HtmlTag* t) {
         while (i < len && TagIsNameChar(s[i]) && nn < 15)
             name[nn++] = TagCharLower(s[i++]);
         name[nn] = '\0';
-        if (nn == 0) { i++; continue; }   /* 跳过属性区里的非法字符 */
+        if (nn == 0) { i++; continue; }
         while (i < len && (s[i] == ' ' || s[i] == '\t')) i++;
         const char* val = NULL; int valLen = 0;
         if (i < len && s[i] == '=') {
@@ -699,8 +623,6 @@ static void ParseAttrs(const char* s, int len, HtmlTag* t) {
         }
     }
 }
-
-/* 尝试解析 s[0] 起始的一个标签；返回 0 表示不是合法标签（按文本处理） */
 static int ParseHtmlTag(const char* s, int rem, HtmlTag* t) {
     ZeroMemory(t, sizeof(*t));
     if (rem < 3 || s[0] != '<') return 0;
@@ -709,7 +631,7 @@ static int ParseHtmlTag(const char* s, int rem, HtmlTag* t) {
             for (int i = 4; i + 2 < rem; i++)
                 if (s[i] == '-' && s[i + 1] == '-' && s[i + 2] == '>')
                     return i + 3;
-            return rem;    /* 未闭合注释：整段吞掉 */
+            return rem;
         }
         for (int i = 2; i < rem; i++)
             if (s[i] == '>') return i + 1;
@@ -733,7 +655,6 @@ static int ParseHtmlTag(const char* s, int rem, HtmlTag* t) {
     t->consumed = j + 1;
     return t->consumed;
 }
-
 static void HtmlTextToRuns(const char* s, int len, BOOL blockMode) {
     int i = 0;
     while (i < len) {
@@ -796,21 +717,18 @@ static void HtmlTextToRuns(const char* s, int len, BOOL blockMode) {
                         }
                         break;
                     default:
-                        break;  /* 其余标签：剥离，仅保留内部文本 */
+                        break;
                 }
                 i += tl;
                 continue;
             }
         }
-        /* 无效标签的 '<'（如 "a < b"）并入后续文本，保证 i 前进 */
         int j = i + (s[i] == '<' ? 1 : 0);
         while (j < len && s[j] != '<') j++;
         HtmlAddText(s + i, j - i, blockMode);
         i = j;
     }
 }
-
-/* HTML 块里是否含 <img / <a（决定是否值得按行内规则重写） */
 static BOOL BufHasImgOrLink(const char* s, int len) {
     for (int i = 0; i + 4 < len; i++) {
         if (s[i] != '<') continue;
@@ -821,8 +739,6 @@ static BOOL BufHasImgOrLink(const char* s, int len) {
     }
     return FALSE;
 }
-
-
 static int MdEnterBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
     (void)ud;
     switch (type) {
@@ -835,7 +751,6 @@ static int MdEnterBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             break;
         }
         case MD_BLOCK_FOOTNOTE_DEF_SECTION: {
-            /* 文末脚注区：分隔线 + 有序列表（定义按首次引用顺序送达，编号即 id） */
             MdBlock* hr = BlkNew(MDB_HR);
             BlkAppend(P->stack[P->depth], hr);
             MdBlock* l = BlkNew(MDB_OL);
@@ -955,7 +870,6 @@ static int MdEnterBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
     }
     return 0;
 }
-
 static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
     (void)ud; (void)detail;
     switch (type) {
@@ -998,8 +912,6 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
                        P->codeBuf[P->codeLen-1] == '\r')) P->codeLen--;
             }
             if (type == MD_BLOCK_HTML && BufHasImgOrLink(P->codeBuf, P->codeLen)) {
-                /* 徽章常见形态：<p align=center>/<div> 包裹 <a><img/></a>。
-                 * 按行内规则重写成段落，其余标签剥离、保留文本 */
                 MdBlock* p = BlkNew(MDB_P);
                 MdBlock* saved = P->textBlk;
                 P->textBlk = p;
@@ -1017,7 +929,6 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
                     c->diag = Mermaid_Parse(P->codeBuf, P->codeLen);
                 }
                 if (c->diag) {
-                    /* 留存源码作缓存键：BlkFree 时据此收回缓存 */
                     c->mmdSrc = (char*)malloc((size_t)P->codeLen);
                     if (c->mmdSrc) {
                         memcpy(c->mmdSrc, P->codeBuf, (size_t)P->codeLen);
@@ -1041,7 +952,6 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
             } else {
                 c->code = Utf8ToW(P->codeBuf, P->codeLen);
                 c->codeLen = (int)wcslen(c->code ? c->code : L"");
-                /* 代码块语法着色：按围栏语言切片段（未知语言 0 片段） */
                 c->hlN = MdHl_Tokenize(c->code, c->codeLen, c->fenceLang, &c->hl);
             }
             BlkAppend(P->stack[P->depth], c);
@@ -1051,7 +961,6 @@ static int MdLeaveBlock(MD_BLOCKTYPE type, void* detail, void* ud) {
     }
     return 0;
 }
-
 static int MdEnterSpan(MD_SPANTYPE type, void* detail, void* ud) {
     (void)ud;
     switch (type) {
@@ -1084,7 +993,6 @@ static int MdEnterSpan(MD_SPANTYPE type, void* detail, void* ud) {
             break;
         }
         case MD_SPAN_FOOTNOTE_REF: {
-            /* 自含 span（内部不触发文本回调）：直接产出 "[N]" 引用文本 */
             const MD_SPAN_FOOTNOTE_REF_DETAIL* d =
                 (const MD_SPAN_FOOTNOTE_REF_DETAIL*)detail;
             wchar_t t[16];
@@ -1097,7 +1005,6 @@ static int MdEnterSpan(MD_SPANTYPE type, void* detail, void* ud) {
     }
     return 0;
 }
-
 static int MdLeaveSpan(MD_SPANTYPE type, void* detail, void* ud) {
     (void)ud; (void)detail;
     switch (type) {
@@ -1131,34 +1038,24 @@ static int MdLeaveSpan(MD_SPANTYPE type, void* detail, void* ud) {
     }
     return 0;
 }
-
 static BOOL IsCJK(wchar_t c) {
     return (c >= 0x2E80 && c <= 0x9FFF) || (c >= 0xF900 && c <= 0xFAFF) ||
            (c >= 0xFF00 && c <= 0xFFEF) || (c >= 0x3000 && c <= 0x303F);
 }
-
-/* ---- 单字宽度缓存 ----
-   WrapRuns 对 CJK 逐字成 token，逐字 GDI 测量是大文档布局的最大热点
-   （几十万次 GetTextExtentPoint32W）。按 HFONT 缓存 65536 项宽度表
-   （存 字宽+1，0 表示未缓存）；FontsFree 重建字体时整表失效。 */
 #define CW_MAXFONTS 16
 static struct { HFONT f; short* w; } s_cw[CW_MAXFONTS];
 static int s_nCw = 0;
-
-/* 空格宽度 / TEXTMETRIC 按字体缓存（与字宽表同生命周期） */
 static HFONT s_swF[8];
 static int s_swV[8];
 static HFONT s_tmF[16];
 static TEXTMETRICW s_tmV[16];
 static BOOL s_tmOk[16];
-
 static void CwInvalidate(void) {
     for (int i = 0; i < s_nCw; i++) free(s_cw[i].w);
     s_nCw = 0;
-    memset(s_swF, 0, sizeof(s_swF));   /* 空格宽/字体度量缓存一并失效 */
+    memset(s_swF, 0, sizeof(s_swF));
     memset(s_tmOk, 0, sizeof(s_tmOk));
 }
-
 static short* CwTableFor(HFONT f) {
     for (int i = 0; i < s_nCw; i++)
         if (s_cw[i].f == f) return s_cw[i].w;
@@ -1171,7 +1068,6 @@ static short* CwTableFor(HFONT f) {
     s_nCw++;
     return w;
 }
-
 static int SpaceWFor(HDC hdc, HFONT f) {
     for (int i = 0; i < 8; i++)
         if (s_swF[i] == f) return s_swV[i];
@@ -1184,7 +1080,6 @@ static int SpaceWFor(HDC hdc, HFONT f) {
     }
     return sz.cx;
 }
-
 static BOOL TmFor(HDC hdc, HFONT f, TEXTMETRICW* tm) {
     for (int i = 0; i < 16; i++) {
         if (s_tmOk[i] && s_tmF[i] == f) {
@@ -1203,7 +1098,6 @@ static BOOL TmFor(HDC hdc, HFONT f, TEXTMETRICW* tm) {
     }
     return FALSE;
 }
-
 static int MdText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE len, void* ud) {
     (void)ud;
     switch (type) {
@@ -1246,11 +1140,8 @@ static int MdText(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE len, void* ud) 
     }
     return 0;
 }
-
 static MD_PARSER g_mdParser = {
     0,
-    /* 不用 MD_DIALECT_GITHUB：0.6.0 起它捆绑了 ADMONITIONS（暂未做原生渲染）；
-       显式列出所需扩展 + 脚注 */
     MD_FLAG_PERMISSIVEAUTOLINKS | MD_FLAG_TABLES | MD_FLAG_STRIKETHROUGH |
     MD_FLAG_TASKLISTS | MD_FLAG_LATEXMATHSPANS | MD_FLAG_FOOTNOTES,
     MdEnterBlock, MdLeaveBlock,
@@ -1258,7 +1149,6 @@ static MD_PARSER g_mdParser = {
     MdText,
     NULL
 };
-
 static MdBlock* MdParseDoc(const char* utf8, DWORD len) {
     MdBlock* root = BlkNew(MDB_QUOTE);
     root->type = MDB_P;
@@ -1273,7 +1163,6 @@ static MdBlock* MdParseDoc(const char* utf8, DWORD len) {
     free(ctx.codeBuf);
     return root;
 }
-
 static HFONT MkFont(int pt, int weight, BOOL italic, const wchar_t* face) {
     int h = -MulDiv(pt, (int)g_dpi, 72);
     if (h > -4) h = -4;
@@ -1281,10 +1170,9 @@ static HFONT MkFont(int pt, int weight, BOOL italic, const wchar_t* face) {
                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                        CLEARTYPE_QUALITY, DEFAULT_PITCH, face);
 }
-
 static void FontsFree(void) {
     Mermaid_FontsChanged();
-    CwInvalidate();          /* HFONT 可能被新字体复用，字宽表必须整表失效 */
+    CwInvalidate();
     Math_MeasureCacheReset();
     if (!V.fontsOk) return;
     DeleteObject(V.fonts.body); DeleteObject(V.fonts.bold);
@@ -1296,7 +1184,6 @@ static void FontsFree(void) {
     DeleteObject(V.fonts.mathItSS); DeleteObject(V.fonts.mathUpSS);
     V.fontsOk = FALSE;
 }
-
 static void FontsEnsure(HDC hdc) {
     if (V.fontsOk) return;
     int b = g_fontSize;
@@ -1323,9 +1210,7 @@ static void FontsEnsure(HDC hdc) {
     f->lineH = tm.tmHeight * 14 / 10;
     V.fontsOk = TRUE;
 }
-
 enum { ROLE_BODY = 0, ROLE_H1 = 1, ROLE_MONO = 7, ROLE_SMALL = 8 };
-
 static HFONT FontFor(unsigned style, int role) {
     MdFonts* f = &V.fonts;
     if (role == ROLE_MONO) return f->mono;
@@ -1339,7 +1224,6 @@ static HFONT FontFor(unsigned style, int role) {
     if (e) return f->emph;
     return f->body;
 }
-
 static void ItemResetAll(void) {
     SelReset();
     for (int i = 0; i < V.nItems; i++) {
@@ -1361,7 +1245,6 @@ static void ItemResetAll(void) {
     free(V.items);
     V.items = NULL; V.nItems = 0; V.capItems = 0;
 }
-
 static MdItem* ItemAlloc(void) {
     MD_GROW(V.items, V.nItems, V.capItems, MdItem);
     if (!V.items) return NULL;
@@ -1370,15 +1253,12 @@ static MdItem* ItemAlloc(void) {
     it->role = ROLE_BODY;
     return it;
 }
-
 static void ItemPush(int type, RECT rc, int flag) {
     MdItem* it = ItemAlloc();
     if (!it) return;
     it->type = type; it->rc = rc; it->flag = flag;
 }
-
 typedef struct Tok { MdRun* run; const wchar_t* s; int len; BOOL space; } Tok;
-
 static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
                     MdLine** outLines, int* outN) {
     Tok* toks = NULL; int nT = 0, capT = 0;
@@ -1418,19 +1298,16 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
             }
         }
     }
-
     MdLine* lines = NULL; int nL = 0, capL = 0;
     MdFrag* fr = NULL; int nF = 0, capF = 0;
     int x = 0, lineH = 0, asc = 0;
     HFONT curFont = NULL;
     TEXTMETRICW curTm; ZeroMemory(&curTm, sizeof(curTm));
-
     int spaceW = 0;
     {
         HFONT bf = FontFor(0, role == ROLE_MONO || role == ROLE_SMALL ? role : ROLE_BODY);
         spaceW = SpaceWFor(hdc, bf);
     }
-
     for (int i = 0; i <= nT; i++) {
         BOOL flush = (i == nT);
         if (!flush && (toks[i].run->style & STY_BR)) flush = TRUE;
@@ -1524,7 +1401,6 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
     *outN = nL;
     return nL;
 }
-
 static int LayoutText(HDC hdc, MdBlock* b, int x0, int avail, int* y, int role,
                       UINT fmtExtra) {
     (void)fmtExtra;
@@ -1545,7 +1421,6 @@ static int LayoutText(HDC hdc, MdBlock* b, int x0, int avail, int* y, int role,
     *y += h;
     return h;
 }
-
 static unsigned StyleOfHl(unsigned char t) {
     switch (t) {
         case HL_KW:  return STY_KW;
@@ -1556,7 +1431,6 @@ static unsigned StyleOfHl(unsigned char t) {
     }
     return 0;
 }
-
 static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     if (b->diag) {
         SIZE sz = Mermaid_Measure(b->diag, hdc, &V.fonts);
@@ -1572,7 +1446,6 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         *y += h + UI_Scale(16) + UI_Scale(12);
         return;
     }
-    /* 1) 逐行把代码切成片段（hl 覆盖段 + 普通补缝段；跨行片段按行边界截断） */
     typedef struct { int off, len; unsigned sty; } Piece;
     Piece* pcs = NULL; int nP = 0, capP = 0;
     int* lineBegin = NULL; int nSrcLines = 0, capLB = 0;
@@ -1589,14 +1462,14 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
             int end = lineLen; unsigned sty = 0;
             for (int s = 0; s < b->hlN; s++) {
                 int a = b->hl[s].pos, z = a + b->hl[s].len;
-                if (z <= pos + c2) continue;              /* 片段已消费 */
-                if (a <= pos + c2) {                      /* 正处于片段内 */
+                if (z <= pos + c2) continue;
+                if (a <= pos + c2) {
                     int take = (z < pos + lineLen) ? z : pos + lineLen;
                     end = take - pos;
                     sty = StyleOfHl(b->hl[s].type);
                     break;
                 }
-                if (a - pos < end) end = a - pos;         /* 前方片段限制普通段 */
+                if (a - pos < end) end = a - pos;
             }
             if (end < c2) end = c2;
             if (end > lineLen) end = lineLen;
@@ -1609,10 +1482,6 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         } while (c2 < lineLen);
         pos = (e < total) ? e + 1 : total;
     }
-
-    /* 2) 片段文本复制进一块连续暂存（各自 NUL 结尾）：
-          runs[0] 为哑头——ownRun 释放逻辑只 free 首元素 text/href/link
-          与整个数组，暂存缓冲即由哑头持有；其余 run 的 text 指向暂存内部 */
     int scratchChars = 1;
     for (int i = 0; i < nP; i++) scratchChars += pcs[i].len + 1;
     wchar_t* scratch = (wchar_t*)malloc((size_t)scratchChars * sizeof(wchar_t));
@@ -1620,7 +1489,7 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     MdLine* lines = NULL; int nL = 0, capL = 0;
     if (scratch && runs) {
         scratch[0] = 0;
-        runs[0].text = scratch;        /* 哑头持有暂存 */
+        runs[0].text = scratch;
         runs[0].style = 0; runs[0].href = NULL; runs[0].link = NULL;
         int off = 1;
         for (int i = 0; i < nP; i++) {
@@ -1666,7 +1535,6 @@ static void LayoutCodeBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     if (!scratch || !runs) { free(scratch); free(runs); it->ownRun = NULL; }
     *y += h + pad * 2 + UI_Scale(12);
 }
-
 static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     int nC = b->nCols, nR = b->nRows;
     if (nC <= 0 || nR <= 0 || !b->cells) return;
@@ -1771,9 +1639,7 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     *y = yy + UI_Scale(12);
     free(colW); free(lays); free(rowH);
 }
-
 static void LayoutBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y, int quoteDepth);
-
 static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
     int itemGap = b->tight ? UI_Scale(3) : UI_Scale(8);
     for (int i = 0; i < b->nChildren; i++) {
@@ -1823,7 +1689,6 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
     }
     *y += UI_Scale(2);
 }
-
 static BOOL ResolveLocalHref(const wchar_t* href, wchar_t* full, int cch) {
     full[0] = L'\0';
     if (!href || !*href || href[0] == L'#') return FALSE;
@@ -1835,12 +1700,9 @@ static BOOL ResolveLocalHref(const wchar_t* href, wchar_t* full, int cch) {
         wcscpy_s(full, cch, href);
     return TRUE;
 }
-
 static BOOL IsHttpUrl(const wchar_t* s) {
     return s && (_wcsnicmp(s, L"http://", 7) == 0 || _wcsnicmp(s, L"https://", 8) == 0);
 }
-
-/* 占位框标签：alt 优先，否则取 URL 末段（%20 还原为空格） */
 static void ImgFallbackLabel(const wchar_t* src, const wchar_t* alt, wchar_t* out, int cch) {
     if (alt && *alt) {
         wcsncpy_s(out, cch, alt, _TRUNCATE);
@@ -1861,11 +1723,7 @@ static void ImgFallbackLabel(const wchar_t* src, const wchar_t* alt, wchar_t* ou
     }
     wcsncpy_s(out, cch, seg, _TRUNCATE);
 }
-
-/* 纯图片段落：单图或多图徽章行，横排、超宽换行；
- * 加载失败（SVG/远程未就绪/本地缺失）画可点击占位框 */
 typedef struct { MdRun* run; int w, h; ImgEnt* ent; int isBr; } ImgU;
-
 static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     if (b->nRuns <= 0) return FALSE;
     ImgU* U = (ImgU*)calloc((size_t)b->nRuns, sizeof(ImgU));
@@ -1892,7 +1750,6 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
         nImg++;
     }
     if (nImg == 0) { free(U); return FALSE; }
-
     HFONT of = (HFONT)SelectObject(hdc, V.fonts.body);
     for (int i = 0; i < nU; i++) {
         if (U[i].isBr) continue;
@@ -1905,7 +1762,7 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
                 GetFileAttributesW(full) != INVALID_FILE_ATTRIBUTES)
                 e = ImgGet(full);
             else
-                MdImg_Ensure(src);   /* 异步下载，完成后经 WM_MDIMG_READY 重排 */
+                MdImg_Ensure(src);
         } else {
             wchar_t full[MAX_PATH];
             if (ResolveLocalHref(src, full, MAX_PATH)) e = ImgGet(full);
@@ -1938,7 +1795,6 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
         }
         if (U[i].w <= 0 || U[i].h <= 0) { U[i].w = UI_Scale(48); U[i].h = V.fonts.lineH; }
     }
-
     int cx = x0, rowH = 0;
     for (int i = 0; i < nU; i++) {
         if (U[i].isBr || (cx + U[i].w > x0 + avail && cx > x0)) {
@@ -1958,8 +1814,7 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
                 it->rc.right = cx + U[i].w; it->rc.bottom = *y + U[i].h;
                 it->image = U[i].ent->img;
                 it->imageW = U[i].ent->w; it->imageH = U[i].ent->h;
-                {   /* 源矩形必须按位图真实尺寸：SVG 光栅为逻辑尺寸的 2 倍，
-                       沿用逻辑值会只画左上四分之一 */
+                {
                     UINT bw = 0, bh = 0;
                     if (p_GdipGetImageWidth(U[i].ent->img, &bw) == 0 && bw &&
                         p_GdipGetImageHeight(U[i].ent->img, &bh) == 0 && bh) {
@@ -2026,7 +1881,6 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
     free(U);
     return TRUE;
 }
-
 static BOOL LayoutMathParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
     MdRun* mr = NULL;
     for (int i = 0; i < b->nRuns; i++) {
@@ -2058,7 +1912,6 @@ static BOOL LayoutMathParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y) 
     *y += Math_Height(mr->math) + UI_Scale(6) + UI_Scale(9);
     return TRUE;
 }
-
 static void LayoutBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y, int quoteDepth) {
     switch (b->type) {
         case MDB_P:
@@ -2120,11 +1973,6 @@ static void LayoutBlock(HDC hdc, MdBlock* b, int x0, int avail, int* y, int quot
             break;
     }
 }
-
-/* ---- 增量布局 ----
-   长文档首次打开只布局到 可视区+一屏 余量，滚动时按需向下延伸（布局永远
-   从 y=0 顺序推进，向上滚必然命中）。未布局部分的总高用"已布局平均块高"
-   估算，滚动条随布局推进逐步收敛；END 键与打印强制补全拿到精确值。 */
 static int DocHEstimate(void) {
     int base = V.layY + UI_Scale(40);
     if (V.layDone || !V.root) return base;
@@ -2136,7 +1984,6 @@ static int DocHEstimate(void) {
     }
     return base;
 }
-
 static void LayoutBegin(void) {
     ItemResetAll();
     V.layIdx = 0;
@@ -2145,7 +1992,6 @@ static void LayoutBegin(void) {
     V.docH = DocHEstimate();
     V.lastLayoutW = V.clientW;
 }
-
 static void LayoutEnsure(int throughY) {
     if (V.clientW <= 0 || V.clientH <= 0) return;
     if (V.layDone || V.layY >= throughY) return;
@@ -2165,7 +2011,6 @@ static void LayoutEnsure(int throughY) {
     ReleaseDC(V.hwnd, hdc);
     V.docH = DocHEstimate();
 }
-
 static void LayoutAll(void) {
     if (V.clientW <= 0 || V.clientH <= 0) {
         V.lastLayoutW = -1;
@@ -2179,7 +2024,6 @@ static void LayoutAll(void) {
     }
     InvalidateRect(V.hwnd, NULL, FALSE);
 }
-
 void MdTheme_Build(MdTheme* th) {
     if (g_dark) {
         th->bg        = RGB(30,30,30);
@@ -2241,16 +2085,12 @@ void MdTheme_Build(MdTheme* th) {
         th->frame        = RGB(168,178,190);
     }
 }
-
 static int SbThickness(void) { return UI_Scale(12); }
-
 static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
     RECT rcClient;
     GetClientRect(V.hwnd, &rcClient);
     int top = V.scrollY, bot = V.scrollY + V.clientH;
-
     SetBkMode(hdc, TRANSPARENT);
-
     HPEN ulPen = CreatePen(PS_SOLID, 1, th->link);
     HPEN strikePen = CreatePen(PS_SOLID, 1, th->fgMuted);
     HPEN framePen = CreatePen(PS_SOLID, 1, th->codeBorder);
@@ -2261,7 +2101,6 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
     HBRUSH selBr = NULL;
     if (drawSel)
         selBr = CreateSolidBrush(g_dark ? RGB(64,96,160) : RGB(0,120,215));
-
     for (int i = 0; i < V.nItems; i++) {
         MdItem* it = &V.items[i];
         if (it->rc.top >= bot || it->rc.bottom <= top) continue;
@@ -2313,10 +2152,8 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                 if (p_GdipCreateFromHDC(hdc, &g) == 0 && g) {
                     GpImage* draw = (GpImage*)it->image;
                     UINT sw = it->imageW, sh = it->imageH;
-                    int interp = 7 /*HighQualityBicubic*/;
+                    int interp = 7 ;
                     if (sw != (UINT)dw || sh != (UINT)dh) {
-                        /* 显示尺寸≠原始尺寸：首帧按显示尺寸预渲染一次，
-                           之后滚动每帧只做同尺寸搬运，不再整图重采样 */
                         if (!it->thumb || it->thumbW != (UINT)dw || it->thumbH != (UINT)dh) {
                             if (it->thumb) p_GdipDisposeImage((GpImage*)it->thumb);
                             it->thumb = NULL;
@@ -2345,7 +2182,7 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                             draw = (GpImage*)it->thumb;
                             sw = it->thumbW;
                             sh = it->thumbH;
-                            interp = 5 /*NearestNeighbor：同尺寸搬运*/;
+                            interp = 5 ;
                         }
                     }
                     p_GdipSetInterpolationMode(g, interp);
@@ -2432,8 +2269,6 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                         }
                         SetTextAlign(hdc, TA_LEFT | TA_BASELINE);
                         if (sb > sa) {
-                            /* 部分选中分三段画：未选中段须保持原色，
-                               整段一次 TextOut 会把它也反白 */
                             if (sa > 0) TextOutW(hdc, fx, baseY, fr->s, sa);
                             SetTextColor(hdc, RGB(255,255,255));
                             TextOutW(hdc, fx + za.cx, baseY, fr->s + sa, sb - sa);
@@ -2473,7 +2308,6 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
     DeleteObject(canvasBr);
     if (selBr) DeleteObject(selBr);
 }
-
 static void PaintScrollbar(HDC hdc, const MdTheme* th) {
     int sbw = SbThickness();
     if (V.docH <= V.clientH) return;
@@ -2494,11 +2328,9 @@ static void PaintScrollbar(HDC hdc, const MdTheme* th) {
     DeleteObject(br);
     (void)th;
 }
-
 static struct {
     HDC dc; HBITMAP bmp; HBITMAP defBmp; int w, h;
 } s_mem;
-
 static void MemFree(void) {
     if (s_mem.dc) {
         if (s_mem.bmp) {
@@ -2509,7 +2341,6 @@ static void MemFree(void) {
     }
     ZeroMemory(&s_mem, sizeof(s_mem));
 }
-
 static HDC MemDCFor(HDC src, int w, int h) {
     if (s_mem.dc && s_mem.w == w && s_mem.h == h) return s_mem.dc;
     MemFree();
@@ -2522,41 +2353,34 @@ static HDC MemDCFor(HDC src, int w, int h) {
     s_mem.w = w; s_mem.h = h;
     return s_mem.dc;
 }
-
 static void Paint(void) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(V.hwnd, &ps);
-    LayoutEnsure(V.scrollY + V.clientH * 2);   /* 滚入未布局区域时按需延伸 */
+    LayoutEnsure(V.scrollY + V.clientH * 2);
     RECT rc;
     GetClientRect(V.hwnd, &rc);
     int w = rc.right, h = rc.bottom;
     if (w <= 0 || h <= 0) { EndPaint(V.hwnd, &ps); return; }
-
     HDC mem = MemDCFor(hdc, w, h);
     if (!mem) { EndPaint(V.hwnd, &ps); return; }
-
     MdTheme th;
     MdTheme_Build(&th);
     HBRUSH bg = CreateSolidBrush(th.bg);
     RECT full = { 0, 0, w, h };
     FillRect(mem, &full, bg);
     DeleteObject(bg);
-
     if (!V.fontsOk) { HDC tmp = GetDC(V.hwnd); FontsEnsure(tmp); ReleaseDC(V.hwnd, tmp); }
     PaintContent(mem, &th, TRUE);
     PaintScrollbar(mem, &th);
-
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
     EndPaint(V.hwnd, &ps);
 }
-
 static void ClampScroll(void) {
     int maxScroll = V.docH - V.clientH;
     if (maxScroll < 0) maxScroll = 0;
     if (V.scrollY < 0) V.scrollY = 0;
     if (V.scrollY > maxScroll) V.scrollY = maxScroll;
 }
-
 static void ScrollBy(int dy) {
     int old = V.scrollY;
     V.scrollY += dy;
@@ -2570,7 +2394,6 @@ static void ScrollBy(int dy) {
         }
     }
 }
-
 static const wchar_t* HitLink(int px, int py) {
     int dy = py + V.scrollY;
     int dx = px;
@@ -2599,7 +2422,6 @@ static const wchar_t* HitLink(int px, int py) {
     }
     return NULL;
 }
-
 static void OpenLink(const wchar_t* href) {
     if (!href || !*href) return;
     if (href[0] == L'#') return;
@@ -2612,20 +2434,13 @@ static void OpenLink(const wchar_t* href) {
     if (ResolveLocalHref(href, full, MAX_PATH))
         ShellExecuteW(V.hwnd, L"open", full, NULL, NULL, SW_SHOWNORMAL);
 }
-
-/* ===================== 文本选区与复制 ===================== */
-
 static BOOL SelHasText(void) {
     return V.selActive && PosCmp(V.selAnchor, V.selCaret) != 0;
 }
-
-/* 选区无向区间：anchor→caret 可能反向 */
 static void SelBounds(MdPos* s, MdPos* e) {
     *s = V.selAnchor; *e = V.selCaret;
     if (PosCmp(*s, *e) > 0) { MdPos t = *s; *s = *e; *e = t; }
 }
-
-/* 零宽位置（行内公式）是否被选区跨过 */
 static BOOL SelPointCovered(int item, int line, int frag) {
     if (!V.selActive) return FALSE;
     MdPos s, e;
@@ -2633,8 +2448,6 @@ static BOOL SelPointCovered(int item, int line, int frag) {
     MdPos p = { item, line, frag, 0 };
     return PosCmp(s, p) <= 0 && PosCmp(e, p) > 0;
 }
-
-/* 片段内被选中的字符区间 [a,b) */
 static void SelFragRange(int item, int line, int frag, int len, int* a, int* b) {
     *a = *b = 0;
     if (!V.selActive) return;
@@ -2646,13 +2459,11 @@ static void SelFragRange(int item, int line, int frag, int len, int* a, int* b) 
     *a = PosCmp(s, fs) <= 0 ? 0 : s.ch;
     *b = PosCmp(e, fe) >= 0 ? len : e.ch;
 }
-
-/* 片段内偏移 off 处的字符序号（前缀宽度二分，与布局同字体度量） */
 static int ChAtX(HDC hdc, MdItem* it, MdFrag* fr, int off) {
     if (fr->len <= 0 || !fr->s || off <= 0) return 0;
     HFONT of = (HFONT)SelectObject(hdc, FontFor(fr->run->style, it->role));
     int lo = 0, hi = fr->len;
-    while (lo < hi) {              /* 最小 k：width(s[0..k)) >= off */
+    while (lo < hi) {
         int mid = lo + (hi - lo) / 2;
         SIZE sz;
         GetTextExtentPoint32W(hdc, fr->s, mid, &sz);
@@ -2662,8 +2473,6 @@ static int ChAtX(HDC hdc, MdItem* it, MdFrag* fr, int off) {
     SelectObject(hdc, of);
     return lo;
 }
-
-/* 客户区坐标 → 最近文本位置；空隙/空白吸附相邻行，保证跨行拖选顺滑 */
 static BOOL HitTextPos(int px, int py, MdPos* out) {
     if (!V.nItems) return FALSE;
     HDC hdc = GetDC(V.hwnd);
@@ -2682,15 +2491,13 @@ static BOOL HitTextPos(int px, int py, MdPos* out) {
         if (dx < it->rc.left) dh = it->rc.left - dx;
         else if (dx >= it->rc.right) dh = dx - it->rc.right + 1;
         else dh = 0;
-        /* 垂直优先，水平打破平局：同一垂直带有多个并排项（同行表格
-           单元格、列表符号与正文首行），只看垂直会永远命中最前一个 */
         if (best < 0 || dv < bestV || (dv == bestV && dh < bestH)) {
             best = i; bestV = dv; bestH = dh;
         }
     }
     if (best < 0) { ReleaseDC(V.hwnd, hdc); return FALSE; }
     MdItem* it = &V.items[best];
-    if (it->type == ITM_MATH) {    /* 整块公式：左右半区 = 起点/终点 */
+    if (it->type == ITM_MATH) {
         out->item = best; out->line = 0; out->frag = 0;
         out->ch = (dx < (it->rc.left + it->rc.right) / 2) ? 0 : 1;
         ReleaseDC(V.hwnd, hdc);
@@ -2712,7 +2519,7 @@ static BOOL HitTextPos(int px, int py, MdPos* out) {
     for (int k = 0; k < ln->nF; k++) {
         MdFrag* fr = &ln->frags[k];
         if (fr->len == 0 && !(fr->run->style & STY_MATH)) continue;
-        kf = k;                    /* 记住末个有效片段（越过末段时用） */
+        kf = k;
         if (dx < it->rc.left + fr->x + (fr->w > 0 ? fr->w : 1)) break;
     }
     if (kf < 0) {
@@ -2726,8 +2533,6 @@ static BOOL HitTextPos(int px, int py, MdPos* out) {
     ReleaseDC(V.hwnd, hdc);
     return TRUE;
 }
-
-/* 全选：补全布局后取首/末文本位置 */
 static void SelectAllDoc(void) {
     LayoutEnsure(0x7FFFFFFF);
     if (!V.nItems) return;
@@ -2749,7 +2554,6 @@ static void SelectAllDoc(void) {
     V.selAnchor = a; V.selCaret = b; V.selActive = TRUE;
     InvalidateRect(V.hwnd, NULL, FALSE);
 }
-
 static BOOL AppEnd(wchar_t** buf, int* len, int* cap, const wchar_t* s, int n) {
     if (n <= 0 || !s) return TRUE;
     if (*len + n + 1 > *cap) {
@@ -2763,9 +2567,6 @@ static BOOL AppEnd(wchar_t** buf, int* len, int* cap, const wchar_t* s, int n) {
     *len += n;
     return TRUE;
 }
-
-/* ---- 复制为 Markdown：行内标记按 run 边界开合 ----
-   同一 run 的多个片段只开/合一组标记；开合顺序互为镜像，链接在最外层。 */
 static void MdInlineOpen(wchar_t** buf, int* len, int* cap, MdRun* run) {
     unsigned st = run->style;
     if ((st & STY_IMG) && run->href && run->href[0])
@@ -2777,7 +2578,6 @@ static void MdInlineOpen(wchar_t** buf, int* len, int* cap, MdRun* run) {
     if (st & STY_EM)     AppEnd(buf, len, cap, L"*", 1);
     if (st & STY_CODE)   AppEnd(buf, len, cap, L"`", 1);
 }
-
 static void MdInlineClose(wchar_t** buf, int* len, int* cap, MdRun* run) {
     unsigned st = run->style;
     if (st & STY_CODE)   AppEnd(buf, len, cap, L"`", 1);
@@ -2790,9 +2590,6 @@ static void MdInlineClose(wchar_t** buf, int* len, int* cap, MdRun* run) {
         AppEnd(buf, len, cap, L")", 1);
     }
 }
-
-/* 列表符号项：ownRun 独字、无样式、role 为正文、内容为 •/☑/☐/N. 之一
-   （代码块 ownRun 是哑头 run、style 也为 0，必须用 role 排除） */
 static BOOL IsListMarkItem(MdItem* it) {
     return it->type == ITM_LINES && it->role == ROLE_BODY && it->ownRun &&
            it->nLines == 1 && it->ownRun->style == 0 && it->ownRun->text &&
@@ -2800,17 +2597,12 @@ static BOOL IsListMarkItem(MdItem* it) {
             it->ownRun->text[0] == L'☐' ||
             (it->ownRun->text[0] >= L'0' && it->ownRun->text[0] <= L'9'));
 }
-
 static const wchar_t* MdListMarkText(const wchar_t* m) {
     if (m[0] == L'☑') return L"- [x]";
     if (m[0] == L'☐') return L"- [ ]";
     if (m[0] == L'•') return L"-";
-    return m;             /* "1."/"1)" 本身就是合法 Markdown 标记 */
+    return m;
 }
-
-/* 选区 → Markdown 文本：链接/强调/行内码/公式重建语法，标题补 # 前缀，
-   列表符号转回 Markdown 标记；可视行以 \n 连接；并排项（同行表格单元
-   格）以 \t 连接保持列结构；代码块内容保持纯文本 */
 static wchar_t* BuildSelText(void) {
     if (!SelHasText()) return NULL;
     MdPos s, e;
@@ -2823,7 +2615,7 @@ static wchar_t* BuildSelText(void) {
     for (int i = 0; i < V.nItems; i++) {
         MdItem* it = &V.items[i];
         MdPos is = { i, 0, 0, 0 }, ie = { i + 1, 0, 0, 0 };
-        if (PosCmp(e, is) <= 0) break;             /* 选区到此为止 */
+        if (PosCmp(e, is) <= 0) break;
         if (PosCmp(s, ie) >= 0) continue;
         if (it->type == ITM_MATH) {
             if (it->mathRun && it->mathRun->text && PosCmp(s, is) <= 0) {
@@ -2843,7 +2635,7 @@ static wchar_t* BuildSelText(void) {
         int curBot = it->rc.top + lastLn->y + lastLn->h;
         if (havePrev && curTop < prevBot && prevTop < curBot &&
             len > 0 && buf[len - 1] == L'\n') {
-            len--;          /* 并排：表格单元格以 \t、列表符号后以空格连接 */
+            len--;
             AppEnd(&buf, &len, &cap, prevWasMark ? L" " : L"\t", 1);
         }
         BOOL wasMark = FALSE;
@@ -2854,7 +2646,7 @@ static wchar_t* BuildSelText(void) {
             wasMark = TRUE;
         } else {
             if (it->role >= ROLE_H1 && it->role <= ROLE_H1 + 5 &&
-                PosCmp(s, is) <= 0) {              /* 标题补 # 前缀 */
+                PosCmp(s, is) <= 0) {
                 for (int h = 0; h < it->role; h++)
                     AppEnd(&buf, &len, &cap, L"#", 1);
                 AppEnd(&buf, &len, &cap, L" ", 1);
@@ -2885,7 +2677,7 @@ static wchar_t* BuildSelText(void) {
                     int a, b;
                     SelFragRange(i, l, k, fr->len, &a, &b);
                     if (b > a) {
-                        if (fr->run != curRun) {   /* run 边界开合标记 */
+                        if (fr->run != curRun) {
                             if (curRun)
                                 MdInlineClose(&buf, &len, &cap, curRun);
                             MdInlineOpen(&buf, &len, &cap, fr->run);
@@ -2906,7 +2698,6 @@ static wchar_t* BuildSelText(void) {
     buf[len] = L'\0';
     return buf;
 }
-
 static void DoCopySelection(void) {
     wchar_t* txt = BuildSelText();
     if (!txt) return;
@@ -2928,8 +2719,6 @@ static void DoCopySelection(void) {
     }
     free(txt);
 }
-
-/* 剪切：预览是只读投影视图，无法从原文删字——复制选区并取消选择 */
 static void DoCutSelection(HWND hwnd) {
     if (!SelHasText()) return;
     DoCopySelection();
@@ -2937,24 +2726,19 @@ static void DoCutSelection(HWND hwnd) {
     V.selCaret = V.selAnchor;
     InvalidateRect(hwnd, NULL, FALSE);
 }
-
-/* 粘贴：目标是被预览的编辑器，插入其光标处；预览随后刷新 */
 static void DoPasteIntoEditor(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return;
     HWND hed = g_docs[g_curDoc].hwndEdit;
     if (!hed) return;
     SendMessage(hed, SCI_PASTE, 0, 0);
-    MdView_RefreshIfActive(g_curDoc);   /* 全预览模式下立即看到粘贴结果 */
+    MdView_RefreshIfActive(g_curDoc);
     if (g_mdSplit && IsWindowVisible(hed)) SetFocus(hed);
 }
-
 enum { MDVC_COPY = 1, MDVC_SELALL = 2, MDVC_CUT = 3, MDVC_PASTE = 4 };
-                                    /* 预览私有菜单命令 */
-
 static void ShowContextMenu(HWND hwnd, LPARAM lp) {
     POINT pt;
-    if (lp == (LPARAM)-1) {         /* 键盘触发（Shift+F10）：客户区中心 */
+    if (lp == (LPARAM)-1) {
         RECT rc;
         GetClientRect(hwnd, &rc);
         pt.x = (rc.left + rc.right) / 2;
@@ -2970,23 +2754,21 @@ static void ShowContextMenu(HWND hwnd, LPARAM lp) {
     I18n_OwnerAppend(m, SelHasText() ? on : off, MDVC_CUT, T(STR_ITEM_CUT));
     I18n_OwnerAppend(m, IsClipboardFormatAvailable(CF_UNICODETEXT) ? on : off,
                      MDVC_PASTE, T(STR_ITEM_PASTE));
-    I18n_OwnerAppend(m, MF_OWNERDRAW, 0, NULL);   /* 主题色分隔线 */
+    I18n_OwnerAppend(m, MF_OWNERDRAW, 0, NULL);
     I18n_OwnerAppend(m, on, MDVC_SELALL, T(STR_ITEM_SELECTALL));
     I18n_ApplyMenuTheme(m);
     int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON,
-                             pt.x, pt.y, 0, hwnd, NULL);
+                             pt.x, pt.y, 0, g_hwndMain, NULL);
     DestroyMenu(m);
     if (cmd == MDVC_COPY) {
-        if (!SelHasText()) SelectAllDoc();   /* 无选区：复制全文 */
+        if (!SelHasText()) SelectAllDoc();
         DoCopySelection();
     }
     else if (cmd == MDVC_CUT) DoCutSelection(hwnd);
     else if (cmd == MDVC_PASTE) DoPasteIntoEditor();
     else if (cmd == MDVC_SELALL) SelectAllDoc();
 }
-
 static void LoadContentEx(int index, BOOL force);
-
 static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_ERASEBKGND:
@@ -3034,7 +2816,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return 0;
             }
-            /* 选区优先：按下即锚定；链接记下，未拖开时抬起才打开 */
             MdPos pos;
             BOOL havePos = HitTextPos(px, py, &pos);
             const wchar_t* href = HitLink(px, py);
@@ -3043,7 +2824,7 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             V.downPt.x = px; V.downPt.y = py;
             if (havePos) {
                 if ((GetKeyState(VK_SHIFT) & 0x8000) && V.selActive) {
-                    V.selCaret = pos;               /* Shift+点击：扩展选区 */
+                    V.selCaret = pos;
                 } else {
                     V.selAnchor = pos;
                     V.selCaret = pos;
@@ -3085,7 +2866,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if (V.selDrag) {
-                /* 拖近上下缘自动滚动；坐标吸回客户区再命中 */
                 int edge = UI_Scale(24);
                 if (py < edge && V.scrollY > 0) ScrollBy(-V.fonts.lineH * 2);
                 else if (py >= V.clientH - edge && V.scrollY < V.docH - V.clientH)
@@ -3109,7 +2889,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (GetCapture() == hwnd) ReleaseCapture();
                 return 0;
             }
-            /* 重排可能已把 selDrag 复位，捕获仍需解除 */
             if (V.selDrag || GetCapture() == hwnd) {
                 V.selDrag = FALSE;
                 if (GetCapture() == hwnd) ReleaseCapture();
@@ -3139,7 +2918,7 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_KEYDOWN:
             if (GetKeyState(VK_CONTROL) & 0x8000) {
                 if (wp == 'C' || wp == 'c' || wp == VK_INSERT) {
-                    if (!SelHasText()) SelectAllDoc();   /* 无选区：复制全文 */
+                    if (!SelHasText()) SelectAllDoc();
                     DoCopySelection();
                     return 0;
                 }
@@ -3152,7 +2931,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 }
                 if (wp == 'A' || wp == 'a') {
-                    /* Ctrl+A = 全复制：全选并复制全文 */
                     SelectAllDoc();
                     if (SelHasText()) DoCopySelection();
                     return 0;
@@ -3160,7 +2938,7 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             switch (wp) {
                 case VK_ESCAPE:
-                    if (SelHasText()) {   /* 先清选区，再次按下才退出预览 */
+                    if (SelHasText()) {
                         V.selActive = FALSE;
                         V.selCaret = V.selAnchor;
                         InvalidateRect(hwnd, NULL, FALSE);
@@ -3180,13 +2958,11 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case VK_NEXT:  ScrollBy(V.clientH * 9 / 10); return 0;
                 case VK_HOME:  ScrollBy(-V.docH); return 0;
                 case VK_END:
-                    LayoutEnsure(0x7FFFFFFF);   /* 补全布局拿到精确 docH 再到底 */
+                    LayoutEnsure(0x7FFFFFFF);
                     ScrollBy(V.docH); return 0;
             }
             break;
         case WM_MDIMG_READY:
-            /* 多张外链图片的下载完成消息常成批到达；每条都触发整篇强制重排
-               会形成重算风暴。120ms 合并窗口内只重排一次。 */
             if (!V.imgTimerOn) {
                 SetTimer(hwnd, TID_MDIMG, 120, NULL);
                 V.imgTimerOn = TRUE;
@@ -3210,7 +2986,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-
 void MdView_Register(void) {
     WNDCLASSEXW wc;
     ZeroMemory(&wc, sizeof(wc));
@@ -3224,7 +2999,6 @@ void MdView_Register(void) {
     RegisterClassExW(&wc);
     V.hHand = LoadCursorW(NULL, IDC_HAND);
 }
-
 void MdView_Create(HWND parent) {
     GdipInit();
     V.hwnd = CreateWindowExW(0, L"ETONMDView", NULL,
@@ -3234,11 +3008,9 @@ void MdView_Create(HWND parent) {
     ShowWindow(V.hwnd, SW_HIDE);
     V.docIdx = -1;
 }
-
 BOOL MdView_IsVisible(void) {
     return V.hwnd && IsWindowVisible(V.hwnd);
 }
-
 static void LoadContentEx(int index, BOOL force) {
     if (!force && index >= 0 && index < g_docCount && V.docIdx == index &&
         V.root && V.modGen == g_docs[index].modGen)
@@ -3249,7 +3021,6 @@ static void LoadContentEx(int index, BOOL force) {
     V.scrollY = 0;
     V.docIdx = index;
     V.modGen = (index >= 0 && index < g_docCount) ? g_docs[index].modGen : 0;
-
     V.baseDir[0] = L'\0';
     if (!g_docs[index].isNew && g_docs[index].path[0]) {
         wcscpy_s(V.baseDir, MAX_PATH, g_docs[index].path);
@@ -3257,7 +3028,6 @@ static void LoadContentEx(int index, BOOL force) {
         if (slash) *slash = L'\0';
         else V.baseDir[0] = L'\0';
     }
-
     DWORD len = 0;
     char* utf8 = Editor_GetTextUtf8(index, &len);
     if (utf8) {
@@ -3267,26 +3037,20 @@ static void LoadContentEx(int index, BOOL force) {
     LayoutAll();
     ImgSweep();
 }
-
 static void LoadContent(int index) {
     LoadContentEx(index, FALSE);
 }
-
-/* ---- docx 导出所需的模型访问 ---- */
-
 const MdBlock* MdView_EnsureDocModel(void) {
     if (!V.hwnd || g_curDoc < 0 || g_curDoc >= g_docCount) return NULL;
     int saveScroll = V.scrollY;
-    LoadContent(g_curDoc);          /* 幂等：内容未变时直接复用 */
+    LoadContent(g_curDoc);
     V.scrollY = saveScroll;
     return V.root;
 }
-
 const MdFonts* MdView_DocFonts(HDC hdc) {
     FontsEnsure(hdc);
     return V.fontsOk ? &V.fonts : NULL;
 }
-
 BOOL MdView_ResolveImage(const wchar_t* href, wchar_t* out, int cch) {
     out[0] = L'\0';
     if (!href || !*href) return FALSE;
@@ -3295,7 +3059,6 @@ BOOL MdView_ResolveImage(const wchar_t* href, wchar_t* out, int cch) {
                GetFileAttributesW(out) != INVALID_FILE_ATTRIBUTES;
     return ResolveLocalHref(href, out, cch);
 }
-
 BOOL MdView_ImageSize(const wchar_t* full, UINT* w, UINT* h) {
     ImgEnt* e = ImgGet(full);
     if (!e) return FALSE;
@@ -3303,7 +3066,6 @@ BOOL MdView_ImageSize(const wchar_t* full, UINT* w, UINT* h) {
     *h = e->h;
     return TRUE;
 }
-
 void MdView_OnActivate(void) {
     if (!V.hwnd) return;
     BOOL isMd = (g_curDoc >= 0 && g_curDoc < g_docCount &&
@@ -3335,7 +3097,6 @@ void MdView_OnActivate(void) {
     if (show && !g_mdSplit && hed) ShowWindow(hed, SW_HIDE);
     if (show) InvalidateRect(V.hwnd, NULL, FALSE);
 }
-
 void MdView_Toggle(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     Doc* d = &g_docs[g_curDoc];
@@ -3344,7 +3105,6 @@ void MdView_Toggle(void) {
     if (d->previewOn) g_mdSplit = FALSE;
     MdView_OnActivate();
 }
-
 void MdView_ToggleSplit(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     if (g_docs[g_curDoc].lang != LANG_MD) return;
@@ -3352,13 +3112,11 @@ void MdView_ToggleSplit(void) {
     if (g_mdSplit) g_docs[g_curDoc].previewOn = FALSE;
     MdView_OnActivate();
 }
-
 double MdView_GetScrollFraction(void) {
     int maxScroll = V.docH - V.clientH;
     if (maxScroll <= 0) return 0.0;
     return (double)V.scrollY / maxScroll;
 }
-
 void MdView_SyncScrollFromEdit(double frac) {
     if (!V.hwnd || !MdView_IsVisible()) return;
     int maxScroll = V.docH - V.clientH;
@@ -3371,55 +3129,45 @@ void MdView_SyncScrollFromEdit(double frac) {
         InvalidateRect(V.hwnd, NULL, FALSE);
     }
 }
-
 void MdView_OnLayout(int x, int y, int w, int h) {
     if (!V.hwnd) return;
     SetWindowPos(V.hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
 }
-
 void MdView_OnDpiChanged(void) {
     FontsFree();
     LayoutAll();
 }
-
 void MdView_OnThemeChange(void) {
     InvalidateRect(V.hwnd, NULL, FALSE);
 }
-
 void MdView_OnZoom(void) {
     if (!MdView_IsVisible()) return;
     FontsFree();
     LayoutAll();
 }
-
 void MdView_RefreshIfActive(int index) {
     if (MdView_IsVisible() && index == g_curDoc && V.docIdx == index)
         LoadContent(index);
 }
-
 void MdView_Reset(void) {
     V.docIdx = -1;
 }
-
 BOOL MdView_PrintPages(HDC hdc, int pw, int ph) {
     if (!V.hwnd || pw <= 0 || ph <= 0) return FALSE;
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return FALSE;
-
     int targetW = MulDiv(760, (int)g_dpi, 96);
     int h = V.clientH > 0 ? V.clientH : 800;
     SetWindowPos(V.hwnd, NULL, 0, 0, targetW, h,
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE);
     if (V.docIdx != g_curDoc || !V.root || V.nItems == 0)
         LoadContent(g_curDoc);
-    LayoutEnsure(0x7FFFFFFF);   /* 打印需要精确的 docH 与完整 items */
+    LayoutEnsure(0x7FFFFFFF);
     if (V.nItems == 0 || V.docH <= 0) return FALSE;
-
     double scale = (double)pw / (double)targetW;
     int pageH = (int)(ph / scale);
     int saveScroll = V.scrollY, saveClientH = V.clientH;
     int pages = (V.docH + pageH - 1) / pageH;
     if (pages > 500) pages = 500;
-
     MdTheme th;
     MdTheme_Build(&th);
     SetGraphicsMode(hdc, GM_ADVANCED);

@@ -1,12 +1,9 @@
 #include "common.h"
 #include "version.h"
 #include <commctrl.h>
-
 static int g_lang = UI_LANG_ZH;
 HMENU g_hMenuRecent = NULL;
-
 static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
-
     {
         L"ETON",
         L"未命名",
@@ -15,7 +12,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"取消",
         L"关闭",
         L"错误",
-
         L"文件(&F)",
         L"新建(&N)\tCtrl+N",
         L"打开(&O)...\tCtrl+O",
@@ -26,7 +22,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"最近文件",
         L"(空)",
         L"退出(&X)",
-
         L"编辑(&E)",
         L"撤销(&U)\tCtrl+Z",
         L"重做(&R)\tCtrl+Y",
@@ -41,7 +36,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"插入日期/时间(&I)",
         L"JSON 格式化(&J)\tCtrl+Shift+F",
         L"JSON 压缩(&M)\tCtrl+Shift+M",
-
         L"视图(&V)",
         L"自动换行(&W)",
         L"显示行号(&L)",
@@ -49,7 +43,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"缩小(&-)\tCtrl+-",
         L"重置缩放(&0)\tCtrl+0",
         L"深色主题(&D)",
-
         L"编码(&N)",
         L"ANSI",
         L"UTF-8",
@@ -57,27 +50,22 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"UTF-16 LE",
         L"UTF-16 BE",
         L"以 %s 重新打开",
-
         L"行尾(&E)",
         L"Windows (CRLF)",
         L"Unix (LF)",
         L"Mac (CR)",
         L"转换行尾为当前格式",
-
         L"语言(&L)",
         L"纯文本",
-
         L"帮助(&H)",
         L"关于(&A)",
         L"界面语言(&U)",
-
         L"所有文件 (*.*)",
         L"*.*",
         L"文本文件 (*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md)",
         L"*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md",
         L"文本文件 (*.txt)",
         L"*.txt",
-
         L"查找",
         L"替换",
         L"查找内容:",
@@ -95,22 +83,17 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"已替换",
         L"已替换 %d 处",
         L"已在 %d 个标签页替换 %d 处",
-
         L"跳转到行",
         L"行号:",
         L"行号 (1 - %d):",
-
         L"关于 ETON",
         L"ETON — 轻量级文本编辑器",
         L"基于原生 Win32 API (C) 实现，零第三方依赖。",
         L"支持多标签、语法高亮、编码转换、查找替换等。",
         L"版本 %hs  |  基于 Visual Studio 生成工具构建",
-
         L"以指定编码打开",
         L"选择编码:",
-
         L"未命名.txt",
-
         L"未找到匹配项。",
         L"文件 \"%s\" 尚未保存，是否保存？",
         L"文件 \"%s\" 已修改，是否保存后再关闭？",
@@ -120,10 +103,8 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"共 %d 个字符",
         L"第 %d 行 / 共 %d 行",
         L"列 %d",
-
         L"无法打开文件。",
         L"无法写入文件。",
-
         L"JSON 格式化",
         L"JSON 压缩",
         L"当前内容为空，没有可处理的 JSON。",
@@ -144,7 +125,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"嵌套层级过深。",
         L"内存不足。",
         L"未知错误。",
-
         L"关闭其他标签(&O)",
         L"关闭所有标签(&L)",
         L"打开所在文件夹(&O)",
@@ -154,18 +134,15 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"切换书签(&K)\tCtrl+F2",
         L"下一个书签(&N)\tF2",
         L"上一个书签(&P)\tShift+F2",
-
         L"保存",
         L"文件中包含无法用 ANSI（系统代码页）表示的字符，按 ANSI 保存可能产生乱码。\n仍要以 ANSI 保存吗？",
         L"文件 \"%s\" 已在磁盘上被其他程序修改，覆盖保存可能丢失这些修改。\n仍要保存吗？",
         L"文件 \"%s\" 已在磁盘上被其他程序修改。\n是否重新加载？",
         L"文件过大（超过 %d MB），无法打开。",
         L"检测到 \"%s\" 存在未保存的自动备份（可能来自上次异常退出）。\n是否恢复备份内容？",
-
         L"正在加载",
         L"正在保存",
         L"文档过大（超过 %d MB），JSON 工具仅支持较小的文档。",
-
         L"Markdown 预览(&P)\tF12",
         L"Markdown",
         L"暂不支持该 Mermaid 图族的原生渲染，已回退为源码显示",
@@ -173,7 +150,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"导出 HTML(&E)...",
         L"导出 PDF（打印）(&R)...",
         L"导出 Word 文档(&W)...",
-
         L"工具(&T)",
         L"Base64 编码(&B)\tCtrl+Alt+B",
         L"Base64 解码(&D)\tCtrl+Alt+Shift+B",
@@ -201,12 +177,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"当前内容为空，没有可处理的内容。",
         L"文档过大（超过 %d MB），开发者工具仅支持较小的文档。",
         L"无法识别的输入（支持 Unix 时间戳或 YYYY-MM-DD HH:MM:SS）。",
-
         L"大纲(&O)\tF6",
         L"大纲",
         L"（无标题）",
     },
-
     {
         L"ETON",
         L"Untitled",
@@ -215,7 +189,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Cancel",
         L"Close",
         L"Error",
-
         L"&File",
         L"&New\tCtrl+N",
         L"&Open...\tCtrl+O",
@@ -226,7 +199,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"&Recent Files",
         L"(Empty)",
         L"E&xit",
-
         L"&Edit",
         L"&Undo\tCtrl+Z",
         L"&Redo\tCtrl+Y",
@@ -241,7 +213,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Insert Date/&Time",
         L"Format &JSON\tCtrl+Shift+F",
         L"Mini&fy JSON\tCtrl+Shift+M",
-
         L"&View",
         L"&Word Wrap",
         L"Show &Line Numbers",
@@ -249,7 +220,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Zoom &Out\tCtrl+-",
         L"&Reset Zoom\tCtrl+0",
         L"&Dark Theme",
-
         L"En&coding",
         L"ANSI",
         L"UTF-8",
@@ -257,27 +227,22 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"UTF-16 LE",
         L"UTF-16 BE",
         L"Reopen as %s",
-
         L"&Line Endings",
         L"Windows (CRLF)",
         L"Unix (LF)",
         L"Mac (CR)",
         L"Convert All to Current",
-
         L"&Language",
         L"Plain Text",
-
         L"&Help",
         L"&About ETON",
         L"&UI Language",
-
         L"All files (*.*)",
         L"*.*",
         L"Text files (*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md)",
         L"*.txt;*.c;*.cpp;*.h;*.py;*.js;*.json;*.xml;*.html;*.sql;*.md",
         L"Text files (*.txt)",
         L"*.txt",
-
         L"Find",
         L"Replace",
         L"Fi&nd what:",
@@ -295,22 +260,17 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Replaced",
         L"Replaced %d occurrence(s)",
         L"Replaced %d occurrence(s) in %d tab(s)",
-
         L"Go to Line",
         L"Line &number:",
         L"Line (1 - %d):",
-
         L"About ETON",
         L"ETON — a lightweight text editor",
         L"Built with the native Win32 API in C, no third-party runtime.",
         L"Multi-tab editing, syntax highlighting, encoding conversion, find && replace, and more.",
         L"Version %hs  |  Built with the Visual Studio Build Tools",
-
         L"Open with Encoding",
         L"Choose &encoding:",
-
         L"Untitled.txt",
-
         L"No matches found.",
         L"File \"%s\" has not been saved. Save it now?",
         L"File \"%s\" has been modified. Save before closing?",
@@ -320,10 +280,8 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"%d characters",
         L"Line %d / %d",
         L"Col %d",
-
         L"Cannot open the file.",
         L"Cannot write the file.",
-
         L"Format JSON",
         L"Minify JSON",
         L"The document is empty — nothing to process.",
@@ -344,7 +302,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Nesting too deep.",
         L"Out of memory.",
         L"Unknown error.",
-
         L"Close &Other Tabs",
         L"Close A&ll Tabs",
         L"Open Containing &Folder",
@@ -354,18 +311,15 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Toggle Book&mark\tCtrl+F2",
         L"&Next Bookmark\tF2",
         L"&Previous Bookmark\tShift+F2",
-
         L"Save",
         L"The file contains characters that cannot be represented in ANSI (the system code page); saving as ANSI may corrupt them.\nSave as ANSI anyway?",
         L"File \"%s\" has been changed on disk by another program. Saving may overwrite those changes.\nSave anyway?",
         L"File \"%s\" has been changed on disk by another program.\nReload it?",
         L"The file is too large (over %d MB) and cannot be opened.",
         L"An unsaved auto-backup of \"%s\" was found (possibly from an abnormal exit).\nRestore the backup content?",
-
         L"Loading",
         L"Saving",
         L"The document is too large (over %d MB) for the JSON tools.",
-
         L"Markdown &Preview\tF12",
         L"Markdown",
         L"Native rendering for this Mermaid diagram type is not yet supported; showing source",
@@ -373,7 +327,6 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Export &HTML...",
         L"Export PDF (P&rint)...",
         L"Export &Word (.docx)...",
-
         L"&Tools",
         L"&Base64 Encode\tCtrl+Alt+B",
         L"Base64 &Decode\tCtrl+Alt+Shift+B",
@@ -401,18 +354,15 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"The document is empty — nothing to process.",
         L"The document is too large (over %d MB) for the developer tools.",
         L"Unrecognized input (expected a Unix timestamp or YYYY-MM-DD HH:MM:SS).",
-
         L"&Outline\tF6",
         L"Outline",
         L"(no headings)",
     },
 };
-
 const wchar_t* T(StrId id) {
     if ((int)id < 0 || (int)id >= STR_COUNT) return L"";
     return kStr[g_lang][id];
 }
-
 void I18n_ApplySystemThemeMode(void) {
     typedef int (WINAPI *SetPreferredAppModeFn)(int);
     static SetPreferredAppModeFn fn;
@@ -424,7 +374,6 @@ void I18n_ApplySystemThemeMode(void) {
     }
     if (fn) fn(g_dark ? 2  : 3 );
 }
-
 void I18n_Init(void) {
     wchar_t ini[MAX_PATH];
     if (Session_IniPath(ini, MAX_PATH)) {
@@ -434,11 +383,9 @@ void I18n_Init(void) {
     g_lang = (PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_CHINESE)
            ? UI_LANG_ZH : UI_LANG_EN;
 }
-
 int I18n_Lang(void) {
     return g_lang;
 }
-
 void I18n_SetLang(int lang) {
     if (lang != UI_LANG_ZH && lang != UI_LANG_EN) return;
     if (lang == g_lang) return;
@@ -449,30 +396,24 @@ void I18n_SetLang(int lang) {
         WritePrivateProfileStringW(L"settings", L"uilang", v, ini);
     }
 }
-
 static void AddIt(HMENU m, StrId s, UINT cmd) {
     I18n_OwnerAppend(m, MF_STRING, cmd, T(s));
 }
 static void AddSep(HMENU m) {
-    /* 分隔线用 owner-draw（itemData=NULL 标记），由 I18n_OnDrawItem
-       按当前主题画暗色线；系统 MF_SEPARATOR 在暗色下是白色主题线 */
     AppendMenuW(m, MF_OWNERDRAW, 0, NULL);
 }
 static void AddBar(HMENU bar, UINT_PTR sub, StrId s) {
     I18n_OwnerAppend(bar, MF_POPUP, sub,
                      (const wchar_t*)(uintptr_t)((uintptr_t)T(s) | 1));
 }
-
 static HBRUSH s_menuBrush = NULL;
 static int s_menuBrushDark = -1;
-
 void I18n_RefreshMenuColors(void) {
     if (s_menuBrush && s_menuBrushDark == g_dark) return;
     if (s_menuBrush) DeleteObject(s_menuBrush);
     s_menuBrush = CreateSolidBrush(g_dark ? RGB(43,43,43) : RGB(242,242,242));
     s_menuBrushDark = g_dark;
 }
-
 void I18n_ApplyMenuTheme(HMENU root) {
     I18n_RefreshMenuColors();
     MENUINFO mi; memset(&mi, 0, sizeof(mi));
@@ -481,7 +422,6 @@ void I18n_ApplyMenuTheme(HMENU root) {
     mi.hbrBack = s_menuBrush;
     SetMenuInfo(root, &mi);
 }
-
 static HFONT MenuFont(void) {
     static HFONT font = NULL;
     if (!font) {
@@ -492,11 +432,9 @@ static HFONT MenuFont(void) {
     }
     return font;
 }
-
 void I18n_OwnerAppend(HMENU m, UINT flags, UINT_PTR cmd, const wchar_t* text) {
     AppendMenuW(m, (flags & ~MF_OWNERDRAW) | MF_OWNERDRAW, cmd, (LPCVOID)text);
 }
-
 static void SplitAccel(const wchar_t* text, wchar_t* label, int lcch, wchar_t* accel, int acch) {
     label[0] = accel[0] = L'\0';
     if (!text) return;
@@ -510,10 +448,9 @@ static void SplitAccel(const wchar_t* text, wchar_t* label, int lcch, wchar_t* a
     label[lcch - 1] = L'\0';
     accel[acch - 1] = L'\0';
 }
-
 BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     if (mis->CtlType != ODT_MENU) return FALSE;
-    if (!mis->itemData) {            /* owner-draw 分隔线 */
+    if (!mis->itemData) {
         mis->itemHeight = UI_Scale(7) + 4;
         mis->itemWidth = 1;
         return TRUE;
@@ -545,11 +482,10 @@ BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     if (mis->itemWidth > maxw) mis->itemWidth = maxw;
     return TRUE;
 }
-
 BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
     (void)hwnd;
     if (dis->CtlType != ODT_MENU) return FALSE;
-    if (!dis->itemData) {            /* owner-draw 分隔线：随主题配色 */
+    if (!dis->itemData) {
         HDC hdc = dis->hDC;
         HBRUSH b = CreateSolidBrush(g_dark ? RGB(43, 43, 43) : RGB(242, 242, 242));
         FillRect(hdc, &dis->rcItem, b);
@@ -627,7 +563,6 @@ BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
     SelectObject(hdc, old);
     return TRUE;
 }
-
 int I18n_FindMnemonic(HMENU menu, wchar_t ch) {
     int n = GetMenuItemCount(menu);
     wchar_t up = (wchar_t)towupper(ch);
@@ -648,11 +583,9 @@ int I18n_FindMnemonic(HMENU menu, wchar_t ch) {
     }
     return -1;
 }
-
 HMENU I18n_BuildMainMenu(void) {
     HMENU bar = CreateMenu();
     if (!bar) return NULL;
-
     HMENU mFile = CreatePopupMenu();
     AddIt(mFile, STR_ITEM_NEW, IDM_NEW);
     AddIt(mFile, STR_ITEM_OPEN, IDM_OPEN);
@@ -674,7 +607,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddSep(mFile);
     AddIt(mFile, STR_ITEM_EXIT, IDM_EXIT);
     AddBar(bar, (UINT_PTR)mFile, STR_MENU_FILE);
-
     HMENU mEdit = CreatePopupMenu();
     AddIt(mEdit, STR_ITEM_UNDO, IDM_UNDO);
     AddIt(mEdit, STR_ITEM_REDO, IDM_REDO);
@@ -699,7 +631,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mEdit, STR_ITEM_JSONFMT, IDM_JSON_FMT);
     AddIt(mEdit, STR_ITEM_JSONMIN, IDM_JSON_MIN);
     AddBar(bar, (UINT_PTR)mEdit, STR_MENU_EDIT);
-
     HMENU mTools = CreatePopupMenu();
     AddIt(mTools, STR_DT_B64ENC, IDM_DT_B64_ENC);
     AddIt(mTools, STR_DT_B64DEC, IDM_DT_B64_DEC);
@@ -712,7 +643,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mTools, STR_DT_UUID, IDM_DT_UUID);
     AddIt(mTools, STR_DT_TS, IDM_DT_TS);
     AddBar(bar, (UINT_PTR)mTools, STR_MENU_TOOLS);
-
     HMENU mView = CreatePopupMenu();
     AddIt(mView, STR_ITEM_WRAP, IDM_WRAP);
     AddIt(mView, STR_ITEM_GUTTER, IDM_GUTTER);
@@ -727,7 +657,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mView, STR_ITEM_MDPREVIEW, IDM_VIEW_MD);
     AddIt(mView, STR_ITEM_MDSPLIT, IDM_VIEW_MDSPLT);
     AddBar(bar, (UINT_PTR)mView, STR_MENU_VIEW);
-
     HMENU mEnc = CreatePopupMenu();
     for (int i = 0; i <= ENC_UTF16BE; i++)
         I18n_OwnerAppend(mEnc, MF_STRING, IDM_ENC_ANSI + i, EncodingName((Encoding)i));
@@ -740,7 +669,6 @@ HMENU I18n_BuildMainMenu(void) {
         }
     }
     AddBar(bar, (UINT_PTR)mEnc, STR_MENU_ENC);
-
     HMENU mEol = CreatePopupMenu();
     AddIt(mEol, STR_EOLNAME_CRLF, IDM_EOL_CRLF);
     AddIt(mEol, STR_EOLNAME_LF, IDM_EOL_LF);
@@ -748,7 +676,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddSep(mEol);
     AddIt(mEol, STR_ITEM_EOLCONVERT, IDM_EOL_CONVERT);
     AddBar(bar, (UINT_PTR)mEol, STR_MENU_EOL);
-
     HMENU mLang = CreatePopupMenu();
     AddIt(mLang, STR_SYN_NONE, IDM_LANG_NONE);
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_C, L"C");
@@ -762,20 +689,16 @@ HMENU I18n_BuildMainMenu(void) {
     I18n_OwnerAppend(mLang, MF_STRING, IDM_LANG_SQL, L"SQL");
     AddIt(mLang, STR_SYN_MARKDOWN, IDM_LANG_MD);
     AddBar(bar, (UINT_PTR)mLang, STR_MENU_SYNTAX);
-
     HMENU mHelp = CreatePopupMenu();
     AddIt(mHelp, STR_ITEM_ABOUT, IDM_ABOUT);
     AddSep(mHelp);
     I18n_OwnerAppend(mHelp, MF_STRING, IDM_UI_LANG_ZH, L"简体中文");
     I18n_OwnerAppend(mHelp, MF_STRING, IDM_UI_LANG_EN, L"English");
     AddBar(bar, (UINT_PTR)mHelp, STR_MENU_HELP);
-
     I18n_ApplyMenuTheme(bar);
     return bar;
 }
-
 typedef struct { int ctl; StrId str; } DlgEnt;
-
 static const DlgEnt kDlgFind[] = {
     { IDC_FIND_LBL_TEXT, STR_FIND_WHAT },
     { IDC_FIND_CASE,     STR_MATCH_CASE },
@@ -840,9 +763,7 @@ static const DlgEnt kDlgTs[] = {
     { IDC_TS_CLOSE, STR_CLOSE },
     { 0, (StrId)0 }
 };
-
 static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp);
-
 void I18n_ApplyDialog(HWND hdlg, int dlgId) {
     const DlgEnt* e = NULL;
     StrId cap = STR_APP_TITLE;
@@ -872,9 +793,6 @@ void I18n_ApplyDialog(HWND hdlg, int dlgId) {
     if (g_dark)
         EnumChildWindows(hdlg, DarkBtnProc, 0);
 }
-
-/* 暗色编辑框边框：DarkMode_Explorer 主题在部分 Win11 上不改变 Edit 边框，
-   去掉系统凹陷边框，改画 1px 深灰边（WS_BORDER 提供非客户区） */
 static LRESULT CALLBACK DarkEditProc(HWND h, UINT msg, WPARAM wp, LPARAM lp,
                                      UINT_PTR id, DWORD_PTR ref) {
     (void)id; (void)ref;
@@ -896,7 +814,6 @@ static LRESULT CALLBACK DarkEditProc(HWND h, UINT msg, WPARAM wp, LPARAM lp,
     }
     return DefSubclassProc(h, msg, wp, lp);
 }
-
 static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp) {
     typedef BOOL (WINAPI *SetThemeFn)(HWND, LPCWSTR, LPCWSTR);
     static SetThemeFn st;
@@ -910,7 +827,6 @@ static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp) {
         st(h, L"DarkMode_Explorer", NULL);
     } else if (wcscmp(cls, L"Edit") == 0) {
         st(h, L"DarkMode_Explorer", NULL);
-        /* 换成单线边框并子类化自绘暗色边 */
         LONG_PTR ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
         if (ex & WS_EX_CLIENTEDGE) {
             SetWindowLongPtrW(h, GWL_EXSTYLE, ex & ~WS_EX_CLIENTEDGE);
@@ -923,10 +839,8 @@ static BOOL CALLBACK DarkBtnProc(HWND h, LPARAM lp) {
     }
     return TRUE;
 }
-
 static HBRUSH s_dlgBrush = NULL;
 static int s_dlgBrushDark = -1;
-
 HBRUSH I18n_DlgCtlColor(HWND hdlg, HDC hdc, UINT msg) {
     (void)hdlg;
     if (!g_dark) return NULL;
@@ -940,7 +854,6 @@ HBRUSH I18n_DlgCtlColor(HWND hdlg, HDC hdc, UINT msg) {
     }
     return s_dlgBrush;
 }
-
 void I18n_JoinFilter(wchar_t* out, int cch,
                      StrId n1, StrId p1, StrId n2, StrId p2) {
     const wchar_t* parts[4] = { T(n1), T(p1), T(n2), T(p2) };
@@ -953,5 +866,3 @@ void I18n_JoinFilter(wchar_t* out, int cch,
     }
     out[pos] = L'\0';
 }
-
-/* refresh */

@@ -1,12 +1,9 @@
 #include "common.h"
-
 #define BIGFILE_LIMIT (1024ULL * 1024 * 1024)
-
 const wchar_t* EncodingName(Encoding e) {
     if ((int)e < 0 || (int)e > ENC_UTF16BE) return L"?";
     return T((StrId)(STR_ENCNAME_ANSI + (int)e));
 }
-
 Encoding DetectEncoding(const BYTE* data, DWORD size, BOOL* hasBom) {
     *hasBom = FALSE;
     if (size >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF) {
@@ -40,10 +37,8 @@ Encoding DetectEncoding(const BYTE* data, DWORD size, BOOL* hasBom) {
     }
     return ENC_UTF8;
 }
-
 #define IO_CHUNK    (4u * 1024 * 1024)
 #define ENC_PROBE_MAX (512 * 1024)
-
 static DWORD SafeCut(Encoding enc, const BYTE* raw, DWORD have, BOOL eof) {
     DWORD cut;
     if (enc == ENC_UTF16LE || enc == ENC_UTF16BE) {
@@ -75,7 +70,6 @@ static DWORD SafeCut(Encoding enc, const BYTE* raw, DWORD have, BOOL eof) {
     }
     return cut;
 }
-
 static DWORD NormalizeEolBytes(const BYTE* src, DWORD len, char* out,
                                BOOL* pendCR, BOOL* hasCRLF, BOOL* hasLF, BOOL* hasCR) {
     DWORD o = 0;
@@ -94,7 +88,6 @@ static DWORD NormalizeEolBytes(const BYTE* src, DWORD len, char* out,
     }
     return o;
 }
-
 static DWORD NormalizeEolW(const wchar_t* src, DWORD len, wchar_t* out,
                            BOOL* pendCR, BOOL* hasCRLF, BOOL* hasLF, BOOL* hasCR) {
     DWORD o = 0;
@@ -113,14 +106,12 @@ static DWORD NormalizeEolW(const wchar_t* src, DWORD len, wchar_t* out,
     }
     return o;
 }
-
 BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
                      Encoding* outEnc, int* outEol,
                      IoProgressFn progress, void* ctx) {
     HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) { ShowError(T(STR_MSG_CANT_OPEN)); return FALSE; }
-
     LARGE_INTEGER sz;
     if (!GetFileSizeEx(h, &sz)) { CloseHandle(h); return FALSE; }
     UINT64 total = (UINT64)sz.QuadPart;
@@ -131,7 +122,6 @@ BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
         CloseHandle(h);
         return FALSE;
     }
-
     BYTE*    raw = (BYTE*)malloc(IO_CHUNK + 8);
     wchar_t* w   = (wchar_t*)malloc((IO_CHUNK + 8) * sizeof(wchar_t));
     wchar_t* wn  = (wchar_t*)malloc((2 * IO_CHUNK + 8) * sizeof(wchar_t));
@@ -141,9 +131,7 @@ BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
     BOOL eof = FALSE, pendCR = FALSE;
     BOOL hasCRLF = FALSE, hasLF = FALSE, hasCR = FALSE;
     UINT64 done = 0;
-
     if (!raw || !w || !wn || !out) goto cleanup;
-
     {
         DWORD want = (total < (UINT64)IO_CHUNK) ? (DWORD)total : IO_CHUNK;
         DWORD got = 0;
@@ -154,7 +142,6 @@ BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
         }
         have = got;
         if (got < want) eof = TRUE;
-
         DWORD bomLen = 0;
         if (enc == ENC_AUTO) {
             if (have >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF) {
@@ -179,7 +166,6 @@ BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
         done = bomLen;
     }
     if (outEnc) *outEnc = enc;
-
     for (;;) {
         if (!eof && have < IO_CHUNK) {
             DWORD want = IO_CHUNK - have, got = 0;
@@ -190,7 +176,6 @@ BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
         if (have == 0 && eof) break;
         DWORD cut = SafeCut(enc, raw, have, eof);
         if (cut == 0) { if (eof) break; else continue; }
-
         DWORD outLen = 0;
         if (enc == ENC_UTF8 || enc == ENC_UTF8_BOM) {
             outLen = NormalizeEolBytes(raw, cut, out, &pendCR, &hasCRLF, &hasLF, &hasCR);
@@ -214,45 +199,36 @@ BOOL StreamLoadToDoc(HWND hed, const wchar_t* path, Encoding enc,
         done += cut;
         if (cut < have) memmove(raw, raw + cut, have - cut);
         have -= cut;
-
         if (progress && !progress(done, total, ctx)) goto cleanup;
     }
-
     if (pendCR) {
         hasCR = TRUE;
         out[0] = '\r'; out[1] = '\n';
         SendMessage(hed, SCI_APPENDTEXT, 2, (LPARAM)out);
     }
-
     if (enc == ENC_UTF16LE || enc == ENC_UTF16BE) {
         Sci_Position len = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
         if (len >= 1 && SendMessage(hed, SCI_GETCHARAT, (WPARAM)(len - 1), 0) == 0)
             SendMessage(hed, SCI_DELETERANGE, (WPARAM)(len - 1), (Sci_Position)1);
     }
-
     if (outEol) *outEol = hasCRLF ? 0 : (hasLF ? 1 : (hasCR ? 2 : 1));
     ok = TRUE;
-
 cleanup:
     free(raw); free(w); free(wn); free(out);
     CloseHandle(h);
     return ok;
 }
-
 static void EmitEol(wchar_t* wn, DWORD* o, int eol) {
     if (eol == 0) { wn[(*o)++] = L'\r'; wn[(*o)++] = L'\n'; }
     else wn[(*o)++] = (eol == 1) ? L'\n' : L'\r';
 }
-
 BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
                        IoProgressFn progress, void* ctx) {
     wchar_t tmp[MAX_PATH + 8];
     if (_snwprintf(tmp, MAX_PATH + 8, L"%s.tmp", path) < 0) return FALSE;
     tmp[MAX_PATH + 7] = L'\0';
-
     HANDLE h = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h == INVALID_HANDLE_VALUE) { ShowError(T(STR_MSG_CANT_WRITE)); return FALSE; }
-
     char*    buf = (char*)malloc(IO_CHUNK + 8);
     wchar_t* w   = (wchar_t*)malloc((IO_CHUNK + 8) * sizeof(wchar_t));
     wchar_t* wn  = (wchar_t*)malloc((2 * IO_CHUNK + 8) * sizeof(wchar_t));
@@ -260,9 +236,7 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
     BOOL ok = FALSE, pendCR = FALSE;
     Sci_Position total = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
     Sci_Position pos = 0;
-
     if (!buf || !w || !wn || !out) goto cleanup;
-
     {
         BYTE bom[3]; DWORD bomLen = 0;
         if (enc == ENC_UTF8_BOM) { bom[0]=0xEF; bom[1]=0xBB; bom[2]=0xBF; bomLen = 3; }
@@ -273,7 +247,6 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
             if (!WriteFile(h, bom, bomLen, &wr, NULL) || wr != bomLen) goto cleanup;
         }
     }
-
     while (pos < total) {
         Sci_Position take = total - pos;
         if (take > IO_CHUNK) take = IO_CHUNK;
@@ -289,10 +262,6 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
             }
         }
         pos += take;
-
-        /* 编辑器内部文档即 UTF-8 + CRLF：目标为 UTF-8 且 CRLF 时，
-           若本块已是纯 CRLF（无孤立 \r 或 \n），直接原样落盘，
-           跳过 UTF-8→UTF-16→EOL 规范化→UTF-8 的三重转换 */
         if ((enc == ENC_UTF8 || enc == ENC_UTF8_BOM) && eol == 0 && take > 0) {
             BOOL pure = TRUE;
             for (Sci_Position i = 0; i < take; i++) {
@@ -306,11 +275,9 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
                 continue;
             }
         }
-
         int n = 0;
         if (take > 0) n = MultiByteToWideChar(CP_UTF8, 0, buf, (int)take, w, IO_CHUNK + 8);
         if (take > 0 && n <= 0) goto cleanup;
-
         DWORD wn2 = 0;
         for (int i = 0; i < n; i++) {
             wchar_t c = w[i];
@@ -325,7 +292,6 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
                 wn[wn2++] = c;
             }
         }
-
         DWORD outLen = 0;
         if (enc == ENC_UTF8 || enc == ENC_UTF8_BOM) {
             int m = WideCharToMultiByte(CP_UTF8, 0, wn, (int)wn2, out, (int)(4 * IO_CHUNK + 16), NULL, NULL);
@@ -348,7 +314,6 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
         }
         if (progress && !progress((UINT64)pos, (UINT64)total, ctx)) goto cleanup;
     }
-
     if (pendCR) {
         BYTE tb[4]; DWORD tl = 0;
         if (enc == ENC_UTF16LE || enc == ENC_UTF16BE) {
@@ -366,9 +331,7 @@ BOOL StreamSaveFromDoc(HWND hed, const wchar_t* path, Encoding enc, int eol,
         DWORD wr = 0;
         if (!WriteFile(h, tb, tl, &wr, NULL) || wr != tl) goto cleanup;
     }
-
     ok = TRUE;
-
 cleanup:
     CloseHandle(h);
     free(buf); free(w); free(wn); free(out);

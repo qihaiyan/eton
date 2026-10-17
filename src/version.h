@@ -1,4 +1,4 @@
 #define ET_VERSION_MAJOR 1
 #define ET_VERSION_MINOR 0
-#define ET_VERSION_PATCH 7
-#define ET_VERSION_STR   "1.0.7"
+#define ET_VERSION_PATCH 8
+#define ET_VERSION_STR   "1.0.8"

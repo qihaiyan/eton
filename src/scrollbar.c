@@ -1,9 +1,7 @@
 #include "common.h"
-
 #define SB_INSET_96     2
 #define SB_THICK_96     12
 #define SB_MINTHUMB_96  24
-
 typedef struct {
     HWND hwnd;
     BOOL horiz;
@@ -11,17 +9,13 @@ typedef struct {
     BOOL hover;
     double grab;
 } SBState;
-
 static SBState g_sb[2];
 static double s_pos[2], s_frac[2];
 static BOOL s_show[2] = { FALSE, FALSE };
 static RECT s_rc[2];
 static BOOL s_haveLayout = FALSE;
-
 int ScrollBars_Thickness(void) { return UI_Scale(SB_THICK_96); }
-
 static HWND Hed(void) { return Editor_ActiveEdit(); }
-
 static void SBGeom(SBState* st, int* trackLen, int* thumbLen, int* thumbPos) {
     RECT rc; GetClientRect(st->hwnd, &rc);
     int len = st->horiz ? rc.right : rc.bottom;
@@ -36,12 +30,10 @@ static void SBGeom(SBState* st, int* trackLen, int* thumbLen, int* thumbPos) {
     *thumbLen = th;
     *thumbPos = inset + (int)(s_pos[st->horiz] * (tlen - th) + 0.5);
 }
-
 static double PtAlong(SBState* st, LPARAM lp) {
     int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
     return st->horiz ? x : y;
 }
-
 static void SBScrollTo(SBState* st, double ratio) {
     HWND hed = Hed();
     if (!hed) return;
@@ -64,7 +56,6 @@ static void SBScrollTo(SBState* st, double ratio) {
         SendMessage(hed, SCI_SETXOFFSET, (WPARAM)(int)(ratio * maxX + 0.5), 0);
     }
 }
-
 static void SBHover(SBState* st, BOOL on) {
     if (st->hover == on) return;
     st->hover = on;
@@ -77,7 +68,6 @@ static void SBHover(SBState* st, BOOL on) {
         TrackMouseEvent(&tme);
     }
 }
-
 static LRESULT CALLBACK SBProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     SBState* st = (SBState*)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
     if (!st) return DefWindowProcW(hwnd, msg, wp, lp);
@@ -146,7 +136,6 @@ static LRESULT CALLBACK SBProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-
 void ScrollBars_Create(HWND parent) {
     static BOOL registered = FALSE;
     if (!registered) {
@@ -168,7 +157,6 @@ void ScrollBars_Create(HWND parent) {
         SetWindowLongPtrW(g_sb[i].hwnd, GWLP_USERDATA, (LONG_PTR)&g_sb[i]);
     }
 }
-
 void ScrollBars_Layout(int x, int y, int w, int h, int thickness, BOOL showH) {
     if (!g_sb[0].hwnd) return;
     SetRect(&s_rc[0], x + w - thickness, y, x + w, y + h);
@@ -181,7 +169,6 @@ void ScrollBars_Layout(int x, int y, int w, int h, int thickness, BOOL showH) {
                  w - thickness, thickness, SWP_NOZORDER | SWP_NOACTIVATE);
     ScrollBars_Update();
 }
-
 void ScrollBars_Update(void) {
     HWND hed = Hed();
     BOOL showV = FALSE, showH = FALSE;
@@ -219,7 +206,6 @@ void ScrollBars_Update(void) {
         if (show && g_sb[i].hwnd) InvalidateRect(g_sb[i].hwnd, NULL, FALSE);
     }
 }
-
 void ScrollBars_Repaint(void) {
     for (int i = 0; i < 2; i++)
         if (g_sb[i].hwnd && s_show[i]) InvalidateRect(g_sb[i].hwnd, NULL, FALSE);

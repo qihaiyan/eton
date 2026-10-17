@@ -1,10 +1,7 @@
 #ifndef I18N_H
 #define I18N_H
-
 #include <windows.h>
-
 enum { UI_LANG_ZH = 0, UI_LANG_EN = 1, UI_LANG_COUNT = 2 };
-
 typedef enum {
     STR_APP_TITLE = 0,
     STR_UNTITLED,
@@ -13,7 +10,6 @@ typedef enum {
     STR_CANCEL,
     STR_CLOSE,
     STR_ERROR,
-
     STR_MENU_FILE,
     STR_ITEM_NEW,
     STR_ITEM_OPEN,
@@ -24,7 +20,6 @@ typedef enum {
     STR_MENU_RECENT,
     STR_RECENT_EMPTY,
     STR_ITEM_EXIT,
-
     STR_MENU_EDIT,
     STR_ITEM_UNDO,
     STR_ITEM_REDO,
@@ -39,7 +34,6 @@ typedef enum {
     STR_ITEM_TIME,
     STR_ITEM_JSONFMT,
     STR_ITEM_JSONMIN,
-
     STR_MENU_VIEW,
     STR_ITEM_WRAP,
     STR_ITEM_GUTTER,
@@ -47,7 +41,6 @@ typedef enum {
     STR_ITEM_ZOOMOUT,
     STR_ITEM_ZOOMRST,
     STR_ITEM_THEME,
-
     STR_MENU_ENC,
     STR_ENCNAME_ANSI,
     STR_ENCNAME_UTF8,
@@ -55,27 +48,22 @@ typedef enum {
     STR_ENCNAME_UTF16LE,
     STR_ENCNAME_UTF16BE,
     STR_REOPEN_FMT,
-
     STR_MENU_EOL,
     STR_EOLNAME_CRLF,
     STR_EOLNAME_LF,
     STR_EOLNAME_CR,
     STR_ITEM_EOLCONVERT,
-
     STR_MENU_SYNTAX,
     STR_SYN_NONE,
-
     STR_MENU_HELP,
     STR_ITEM_ABOUT,
     STR_MENU_UI,
-
     STR_FILTER_ALL,
     STR_FILTER_ALLPAT,
     STR_FILTER_TEXTS,
     STR_FILTER_TEXTSPAT,
     STR_FILTER_TXT,
     STR_FILTER_TXTPAT,
-
     STR_TITLE_FIND,
     STR_TITLE_REPLACE,
     STR_FIND_WHAT,
@@ -93,22 +81,17 @@ typedef enum {
     STR_REPLACED,
     STR_REPLACED_N,
     STR_REPLACED_ALLTABS,
-
     STR_TITLE_GOTO,
     STR_GOTO_LBL,
     STR_GOTO_LBL_FMT,
-
     STR_TITLE_ABOUT,
     STR_ABOUT_L1,
     STR_ABOUT_L2,
     STR_ABOUT_L3,
     STR_ABOUT_VERSION,
-
     STR_TITLE_OPENENC,
     STR_OPENENC_LBL,
-
     STR_UNTITLED_TXT,
-
     STR_MSG_NOT_FOUND,
     STR_MSG_FILE_NOT_SAVED,
     STR_MSG_FILE_MODIFIED,
@@ -118,10 +101,8 @@ typedef enum {
     STR_STATUS_CHARS,
     STR_STATUS_LN,
     STR_STATUS_COL,
-
     STR_MSG_CANT_OPEN,
     STR_MSG_CANT_WRITE,
-
     STR_JSON_TITLE_FMT,
     STR_JSON_TITLE_MIN,
     STR_JSON_EMPTY,
@@ -142,7 +123,6 @@ typedef enum {
     STR_JERR_DEPTH,
     STR_JERR_MEM,
     STR_JERR_UNKNOWN,
-
     STR_ITEM_CLOSE_OTHER,
     STR_ITEM_CLOSE_ALL,
     STR_ITEM_EXPLORER,
@@ -152,18 +132,15 @@ typedef enum {
     STR_BM_TOGGLE,
     STR_BM_NEXT,
     STR_BM_PREV,
-
     STR_TITLE_SAVE,
     STR_MSG_ANSI_WARN,
     STR_MSG_FILE_CHANGED_OVERWRITE,
     STR_MSG_FILE_CHANGED_RELOAD,
     STR_MSG_FILE_TOO_BIG,
     STR_MSG_AUTOBACKUP,
-
     STR_LOAD_ING,
     STR_SAVE_ING,
     STR_MSG_JSON_BIG,
-
     STR_ITEM_MDPREVIEW,
     STR_SYN_MARKDOWN,
     STR_MD_MERMAID_UNSUP,
@@ -171,7 +148,6 @@ typedef enum {
     STR_ITEM_EXPHTML,
     STR_ITEM_EXPPDF,
     STR_ITEM_EXPDOCX,
-
     STR_MENU_TOOLS,
     STR_DT_B64ENC,
     STR_DT_B64DEC,
@@ -199,22 +175,16 @@ typedef enum {
     STR_DT_EMPTY,
     STR_MSG_DT_BIG,
     STR_TS_ERR,
-
     STR_ITEM_MDOUTLINE,
     STR_MD_OUTLINE_TITLE,
     STR_MD_OUTLINE_EMPTY,
-
     STR_COUNT
 } StrId;
-
 void I18n_Init(void);
 int  I18n_Lang(void);
 void I18n_SetLang(int lang);
-
 const wchar_t* T(StrId id);
-
 HMENU I18n_BuildMainMenu(void);
-
 void  I18n_OwnerAppend(HMENU m, UINT flags, UINT_PTR cmd, const wchar_t* text);
 BOOL  I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis);
 BOOL  I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis);
@@ -222,14 +192,9 @@ int   I18n_FindMnemonic(HMENU menu, wchar_t ch);
 void  I18n_ApplyMenuTheme(HMENU root);
 void  I18n_RefreshMenuColors(void);
 void  I18n_ApplySystemThemeMode(void);
-
 void I18n_ApplyDialog(HWND hdlg, int dlgId);
-
 HBRUSH I18n_DlgCtlColor(HWND hdlg, HDC hdc, UINT msg);
-
 void I18n_JoinFilter(wchar_t* out, int cch,
                      StrId n1, StrId p1, StrId n2, StrId p2);
-
 extern HMENU g_hMenuRecent;
-
 #endif

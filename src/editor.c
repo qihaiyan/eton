@@ -1,10 +1,8 @@
 #include "common.h"
-
 static const int TOOLBAR_HEIGHT_96 = 32;
 static const int TAB_HEIGHT_96 = 22;
 static const int EDIT_TOP_PAD_96 = 4;
 static const int STATUS_HEIGHT_96 = 22;
-
 static const char* LexerName[] = {
     "",
     "cpp",
@@ -18,7 +16,6 @@ static const char* LexerName[] = {
     "sql",
     "markdown"
 };
-
 void Editor_ApplyThemeColors(void) {
     if (g_dark) {
         g_clrBg       = RGB(30,30,30);
@@ -38,7 +35,6 @@ void Editor_ApplyThemeColors(void) {
         g_clrStatusFg = RGB(0,0,0);
     }
 }
-
 static void RecreateTabFont(void) {
     if (g_hFont) DeleteObject(g_hFont);
     int h = -MulDiv(9, (int)g_dpi, 72);
@@ -47,24 +43,20 @@ static void RecreateTabFont(void) {
                           DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
     g_fontGen++;
 }
-
 void Editor_SetFont(void) {
     RecreateTabFont();
     for (int i = 0; i < g_docCount; i++)
         if (g_docs[i].hwndEdit) Editor_ApplyTheme(i);
     Editor_Layout();
 }
-
 void Editor_OnDpiChanged(void) {
     RecreateTabFont();
     MdOutline_OnDpiChanged();
     Editor_Layout();
     InvalidateRect(g_hwndTab, NULL, TRUE);
 }
-
 BOOL Editor_Init(void) {
     Scintilla_RegisterClasses(g_hInst);
-
     TabBar_Register();
     MdView_Register();
     MdView_Create(g_hwndMain);
@@ -80,11 +72,9 @@ static void ApplyScintillaStyle(HWND hed) {
     SendMessage(hed, SCI_STYLESETSIZE, STYLE_DEFAULT, g_fontSize);
     SendMessage(hed, SCI_STYLESETFONT, STYLE_DEFAULT, (LPARAM)"Consolas");
     SendMessage(hed, SCI_STYLECLEARALL, 0, 0);
-
     SendMessage(hed, SCI_SETMARGINTYPEN, 0, SC_MARGIN_NUMBER);
     SendMessage(hed, SCI_STYLESETBACK, STYLE_LINENUMBER, (LPARAM)g_clrGutterBg);
     SendMessage(hed, SCI_STYLESETFORE, STYLE_LINENUMBER, (LPARAM)g_clrGutterFg);
-
     SendMessage(hed, SCI_SETMARGINTYPEN, 1, SC_MARGIN_SYMBOL);
     SendMessage(hed, SCI_SETMARGINMASKN, 1, SC_MASK_FOLDERS);
     SendMessage(hed, SCI_SETMARGINSENSITIVEN, 1, 1);
@@ -108,44 +98,29 @@ static void ApplyScintillaStyle(HWND hed) {
             SendMessage(hed, SCI_MARKERSETBACK, fm[i].num, (LPARAM)bFold);
         }
     }
-
     SendMessage(hed, SCI_MARKERDEFINE, 24, SC_MARK_BACKGROUND);
     SendMessage(hed, SCI_MARKERSETFORE, 24, (LPARAM)(g_dark ? RGB(80,70,25) : RGB(255,238,170)));
-
     SendMessage(hed, SCI_INDICSETSTYLE, 20, INDIC_ROUNDBOX);
     SendMessage(hed, SCI_INDICSETFORE, 20, (LPARAM)(g_dark ? RGB(255,220,100) : RGB(255,200,0)));
     SendMessage(hed, SCI_INDICSETALPHA, 20, 50);
-
     SendMessage(hed, SCI_SETCARETLINEVISIBLE, 1, 0);
     SendMessage(hed, SCI_SETCARETLINEBACK, (LPARAM)(g_dark ? RGB(40,40,46) : RGB(242,242,234)), 0);
-
     SendMessage(hed, SCI_SETSELBACK, 1, (LPARAM)g_clrSelBg);
     SendMessage(hed, SCI_SETSELFORE, 1, (LPARAM)g_clrFg);
-
     SendMessage(hed, SCI_SETCARETFORE, (LPARAM)g_clrFg, 0);
     SendMessage(hed, SCI_SETCARETWIDTH, 1, 0);
-
     SendMessage(hed, SCI_SETUSETABS, 0, 0);
     SendMessage(hed, SCI_SETTABWIDTH, 4, 0);
-
     SendMessage(hed, SCI_SETVIEWEOL, 0, 0);
-
-    /* 列式（矩形）选择：Alt+拖拽的多行选区在内部是逐行选区，
-       默认输入会折叠回主选区（只改一行）；打开逐行输入/删除/粘贴，
-       并允许矩形选区跨行尾虚拟空格对齐短行 */
     SendMessage(hed, SCI_SETMULTIPLESELECTION, TRUE, 0);
     SendMessage(hed, SCI_SETADDITIONALSELECTIONTYPING, TRUE, 0);
     SendMessage(hed, SCI_SETMULTIPASTE, SC_MULTIPASTE_EACH, 0);
     SendMessage(hed, SCI_SETVIRTUALSPACEOPTIONS, SCVS_RECTANGULARSELECTION, 0);
-
     SendMessage(hed, SCI_USEPOPUP, 0, 0);
-
     SendMessage(hed, SCI_SETVSCROLLBAR, 0, 0);
     SendMessage(hed, SCI_SETHSCROLLBAR, 0, 0);
-
     Editor_ComputeGutterWidth(Editor_IndexFromHwnd(hed));
 }
-
 static void ApplyLexer(HWND hed, LangID lang) {
     SendMessage(hed, SCI_SETMARGINWIDTHN, 1,
                 (lang == LANG_NONE || lang == LANG_MD) ? 0 : UI_Scale(14));
@@ -160,10 +135,8 @@ static void ApplyLexer(HWND hed, LangID lang) {
     ILexer5* lex = CreateLexer(name);
     if (!lex) return;
     SendMessage(hed, SCI_SETILEXER, 0, (LPARAM)lex);
-
     SendMessage(hed, SCI_SETPROPERTY, (WPARAM)"fold", (LPARAM)"1");
     SendMessage(hed, SCI_SETPROPERTY, (WPARAM)"fold.compact", (LPARAM)"0");
-
     if (lang == LANG_C || lang == LANG_CPP || lang == LANG_CS ||
         lang == LANG_JAVA || lang == LANG_JS) {
         const char* kw = "auto break case char const continue default do double else enum extern float for goto if int long register return short signed sizeof static struct switch typedef union unsigned void volatile while bool class delete friend inline namespace new operator private protected public this throw try catch virtual template typename using override final abstract async await extends implements import package static var let const function true false null undefined";
@@ -178,7 +151,6 @@ static void ApplyLexer(HWND hed, LangID lang) {
         const char* kw = "true false null";
         SendMessage(hed, SCI_SETKEYWORDS, 0, (LPARAM)kw);
     }
-
     if (lang == LANG_MD) {
         COLORREF cHead, cLink, cQuote, cCode;
         if (g_dark) {
@@ -210,7 +182,6 @@ static void ApplyLexer(HWND hed, LangID lang) {
         SendMessage(hed, SCI_STYLESETFORE, 12, (LPARAM)cQuote);
         return;
     }
-
     COLORREF c_comment, c_string, c_number, c_keyword, c_preproc, c_operator;
     if (g_dark) {
         c_comment  = RGB(106,153,85);
@@ -238,7 +209,6 @@ static void ApplyLexer(HWND hed, LangID lang) {
     SendMessage(hed, SCI_STYLESETFORE, 10, (LPARAM)c_operator);
     SendMessage(hed, SCI_STYLESETBOLD, 5, 1);
 }
-
 static LangID LangFromPath(const wchar_t* path) {
     static const struct { const wchar_t* ext; LangID lang; } map[] = {
         { L".c",    LANG_C },  { L".h",    LANG_C },
@@ -258,7 +228,6 @@ static LangID LangFromPath(const wchar_t* path) {
         if (_wcsicmp(ext, map[i].ext) == 0) return map[i].lang;
     return LANG_NONE;
 }
-
 static BOOL DiskWriteTime(const wchar_t* path, FILETIME* ft) {
     WIN32_FILE_ATTRIBUTE_DATA fa;
     if (!GetFileAttributesExW(path, GetFileExInfoStandard, &fa)) {
@@ -268,9 +237,7 @@ static BOOL DiskWriteTime(const wchar_t* path, FILETIME* ft) {
     *ft = fa.ftLastWriteTime;
     return TRUE;
 }
-
 static BOOL ConfirmAnsiOk(HWND hed) {
-    /* 约 256KB，放堆上，避免深调用链下撑爆 1MB 默认栈 */
     enum { ANSI_BUF = 64 * 1024, ANSI_PROBE = 128 * 1024 + 8 };
     char* buf = (char*)malloc(ANSI_BUF + 8);
     wchar_t* w = (wchar_t*)malloc((size_t)ANSI_BUF * sizeof(wchar_t));
@@ -307,7 +274,6 @@ static BOOL ConfirmAnsiOk(HWND hed) {
                         MB_YESNO | MB_ICONWARNING);
     return r == IDYES;
 }
-
 static BOOL ConfirmOverwriteOk(Doc* d) {
     if (d->isNew || d->path[0] == L'\0') return TRUE;
     FILETIME cur;
@@ -318,7 +284,6 @@ static BOOL ConfirmOverwriteOk(Doc* d) {
     return MessageBoxW(g_hwndMain, msg, T(STR_TITLE_SAVE),
                        MB_YESNO | MB_ICONWARNING) == IDYES;
 }
-
 void Editor_UpdateTitle(int index) {
     Doc* d = &g_docs[index];
     wchar_t base[256];
@@ -333,30 +298,25 @@ void Editor_UpdateTitle(int index) {
     if (d->dirty) WFmt(d->title, L"%s *", base);
     else wcscpy_s(d->title, 256, base);
 }
-
 void Editor_MarkDirty(int index, BOOL dirty) {
     g_docs[index].dirty = dirty;
     Editor_UpdateTitle(index);
     InvalidateRect(g_hwndTab, NULL, FALSE);
 }
-
 int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     if (g_docCount >= MAX_DOCS) return -1;
     int idx = g_docCount;
     Doc* d = &g_docs[idx];
-
     d->hwndEdit = CreateWindowExW(0, L"Scintilla", NULL,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP,
         0, 0, 0, 0, g_hwndMain, NULL, g_hInst, NULL);
     if (!d->hwndEdit) { MessageBoxW(g_hwndMain, T(STR_MSG_SCINTILLA_FAIL), T(STR_ERROR), MB_ICONERROR); return -1; }
-
     SendMessage(d->hwndEdit, SCI_SETCODEPAGE, SC_CP_UTF8, 0);
     SendMessage(d->hwndEdit, SCI_SETEOLMODE, SC_EOL_LF, 0);
     SendMessage(d->hwndEdit, SCI_SETCARETWIDTH, 1, 0);
     SendMessage(d->hwndEdit, SCI_EMPTYUNDOBUFFER, 0, 0);
     SendMessage(d->hwndEdit, SCI_SETSAVEPOINT, 0, 0);
     ApplyScintillaStyle(d->hwndEdit);
-
     d->isNew = isNew;
     d->dirty = FALSE;
     d->eol = 1;
@@ -364,6 +324,7 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     d->lang = LANG_NONE;
     d->previewOn = FALSE;
     d->modGen = 0;
+    d->bakRestored = FALSE;
     if (isNew) {
         d->path[0] = L'\0';
         wcscpy_s(d->baseTitle, 256, title ? title : T(STR_UNTITLED));
@@ -373,16 +334,13 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
         d->enc = ENC_UTF8;
         d->baseTitle[0] = L'\0';
     }
-
     g_docCount++;
     Editor_UpdateTitle(idx);
     g_sessionDirty = TRUE;
     return idx;
 }
-
 static HWND s_hwndProg = NULL;
 static BOOL s_progCancel = FALSE;
-
 static INT_PTR CALLBACK ProgressProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_INITDIALOG) {
         SendMessageW(GetDlgItem(hdlg, IDC_PROG_BAR), PBM_SETRANGE, 0, MAKELPARAM(0, 100));
@@ -396,7 +354,6 @@ static INT_PTR CALLBACK ProgressProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) 
     (void)lp;
     return FALSE;
 }
-
 static void ProgressPump(void) {
     MSG msg;
     while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
@@ -411,7 +368,6 @@ static void ProgressPump(void) {
         }
     }
 }
-
 static void ProgressBegin(StrId verb, const wchar_t* path) {
     wchar_t label[MAX_PATH + 32];
     wchar_t name[MAX_PATH];
@@ -428,7 +384,6 @@ static void ProgressBegin(StrId verb, const wchar_t* path) {
     ShowWindow(s_hwndProg, SW_SHOW);
     ProgressPump();
 }
-
 static BOOL ProgressCb(UINT64 done, UINT64 total, void* ctx) {
     (void)ctx;
     if (s_hwndProg && total)
@@ -437,27 +392,22 @@ static BOOL ProgressCb(UINT64 done, UINT64 total, void* ctx) {
     ProgressPump();
     return !s_progCancel;
 }
-
 static void ProgressEnd(void) {
     if (s_hwndProg) { DestroyWindow(s_hwndProg); s_hwndProg = NULL; }
     EnableWindow(g_hwndMain, TRUE);
     if (g_hwndMain) SetFocus(g_hwndMain);
 }
-
 #define PROGRESS_MIN (4 * 1024 * 1024)
-
 static BOOL ProgressWorthy(const wchar_t* path) {
     WIN32_FILE_ATTRIBUTE_DATA fa;
     if (!path || !path[0] || !GetFileAttributesExW(path, GetFileExInfoStandard, &fa)) return FALSE;
     ULARGE_INTEGER sz; sz.HighPart = fa.nFileSizeHigh; sz.LowPart = fa.nFileSizeLow;
     return sz.QuadPart >= PROGRESS_MIN;
 }
-
 static BOOL SaveProgressWorthy(const Doc* d) {
     if (ProgressWorthy(d->path)) return TRUE;
     return SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) >= PROGRESS_MIN;
 }
-
 void Editor_SetText(int index, const char* utf8) {
     HWND hed = g_docs[index].hwndEdit;
     g_suppressDirty = TRUE;
@@ -469,13 +419,11 @@ void Editor_SetText(int index, const char* utf8) {
     RedrawWindow(hed, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN);
     g_suppressDirty = FALSE;
 }
-
 BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
     Doc* d = &g_docs[index];
     HWND hed = d->hwndEdit;
     Encoding detected = ENC_UTF8;
     int eol = 0;
-
     g_suppressDirty = TRUE;
     SendMessage(hed, WM_SETREDRAW, FALSE, 0);
     SendMessage(hed, SCI_SETUNDOCOLLECTION, FALSE, 0);
@@ -489,7 +437,6 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
     RedrawWindow(hed, NULL, NULL, RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN);
     g_suppressDirty = FALSE;
     if (!ok) return FALSE;
-
     int sci_eol = (eol == 0) ? SC_EOL_CRLF : (eol == 1 ? SC_EOL_LF : SC_EOL_CR);
     SendMessage(hed, SCI_SETEOLMODE, sci_eol, 0);
     SendMessage(hed, SCI_EMPTYUNDOBUFFER, 0, 0);
@@ -503,7 +450,6 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
     ApplyLexer(d->hwndEdit, d->lang);
     DiskWriteTime(d->path, &d->ftWrite);
     Editor_UpdateTitle(index);
-
     if (Session_AutoBackupExists(path)) {
         char* bak = NULL; DWORD bakLen = 0;
         BOOL have = Session_AutoBackupRead(path, &bak, &bakLen);
@@ -513,6 +459,8 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
         if (r == IDYES && have) {
             Editor_SetText(index, bak);
             d->dirty = TRUE;
+            d->bakRestored = TRUE;
+            d->bkpGen = d->modGen;
             Editor_UpdateTitle(index);
             InvalidateRect(g_hwndTab, NULL, FALSE);
         } else {
@@ -522,11 +470,10 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
     }
     return TRUE;
 }
-
 void Editor_Activate(int index) {
     if (index < 0 || index >= g_docCount) return;
     g_curDoc = index;
-    MdOutline_OnDocChange();   /* 先于布局：面板可见性决定编辑区起点 */
+    MdOutline_OnDocChange();
     for (int i = 0; i < g_docCount; i++) {
         BOOL hideFull = g_docs[i].previewOn && g_docs[i].lang == LANG_MD && !g_mdSplit;
         BOOL show = (i == index) && !hideFull;
@@ -538,20 +485,17 @@ void Editor_Activate(int index) {
     InvalidateRect(g_hwndTab, NULL, FALSE);
     Editor_UpdateStatus();
 }
-
 void Editor_ApplyWrap(int index) {
     if (index < 0 || index >= g_docCount) return;
     HWND hed = g_docs[index].hwndEdit;
     SendMessage(hed, SCI_SETWRAPMODE, g_wordWrap ? SC_WRAP_WORD : SC_WRAP_NONE, 0);
     Editor_Layout();
 }
-
 int Editor_IndexFromHwnd(HWND hed) {
     for (int i = 0; i < g_docCount; i++)
         if (g_docs[i].hwndEdit == hed) return i;
     return -1;
 }
-
 void Editor_ConvertEol(int index, int eol) {
     if (index < 0 || index >= g_docCount) return;
     HWND hed = g_docs[index].hwndEdit;
@@ -562,7 +506,6 @@ void Editor_ConvertEol(int index, int eol) {
     Editor_MarkDirty(index, TRUE);
     Editor_UpdateStatus();
 }
-
 void Editor_ComputeGutterWidth(int index) {
     if (index < 0 || index >= g_docCount) return;
     HWND hed = g_docs[index].hwndEdit;
@@ -581,26 +524,20 @@ void Editor_ComputeGutterWidth(int index) {
     g_gutterWidth = w;
     SendMessage(hed, SCI_SETMARGINWIDTHN, 0, w);
 }
-
 void Editor_Layout(void) {
     RECT rc; GetClientRect(g_hwndMain, &rc);
     int cx = rc.right, cy = rc.bottom;
     int toolH = UI_Scale(TOOLBAR_HEIGHT_96);
     int tabH = UI_Scale(TAB_HEIGHT_96);
     int statusH = UI_Scale(STATUS_HEIGHT_96);
-
     SetWindowPos(g_hwndTool, NULL, 0, 0, cx, toolH, SWP_NOZORDER);
     SetWindowPos(g_hwndTab, NULL, 0, toolH, cx, tabH, SWP_NOZORDER);
     SetWindowPos(g_hwndStatus, NULL, 0, cy - statusH, cx, statusH, SWP_NOZORDER);
-
     int top = toolH + tabH + UI_Scale(EDIT_TOP_PAD_96);
     int bottom = cy - statusH;
     int h = bottom - top;
-
-    /* Markdown 大纲：左侧停靠，编辑区/预览整体右移 */
     int olw = MdOutline_IsVisible() ? MdOutline_Width() : 0;
     if (olw) MdOutline_OnLayout(0, top, olw, h);
-
     if (MdView_IsVisible() && g_mdSplit) {
         int sbw = ScrollBars_Thickness();
         int avail = cx - olw;
@@ -619,18 +556,14 @@ void Editor_Layout(void) {
         MdView_OnLayout(splitX, top, cx - splitX, h);
         return;
     }
-
     if (MdView_IsVisible()) {
         ScrollBars_Layout(0, 0, 0, 0, 0, FALSE);
         MdView_OnLayout(olw, top, cx - olw, h);
         return;
     }
-
     int sbw = ScrollBars_Thickness();
     BOOL showH = !g_wordWrap;
-
     ScrollBars_Layout(olw, top, cx - olw, h, sbw, showH);
-
     if (g_curDoc >= 0 && g_curDoc < g_docCount) {
         Editor_ComputeGutterWidth(g_curDoc);
         SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, olw, top,
@@ -638,7 +571,6 @@ void Editor_Layout(void) {
     }
     ScrollBars_Update();
 }
-
 void Editor_Zoom(int delta) {
     g_fontSize += delta;
     if (g_fontSize < 6) g_fontSize = 6;
@@ -648,31 +580,26 @@ void Editor_Zoom(int delta) {
     MdView_OnZoom();
     Editor_UpdateStatus();
 }
-
 void Editor_SetLang(int index, LangID lang) {
     g_docs[index].lang = lang;
     ApplyLexer(g_docs[index].hwndEdit, lang);
-    MdOutline_OnDocChange();   /* 切到/切出 Markdown：面板显隐随之变化 */
+    MdOutline_OnDocChange();
     Editor_Layout();
 }
-
 void Editor_ApplyTheme(int index) {
     ApplyScintillaStyle(g_docs[index].hwndEdit);
     if (g_docs[index].lang != LANG_NONE)
         ApplyLexer(g_docs[index].hwndEdit, g_docs[index].lang);
 }
-
 void Editor_UpdateGutter(int index) {
     if (index < 0 || index >= g_docCount) return;
     Editor_ComputeGutterWidth(index);
 }
-
 void Editor_OnNotify(LPARAM lp) {
     SCNotification* scn = (SCNotification*)lp;
     HWND hed = (HWND)scn->nmhdr.hwndFrom;
     int idx = Editor_IndexFromHwnd(hed);
     if (idx < 0) return;
-
     if (scn->nmhdr.code == SCN_UPDATEUI) {
         Editor_UpdateStatus();
         if (g_curDoc >= 0 && g_curDoc < g_docCount) {
@@ -702,6 +629,7 @@ void Editor_OnNotify(LPARAM lp) {
     } else if (scn->nmhdr.code == SCN_MODIFIED) {
         if (scn->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)) {
             g_docs[idx].modGen++;
+            g_docs[idx].bakRestored = FALSE;
             MdOutline_NotifyModified(idx);
             if (!g_suppressDirty) {
                 Editor_MarkDirty(idx, TRUE);
@@ -714,7 +642,6 @@ void Editor_OnNotify(LPARAM lp) {
         MdView_RefreshIfActive(idx);
     }
 }
-
 static char* Scintilla_GetTextUtf8(HWND hed, DWORD* lenOut) {
     DWORD len = (DWORD)SendMessage(hed, SCI_GETLENGTH, 0, 0);
     char* buf = (char*)malloc(len + 1);
@@ -723,12 +650,10 @@ static char* Scintilla_GetTextUtf8(HWND hed, DWORD* lenOut) {
     *lenOut = len;
     return buf;
 }
-
 char* Editor_GetTextUtf8(int index, DWORD* outLen) {
     if (index < 0 || index >= g_docCount) { *outLen = 0; return NULL; }
     return Scintilla_GetTextUtf8(g_docs[index].hwndEdit, outLen);
 }
-
 BOOL Editor_SaveDoc(int index, BOOL askPath) {
     Doc* d = &g_docs[index];
     if (askPath || d->isNew || d->path[0] == L'\0') {
@@ -753,13 +678,11 @@ BOOL Editor_SaveDoc(int index, BOOL askPath) {
     }
     return ok;
 }
-
 BOOL Editor_SaveDocAs(int index) {
     Doc* d = &g_docs[index];
     wchar_t fname[MAX_PATH] = {0};
     if (!d->isNew) { wcscpy_s(fname, MAX_PATH, d->path); PathStripPathW(fname); }
     else wcscpy_s(fname, MAX_PATH, T(STR_UNTITLED_TXT));
-
     wchar_t filter[256];
     I18n_JoinFilter(filter, 256, STR_FILTER_TXT, STR_FILTER_TXTPAT,
                              STR_FILTER_ALL, STR_FILTER_ALLPAT);
@@ -771,7 +694,6 @@ BOOL Editor_SaveDocAs(int index) {
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetSaveFileNameW(&ofn)) return FALSE;
-
     wcscpy_s(d->path, MAX_PATH, fname);
     d->isNew = FALSE;
     d->baseTitle[0] = L'\0';
@@ -788,23 +710,30 @@ BOOL Editor_SaveDocAs(int index) {
         Session_AutoBackupDiscard(d->path);
         Editor_UpdateTitle(index);
         InvalidateRect(g_hwndTab, NULL, FALSE);
+        LangID nl = LangFromPath(d->path);
+        if (nl != LANG_NONE && nl != d->lang)
+            Editor_SetLang(index, nl);
         Session_DiscardDraft(index);
         Session_SaveDrafts();
         MdView_Reset();
+        if (MdView_IsVisible())
+            MdView_OnActivate();
         g_sessionDirty = TRUE;
     }
     return ok;
 }
-
 void Editor_CloseDoc(int index) {
     if (index < 0 || index >= g_docCount) return;
-    if (!g_docs[index].isNew && g_docs[index].dirty) {
+    Doc* d = &g_docs[index];
+    BOOL mod = d->dirty && !d->bakRestored &&
+               (!d->isNew || SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) > 0);
+    if (mod) {
         wchar_t msg[300];
-        WFmt(msg, T(STR_MSG_FILE_MODIFIED), g_docs[index].title);
+        WFmt(msg, T(STR_MSG_FILE_MODIFIED), d->title);
         int r = MessageBoxW(g_hwndMain, msg, T(STR_APP_TITLE), MB_YESNOCANCEL | MB_ICONQUESTION);
         if (r == IDCANCEL) return;
         if (r == IDYES) { if (!Editor_SaveDoc(index, FALSE)) return; }
-    } else if (g_docs[index].isNew) {
+    } else if (d->isNew) {
         Session_DiscardDraft(index);
     }
     if (!g_docs[index].isNew && g_docs[index].path[0])
@@ -824,14 +753,12 @@ void Editor_CloseDoc(int index) {
     }
     Session_SaveDrafts();
 }
-
 int Editor_FindDocByPath(const wchar_t* path) {
     for (int i = 0; i < g_docCount; i++) {
         if (!g_docs[i].isNew && _wcsicmp(g_docs[i].path, path) == 0) return i;
     }
     return -1;
 }
-
 void OpenFileByPath(const wchar_t* path) {
     int ex = Editor_FindDocByPath(path);
     if (ex >= 0) { Editor_Activate(ex); return; }
@@ -841,12 +768,10 @@ void OpenFileByPath(const wchar_t* path) {
     AddRecent(path);
     Editor_Activate(ni);
 }
-
 HWND Editor_ActiveEdit(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return NULL;
     return g_docs[g_curDoc].hwndEdit;
 }
-
 void Editor_UpdateStatus(void) {
     Toolbar_UpdateStates();
     if (g_curDoc < 0 || g_curDoc >= g_docCount) {
@@ -864,7 +789,6 @@ void Editor_UpdateStatus(void) {
     int col = (int)(cp - lineStart) + 1;
     int totalLines = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
     Sci_Position len = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
-
     wchar_t s1[64], s2[32], s3[32], s4[64], s5[64];
     if (selStart != selEnd)
         WFmt(s1, T(STR_STATUS_SEL_CHARS), (int)(selEnd - selStart));
@@ -882,7 +806,6 @@ void Editor_UpdateStatus(void) {
     StatusBar_SetText(4, s5);
     ScrollBars_Update();
 }
-
 void Editor_OnLanguageChanged(void) {
     for (int i = 0; i < g_docCount; i++) {
         Doc* d = &g_docs[i];
@@ -903,10 +826,8 @@ void Editor_OnLanguageChanged(void) {
     InvalidateRect(g_hwndTab, NULL, FALSE);
     Editor_UpdateStatus();
 }
-
 #define BM_MARKER 24
 #define BM_MASK   (1 << BM_MARKER)
-
 void Editor_ToggleBookmark(int index) {
     if (index < 0 || index >= g_docCount) return;
     HWND hed = g_docs[index].hwndEdit;
@@ -917,7 +838,6 @@ void Editor_ToggleBookmark(int index) {
     else
         SendMessage(hed, SCI_MARKERADD, line, BM_MARKER);
 }
-
 void Editor_GotoBookmark(int index, BOOL next) {
     if (index < 0 || index >= g_docCount) return;
     HWND hed = g_docs[index].hwndEdit;
@@ -934,11 +854,9 @@ void Editor_GotoBookmark(int index, BOOL next) {
     }
     if (target >= 0) SendMessage(hed, SCI_GOTOLINE, target, 0);
 }
-
 BOOL DiskWriteTimePublic(const wchar_t* path, FILETIME* ft) {
     return DiskWriteTime(path, ft);
 }
-
 double Editor_SyncScrollFromPreview(double frac) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return -1.0;
     HWND hed = g_docs[g_curDoc].hwndEdit;

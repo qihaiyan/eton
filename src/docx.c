@@ -1,24 +1,6 @@
-/*
- * docx.c — Markdown → Word (.docx) 导出
- *
- * 纯 OOXML 生成，零外部依赖：
- *  - store-only ZIP 打包（CRC32 + 本地头 + 中央目录）
- *  - document.xml / styles.xml / numbering.xml / rels / [Content_Types].xml
- *  - 数学公式生成 OMML（m:oMath），Word 内可直接编辑
- *  - Mermaid 图用原生 GDI 绘制渲染为矢量 EMF 嵌入
- *  - 本地/已缓存图片按原始字节嵌入（png/jpeg/gif/bmp/tiff 魔数嗅探）
- *
- * 设置环境变量 ETON_EXPORT_PATH 可跳过保存对话框直接写指定路径
- * （供自动化/脚本使用）。
- */
-
 #include "common.h"
 #include <shlwapi.h>
-
-/* ---------------- 动态 UTF-8 缓冲 ---------------- */
-
 typedef struct { char* p; size_t len, cap; } XB;
-
 static void XbReserve(XB* b, size_t extra) {
     if (b->len + extra + 1 <= b->cap) return;
     size_t nc = b->cap ? b->cap * 2 : 4096;
@@ -28,7 +10,6 @@ static void XbReserve(XB* b, size_t extra) {
     b->p = q;
     b->cap = nc;
 }
-
 static void XbPut(XB* b, const char* s, size_t n) {
     XbReserve(b, n);
     if (!b->p) return;
@@ -36,16 +17,12 @@ static void XbPut(XB* b, const char* s, size_t n) {
     b->len += n;
     b->p[b->len] = 0;
 }
-
 static void Xs(XB* b, const char* s) { XbPut(b, s, strlen(s)); }
-
 static void Xnum(XB* b, long long v) {
     char t[32];
     sprintf_s(t, sizeof(t), "%lld", v);
     Xs(b, t);
 }
-
-/* 转义并追加宽字符串（XML 文本/属性通用） */
 static void XwSeg(XB* b, const wchar_t* w, int n) {
     if (!w) return;
     char utf8[16];
@@ -60,21 +37,16 @@ static void XwSeg(XB* b, const wchar_t* w, int n) {
             case L'\'': ent = "&apos;"; break;
         }
         if (ent) { Xs(b, ent); continue; }
-        if (ch < 0x20 && ch != L'	') continue;   /* XML 非法控制字符直接丢弃 */
+        if (ch < 0x20 && ch != L'	') continue;
         int m = WideCharToMultiByte(CP_UTF8, 0, &ch, 1, utf8, sizeof(utf8), NULL, NULL);
         if (m > 0) XbPut(b, utf8, (size_t)m);
     }
 }
-
 static void Xw(XB* b, const wchar_t* w) {
     XwSeg(b, w, w ? (int)wcslen(w) : 0);
 }
-
-/* ---------------- CRC32 + store-only ZIP ---------------- */
-
 static DWORD s_crcTbl[256];
 static BOOL s_crcOk = FALSE;
-
 static void CrcInit(void) {
     for (DWORD i = 0; i < 256; i++) {
         DWORD c = i;
@@ -84,7 +56,6 @@ static void CrcInit(void) {
     }
     s_crcOk = TRUE;
 }
-
 static DWORD Crc32(const void* data, size_t n) {
     if (!s_crcOk) CrcInit();
     DWORD c = 0xFFFFFFFFu;
@@ -93,17 +64,14 @@ static DWORD Crc32(const void* data, size_t n) {
         c = s_crcTbl[(c ^ p[i]) & 0xFF] ^ (c >> 8);
     return c ^ 0xFFFFFFFFu;
 }
-
 typedef struct {
     char  name[80];
     BYTE* data;
     DWORD size;
     DWORD crc;
-    DWORD off;      /* 本地头在文件中的偏移 */
+    DWORD off;
 } ZipEnt;
-
 typedef struct { ZipEnt* e; int n, cap; } Zip;
-
 static BOOL ZipAdd(Zip* z, const char* name, const void* data, DWORD size) {
     if (z->n >= z->cap) {
         int nc = z->cap ? z->cap * 2 : 16;
@@ -123,13 +91,11 @@ static BOOL ZipAdd(Zip* z, const char* name, const void* data, DWORD size) {
     z->n++;
     return TRUE;
 }
-
 static void ZipFree(Zip* z) {
     for (int i = 0; i < z->n; i++) free(z->e[i].data);
     free(z->e);
     z->e = NULL; z->n = z->cap = 0;
 }
-
 static void ZipW16(XB* o, unsigned v) {
     char t[2] = { (char)(v & 0xFF), (char)((v >> 8) & 0xFF) };
     XbPut(o, t, 2);
@@ -140,33 +106,31 @@ static void ZipW32(XB* o, unsigned long v) {
     t[2] = (char)((v >> 16) & 0xFF); t[3] = (char)((v >> 24) & 0xFF);
     XbPut(o, t, 4);
 }
-
-/* 写出 zip（所有条目 store 不压缩，文件名按 UTF-8 标志位） */
 static BOOL ZipWriteFile(Zip* z, const wchar_t* path) {
     XB o = { 0 };
     for (int i = 0; i < z->n; i++) {
         ZipEnt* e = &z->e[i];
         e->off = (DWORD)o.len;
-        ZipW32(&o, 0x04034b50);          /* local file header */
-        ZipW16(&o, 20);                  /* version needed */
-        ZipW16(&o, 0x0800);              /* UTF-8 名称 */
-        ZipW16(&o, 0);                   /* method: store */
-        ZipW16(&o, 0); ZipW16(&o, 0x21); /* time 00:00, date 1980-01-01 */
+        ZipW32(&o, 0x04034b50);
+        ZipW16(&o, 20);
+        ZipW16(&o, 0x0800);
+        ZipW16(&o, 0);
+        ZipW16(&o, 0); ZipW16(&o, 0x21);
         ZipW32(&o, e->crc);
         ZipW32(&o, e->size);
         ZipW32(&o, e->size);
         ZipW16(&o, (unsigned)strlen(e->name));
-        ZipW16(&o, 0);                    /* extra len（本地头无 comment 字段） */
+        ZipW16(&o, 0);
         Xs(&o, e->name);
         XbPut(&o, (const char*)e->data, e->size);
     }
     DWORD cdStart = (DWORD)o.len;
     for (int i = 0; i < z->n; i++) {
         const ZipEnt* e = &z->e[i];
-        ZipW32(&o, 0x02014b50);          /* central directory */
+        ZipW32(&o, 0x02014b50);
         ZipW16(&o, 20); ZipW16(&o, 20);
         ZipW16(&o, 0x0800); ZipW16(&o, 0);
-        ZipW16(&o, 0); ZipW16(&o, 0x21); /* time 00:00, date 1980-01-01 */
+        ZipW16(&o, 0); ZipW16(&o, 0x21);
         ZipW32(&o, e->crc);
         ZipW32(&o, e->size);
         ZipW32(&o, e->size);
@@ -176,13 +140,12 @@ static BOOL ZipWriteFile(Zip* z, const wchar_t* path) {
         Xs(&o, e->name);
     }
     DWORD cdSize = (DWORD)o.len - cdStart;
-    ZipW32(&o, 0x06054b50);              /* EOCD */
+    ZipW32(&o, 0x06054b50);
     ZipW16(&o, 0); ZipW16(&o, 0);
     ZipW16(&o, (unsigned)z->n); ZipW16(&o, (unsigned)z->n);
     ZipW32(&o, cdSize);
     ZipW32(&o, cdStart);
     ZipW16(&o, 0);
-
     BOOL ok = FALSE;
     HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, NULL,
                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -194,24 +157,19 @@ static BOOL ZipWriteFile(Zip* z, const wchar_t* path) {
     free(o.p);
     return ok;
 }
-
-/* ---------------- 导出上下文 ---------------- */
-
 typedef struct {
-    XB doc;             /* document.xml body */
-    XB numAbs;          /* numbering.xml 按需生成的有序列表定义 */
-    XB rels;            /* document.xml.rels 的图片/超链接项 */
+    XB doc;
+    XB numAbs;
+    XB rels;
     Zip zip;
-    int nextRid;        /* 下一个 rId 编号（1=styles 2=numbering 已占） */
-    int nextMedia;      /* word/media/imageN */
-    int drawId;         /* docPr id */
-    int nextNumId;      /* 有序列表实例编号 */
+    int nextRid;
+    int nextMedia;
+    int drawId;
+    int nextNumId;
     const MdFonts* fonts;
     struct { wchar_t url[2048]; int rid; } links[256];
     int nLinks;
 } DCX;
-
-/* 超链接：同 URL 去重，返回 rId */
 static int AddHyperlink(DCX* c, const wchar_t* url) {
     for (int i = 0; i < c->nLinks; i++)
         if (wcscmp(c->links[i].url, url) == 0) return c->links[i].rid;
@@ -227,9 +185,6 @@ static int AddHyperlink(DCX* c, const wchar_t* url) {
     Xs(&c->rels, "\"/>");
     return rid;
 }
-
-/* ---------------- 图片魔数嗅探 ---------------- */
-
 static unsigned Be16(const BYTE* p) { return ((unsigned)p[0] << 8) | p[1]; }
 static unsigned Be32(const BYTE* p) {
     return ((unsigned)p[0] << 24) | ((unsigned)p[1] << 16) |
@@ -240,7 +195,6 @@ static unsigned Le32(const BYTE* p) {
     return ((unsigned)p[3] << 24) | ((unsigned)p[2] << 16) |
            ((unsigned)p[1] << 8) | p[0];
 }
-
 static const char* SniffImage(const BYTE* d, DWORD n, int* w, int* h) {
     *w = 0; *h = 0;
     if (n >= 24 && d[0] == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G') {
@@ -280,8 +234,6 @@ static const char* SniffImage(const BYTE* d, DWORD n, int* w, int* h) {
         return "tiff";
     return NULL;
 }
-
-/* 嵌入媒体字节，返回 rId；emuW/emuH 返回建议尺寸（96dpi 假设，宽超页缩放） */
 static int AddMediaBytes(DCX* c, const void* bytes, DWORD size, const char* ext,
                          int pxW, int pxH, long long* emuW, long long* emuH) {
     char name[64];
@@ -302,7 +254,6 @@ static int AddMediaBytes(DCX* c, const void* bytes, DWORD size, const char* ext,
     *emuH = (long long)pxH * 9525;
     return rid;
 }
-
 static void DrawingRun(DCX* c, int rid, long long emuW, long long emuH) {
     int id = ++c->drawId;
     XB* b = &c->doc;
@@ -325,8 +276,6 @@ static void DrawingRun(DCX* c, int rid, long long emuW, long long emuH) {
     Xs(b, "\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>");
     Xs(b, "</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>");
 }
-
-/* 嵌入磁盘图片文件（本地/缓存），返回 rId，0=失败 */
 static int AddImageFile(DCX* c, const wchar_t* path, long long* emuW, long long* emuH) {
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL,
                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -345,7 +294,7 @@ static int AddImageFile(DCX* c, const wchar_t* path, long long* emuW, long long*
     int w = 0, h = 0;
     const char* ext = SniffImage(buf, total, &w, &h);
     if (!ext) { free(buf); return 0; }
-    if (w <= 0 || h <= 0) {   /* 尺寸未知时经 GDI+ 拿 */
+    if (w <= 0 || h <= 0) {
         UINT gw = 0, gh = 0;
         if (MdView_ImageSize(path, &gw, &gh)) { w = (int)gw; h = (int)gh; }
     }
@@ -353,16 +302,10 @@ static int AddImageFile(DCX* c, const wchar_t* path, long long* emuW, long long*
     free(buf);
     return rid;
 }
-
-/* ---------------- OMML 公式 ---------------- */
-
 static void OmmlNode(XB* b, const MathBox* m);
-
 static const MathBox* Kid(const MathBox* m, int i) {
     return (m && m->nKids > i) ? m->kids[i] : NULL;
 }
-
-/* 行内容：BIGOP + 空底 SCRIPT 合并为 nary / limLow */
 static void OmmlKids(XB* b, const MathBox* row) {
     for (int i = 0; i < row->nKids; i++) {
         const MathBox* k = row->kids[i];
@@ -374,7 +317,7 @@ static void OmmlKids(XB* b, const MathBox* row) {
             if (nx && nx->kind == MB_SCRIPT && nx->nKids > 0 && !nx->kids[0]) {
                 const MathBox* sub = Kid(nx, 2);
                 const MathBox* sup = Kid(nx, 1);
-                if (!multi) {       /* ∑ ∫ ∏ … → 上下限运算符 */
+                if (!multi) {
                     Xs(b, "<m:nary><m:naryPr><m:chr m:val=\"");
                     Xw(b, g);
                     Xs(b, "\"/><m:limLoc m:val=\"undOvr\"/>");
@@ -387,7 +330,7 @@ static void OmmlKids(XB* b, const MathBox* row) {
                     i++;
                     continue;
                 }
-                if (sub && wcsncmp(g, L"lim", 3) == 0) {   /* lim_{…} */
+                if (sub && wcsncmp(g, L"lim", 3) == 0) {
                     Xs(b, "<m:limLow><m:e>");
                     OmmlNode(b, k);
                     Xs(b, "</m:e><m:lim>");
@@ -401,7 +344,6 @@ static void OmmlKids(XB* b, const MathBox* row) {
         OmmlNode(b, k);
     }
 }
-
 static void OmmlNode(XB* b, const MathBox* m) {
     if (!m) return;
     switch (m->kind) {
@@ -458,11 +400,10 @@ static void OmmlNode(XB* b, const MathBox* m) {
             }
             break;
         }
-        case MB_BIGOP:   /* 未与后续脚本合并：按普通符号输出 */
+        case MB_BIGOP:
             OmmlNode(b, Kid(m, 0));
             break;
         case MB_ENV: {
-            /* 环境矩阵：m:d（分隔符）包裹 m:m（矩阵行/列） */
             static const char* kBeg[7] = { NULL, "(", "[", "{", "|", "\xE2\x80\x96", "{" };
             static const char* kEnd[7] = { NULL, ")", "]", "}", "|", "\xE2\x80\x96", NULL };
             int ev = m->env & 7;
@@ -493,7 +434,6 @@ static void OmmlNode(XB* b, const MathBox* m) {
         }
     }
 }
-
 static void OmmlMath(XB* b, const MathBox* m, BOOL display) {
     if (display) Xs(b, "<m:oMathPara>");
     Xs(b, "<m:oMath>");
@@ -501,9 +441,6 @@ static void OmmlMath(XB* b, const MathBox* m, BOOL display) {
     Xs(b, "</m:oMath>");
     if (display) Xs(b, "</m:oMathPara>");
 }
-
-/* ---------------- Mermaid → EMF ---------------- */
-
 static int AddDiagram(DCX* c, MermaidDiagram* d, long long* emuW, long long* emuH) {
     HDC ref = GetDC(NULL);
     if (!ref || !c->fonts) { if (ref) ReleaseDC(NULL, ref); return 0; }
@@ -514,7 +451,7 @@ static int AddDiagram(DCX* c, MermaidDiagram* d, long long* emuW, long long* emu
         HDC mdc = CreateEnhMetaFileW(ref, NULL, &rc, L"eton docx\0diagram\0");
         if (mdc) {
             BOOL saveDark = g_dark;
-            g_dark = FALSE;                     /* Word 文档固定亮色 */
+            g_dark = FALSE;
             MdTheme th;
             MdTheme_Build(&th);
             g_dark = saveDark;
@@ -545,12 +482,7 @@ static int AddDiagram(DCX* c, MermaidDiagram* d, long long* emuW, long long* emu
     ReleaseDC(NULL, ref);
     return rid;
 }
-
-/* ---------------- 文档内容生成 ---------------- */
-
 static void WalkBlock(DCX* c, const MdBlock* b, int lvl, int qd);
-
-/* 段落运行输出：粗斜/删除线/行内代码/链接/公式/行内图片/软换行 */
 static void RunProps(DCX* c, unsigned sty, int linkRid) {
     XB* b = &c->doc;
     BOOL any = (sty & (STY_BOLD | STY_EM | STY_STRIKE | STY_CODE | STY_LINK)) ||
@@ -565,7 +497,6 @@ static void RunProps(DCX* c, unsigned sty, int linkRid) {
     if (sty & STY_CODE)   Xs(b, "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"F0F0F0\"/>");
     Xs(b, "</w:rPr>");
 }
-
 static void TextRun(DCX* c, const wchar_t* text, unsigned sty, int linkRid) {
     if (!text || !text[0]) return;
     XB* b = &c->doc;
@@ -581,8 +512,6 @@ static void TextRun(DCX* c, const wchar_t* text, unsigned sty, int linkRid) {
     Xs(b, "</w:t></w:r>");
     if (linkRid) Xs(b, "</w:hyperlink>");
 }
-
-/* 段落内运行序列 */
 static void ParaRuns(DCX* c, const MdRun* runs, int nRuns, int qd) {
     (void)qd;
     XB* b = &c->doc;
@@ -616,8 +545,6 @@ static void ParaRuns(DCX* c, const MdRun* runs, int nRuns, int qd) {
         TextRun(c, r->text, r->style, rid);
     }
 }
-
-/* 判断段落是否为“图片段落”（只有一个图片运行，其余是空白） */
 static const MdRun* SoleImageRun(const MdBlock* b) {
     const MdRun* img = NULL;
     for (int i = 0; i < b->nRuns; i++) {
@@ -637,8 +564,6 @@ static const MdRun* SoleImageRun(const MdBlock* b) {
     }
     return img;
 }
-
-/* 判断段落是否为“独行公式” */
 static const MdRun* SoleDisplayMathRun(const MdBlock* b) {
     int nSig = 0;
     const MdRun* math = NULL;
@@ -657,8 +582,6 @@ static const MdRun* SoleDisplayMathRun(const MdBlock* b) {
     }
     return (nSig == 1) ? math : NULL;
 }
-
-/* 列表项编号定义（按需生成，numId 起自 100；每个有序列表独立实例以重新计数） */
 static int NewOrderNum(DCX* c) {
     int id = 100 + c->nextNumId++;
     XB* b = &c->numAbs;
@@ -679,9 +602,7 @@ static int NewOrderNum(DCX* c) {
     Xs(b, "</w:abstractNum>");
     return id;
 }
-
 static void WalkList(DCX* c, const MdBlock* list, int lvl, int qd);
-
 static void WalkLi(DCX* c, const MdBlock* li, int lvl, int qd, int numId) {
     BOOL firstPara = TRUE;
     for (int i = 0; i < li->nChildren; i++) {
@@ -722,7 +643,6 @@ static void WalkLi(DCX* c, const MdBlock* li, int lvl, int qd, int numId) {
         }
     }
 }
-
 static void WalkList(DCX* c, const MdBlock* list, int lvl, int qd) {
     int numId = (list->type == MDB_OL) ? NewOrderNum(c) : 1;
     for (int i = 0; i < list->nChildren; i++) {
@@ -730,7 +650,6 @@ static void WalkList(DCX* c, const MdBlock* list, int lvl, int qd) {
         if (li && li->type == MDB_LI) WalkLi(c, li, lvl, qd, numId);
     }
 }
-
 static void WalkTable(DCX* c, const MdBlock* b, int qd) {
     XB* x = &c->doc;
     int nC = b->nCols, nR = b->nRows;
@@ -773,8 +692,6 @@ static void WalkTable(DCX* c, const MdBlock* b, int qd) {
     }
     Xs(x, "</w:tbl><w:p/>");
 }
-
-/* 普通文本段落（引用深度 qd 决定左边框+缩进） */
 static void EmitPara(DCX* c, const MdBlock* b, int qd) {
     XB* x = &c->doc;
     Xs(x, "<w:p><w:pPr>");
@@ -787,7 +704,6 @@ static void EmitPara(DCX* c, const MdBlock* b, int qd) {
     ParaRuns(c, b->runs, b->nRuns, qd);
     Xs(x, "</w:p>");
 }
-
 static BOOL EmitImagePara(DCX* c, const MdRun* img) {
     wchar_t full[MAX_PATH];
     if (!MdView_ResolveImage(img->href ? img->href : L"", full, MAX_PATH)) return FALSE;
@@ -800,7 +716,6 @@ static BOOL EmitImagePara(DCX* c, const MdRun* img) {
     Xs(x, "</w:p>");
     return TRUE;
 }
-
 static BOOL EmitMathPara(DCX* c, const MdRun* r) {
     MathBox* m = r->math;
     if (!m && r->text) m = Math_Build(r->text);
@@ -812,7 +727,6 @@ static BOOL EmitMathPara(DCX* c, const MdRun* r) {
     Xs(x, "</w:p>");
     return TRUE;
 }
-
 static void WalkBlock(DCX* c, const MdBlock* b, int lvl, int qd) {
     if (!b) return;
     XB* x = &c->doc;
@@ -835,7 +749,7 @@ static void WalkBlock(DCX* c, const MdBlock* b, int lvl, int qd) {
             break;
         }
         case MDB_CODE: {
-            if (b->diag) {          /* Mermaid：矢量 EMF 居中 */
+            if (b->diag) {
                 long long ew = 0, eh = 0;
                 int rid = AddDiagram(c, b->diag, &ew, &eh);
                 if (rid) {
@@ -844,7 +758,6 @@ static void WalkBlock(DCX* c, const MdBlock* b, int lvl, int qd) {
                     Xs(x, "</w:p>");
                     return;
                 }
-                /* 渲染失败 → 按源码导出 */
             }
             Xs(x, "<w:p><w:pPr>"
                   "<w:pBdr>"
@@ -892,7 +805,6 @@ static void WalkBlock(DCX* c, const MdBlock* b, int lvl, int qd) {
             WalkTable(c, b, qd);
             break;
         case MDB_HTML: {
-            /* 原样不可用：退化为等宽源码段落 */
             Xs(x, "<w:p><w:r><w:rPr>"
                   "<w:rFonts w:ascii=\"Consolas\" w:hAnsi=\"Consolas\"/>"
                   "</w:rPr><w:t xml:space=\"preserve\">");
@@ -905,9 +817,6 @@ static void WalkBlock(DCX* c, const MdBlock* b, int lvl, int qd) {
             break;
     }
 }
-
-/* ---------------- 部件模板 ---------------- */
-
 static const char* kDocXmlHead =
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" "
@@ -915,13 +824,11 @@ static const char* kDocXmlHead =
     "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" "
     "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\">"
     "<w:body>";
-
 static const char* kDocXmlTail =
     "<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/>"
     "<w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\" "
     "w:header=\"851\" w:footer=\"992\" w:gutter=\"0\"/></w:sectPr>"
     "</w:body></w:document>";
-
 static const char* kStylesXml =
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
@@ -966,14 +873,12 @@ static const char* kStylesXml =
     "<w:spacing w:before=\"120\" w:after=\"80\"/></w:pPr>"
     "<w:rPr><w:b/><w:color w:val=\"2F5496\"/><w:sz w:val=\"21\"/><w:szCs w:val=\"21\"/></w:rPr></w:style>"
     "</w:styles>";
-
 static const char* kRelsRoot =
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
     "<Relationship Id=\"rId1\" "
     "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" "
     "Target=\"word/document.xml\"/></Relationships>";
-
 static const char* kContentTypes =
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
@@ -989,17 +894,12 @@ static const char* kContentTypes =
     "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>"
     "<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>"
     "</Types>";
-
-/* ---------------- 导出入口 ---------------- */
-
 void MdExport_Docx(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     if (g_docs[g_curDoc].lang != LANG_MD) return;
-
     wchar_t fname[MAX_PATH];
     DWORD envLen = GetEnvironmentVariableW(L"ETON_EXPORT_PATH", fname, MAX_PATH);
     if (envLen > 0 && envLen < MAX_PATH) {
-        /* 自动化路径：环境变量指定输出文件 */
     } else {
         wcscpy_s(fname, MAX_PATH, g_docs[g_curDoc].title);
         wchar_t* dot = wcsrchr(fname, L'.');
@@ -1017,27 +917,19 @@ void MdExport_Docx(void) {
         if (!PathMatchSpecW(fname, L"*.docx"))
             wcscat_s(fname, MAX_PATH, L".docx");
     }
-
     const MdBlock* root = MdView_EnsureDocModel();
     if (!root) return;
-
-    /* DCX 含约 1MB 的超链接表，必须放堆上（默认栈仅 1MB） */
     DCX* c = (DCX*)calloc(1, sizeof(DCX));
     if (!c) return;
-    c->nextRid = 3;     /* rId1=styles, rId2=numbering */
+    c->nextRid = 3;
     HDC ref = GetDC(NULL);
     c->fonts = ref ? MdView_DocFonts(ref) : NULL;
-
     for (int i = 0; i < root->nChildren; i++)
         WalkBlock(c, root->children[i], 0, 0);
-
-    /* document.xml */
     XB doc = { 0 };
     Xs(&doc, kDocXmlHead);
     if (c->doc.p) XbPut(&doc, c->doc.p, c->doc.len);
     Xs(&doc, kDocXmlTail);
-
-    /* numbering.xml：项目符号 + 按需生成的有序列表 */
     XB num = { 0 };
     Xs(&num, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
              "<w:numbering xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">");
@@ -1063,8 +955,6 @@ void MdExport_Docx(void) {
         Xs(&num, t);
     }
     Xs(&num, "<w:num w:numId=\"1\"><w:abstractNumId w:val=\"0\"/></w:num></w:numbering>");
-
-    /* document.xml.rels */
     XB rels = { 0 };
     Xs(&rels, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
               "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
@@ -1076,7 +966,6 @@ void MdExport_Docx(void) {
               "Target=\"numbering.xml\"/>");
     if (c->rels.p) XbPut(&rels, c->rels.p, c->rels.len);
     Xs(&rels, "</Relationships>");
-
     BOOL ok = ZipAdd(&c->zip, "[Content_Types].xml", kContentTypes, (DWORD)strlen(kContentTypes)) &&
               ZipAdd(&c->zip, "_rels/.rels", kRelsRoot, (DWORD)strlen(kRelsRoot)) &&
               ZipAdd(&c->zip, "word/document.xml", doc.p, (DWORD)doc.len) &&
@@ -1084,14 +973,10 @@ void MdExport_Docx(void) {
               ZipAdd(&c->zip, "word/numbering.xml", num.p, (DWORD)num.len) &&
               ZipAdd(&c->zip, "word/_rels/document.xml.rels", rels.p, (DWORD)rels.len) &&
               ZipWriteFile(&c->zip, fname);
-
     free(doc.p); free(num.p); free(rels.p);
     free(c->doc.p); free(c->numAbs.p); free(c->rels.p);
     ZipFree(&c->zip);
     free(c);
     if (ref) ReleaseDC(NULL, ref);
-
     if (!ok) MessageBoxW(g_hwndMain, L"Failed to write .docx", L"ETON", MB_ICONERROR);
 }
-
-/* SAC verdict refresh: build 1790493093 */

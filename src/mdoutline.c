@@ -1,58 +1,43 @@
 #include "common.h"
-
-/* ===================== Markdown 大纲（左侧停靠面板） =====================
-   逐行扫描编辑器文本提取标题（ATX # 与 Setext =/- 下划线，跳过围栏代码
-   块），点击条目跳到编辑器对应行；预览可见时按行比例同步滚动预览。
-   光标移动时高亮当前所在标题；输入经 400ms 去抖后重扫。 */
-
 #define TID_RESCAN 1
-
 typedef struct {
-    int level;              /* 1..6 */
-    int line;               /* 0 基源码行号 */
+    int level;
+    int line;
     wchar_t* title;
 } OlEnt;
-
 static struct {
     HWND hwnd;
     OlEnt* ents; int n, cap;
     int docIdx;
-    unsigned scanGen;       /* 扫描时文档的 modGen */
+    unsigned scanGen;
     int clientW, clientH;
     int scrollY;
-    int hover, cur;         /* 悬停 / 光标所在标题，-1 = 无 */
-    BOOL closeHot;          /* 标题栏关闭按钮悬停 */
+    int hover, cur;
+    BOOL closeHot;
     BOOL sbDrag; int sbDragOff;
     HFONT font, fontBold;
     BOOL fontsOk;
 } O;
-
 static int CaptionH(void) { return UI_Scale(26); }
 static int ItemH(void)    { return UI_Scale(22); }
 static int SbW(void)      { return UI_Scale(12); }
-
-/* 标题栏右侧关闭按钮矩形 */
 static RECT CloseBtnRect(void) {
     int s = UI_Scale(18);
     RECT rc = { O.clientW - s - UI_Scale(5), (CaptionH() - s) / 2,
                 O.clientW - UI_Scale(5), (CaptionH() + s) / 2 };
     return rc;
 }
-
 static BOOL InCloseBtn(int px, int py) {
     RECT cb = CloseBtnRect();
     return px >= cb.left && px < cb.right && py >= cb.top && py < cb.bottom;
 }
-
 int MdOutline_Width(void) { return UI_Scale(212); }
-
 static void FontsFree(void) {
     if (O.font) DeleteObject(O.font);
     if (O.fontBold) DeleteObject(O.fontBold);
     O.font = O.fontBold = NULL;
     O.fontsOk = FALSE;
 }
-
 static void FontsEnsure(HDC hdc) {
     if (O.fontsOk) return;
     int h = -MulDiv(9, (int)g_dpi, 72);
@@ -65,7 +50,6 @@ static void FontsEnsure(HDC hdc) {
     (void)hdc;
     O.fontsOk = TRUE;
 }
-
 static void AddEnt(int level, int line, const char* s8, int len8) {
     if (O.n >= 2048) return;
     int n = MultiByteToWideChar(CP_UTF8, 0, s8, len8, NULL, 0);
@@ -86,7 +70,6 @@ static void AddEnt(int level, int line, const char* s8, int len8) {
     O.ents[O.n].title = w;
     O.n++;
 }
-
 static void Scan(int index) {
     for (int i = 0; i < O.n; i++) free(O.ents[i].title);
     O.n = 0;
@@ -96,9 +79,8 @@ static void Scan(int index) {
     DWORD len = 0;
     char* txt = Editor_GetTextUtf8(index, &len);
     if (!txt) return;
-
-    char fence = 0;                 /* 开着的围栏字符（0 = 无） */
-    BOOL prevIsPara = FALSE;        /* 前一行是否普通段落文本（Setext 用） */
+    char fence = 0;
+    BOOL prevIsPara = FALSE;
     const char* prev = NULL; int prevLen = 0;
     const char* end = txt + len;
     const char* p = txt;
@@ -112,7 +94,7 @@ static void Scan(int index) {
         int i = 0;
         while (i < ll && (ln[i] == ' ' || ln[i] == '\t')) i++;
         BOOL blank = (i >= ll);
-        if (fence) {                /* 围栏内：只找闭合围栏 */
+        if (fence) {
             if (!blank && ln[i] == fence) {
                 int c2 = i;
                 while (c2 < ll && ln[c2] == fence) c2++;
@@ -122,7 +104,7 @@ static void Scan(int index) {
             }
             prevIsPara = FALSE;
         } else if (!blank) {
-            if (ln[i] == '`' || ln[i] == '~') {         /* 围栏开始 */
+            if (ln[i] == '`' || ln[i] == '~') {
                 int c2 = i;
                 while (c2 < ll && ln[c2] == ln[i]) c2++;
                 if (c2 - i >= 3) {
@@ -131,7 +113,7 @@ static void Scan(int index) {
                     goto nextline;
                 }
             }
-            if (ln[i] == '#') {                          /* ATX */
+            if (ln[i] == '#') {
                 int h = i;
                 while (h < ll && ln[h] == '#') h++;
                 int hn = h - i;
@@ -141,14 +123,14 @@ static void Scan(int index) {
                     while (b < ll && (ln[b] == ' ' || ln[b] == '\t')) b++;
                     int t = ll;
                     while (t > b && (ln[t-1] == ' ' || ln[t-1] == '\t')) t--;
-                    while (t > b && ln[t-1] == '#') t--;  /* 闭合 # 序列 */
+                    while (t > b && ln[t-1] == '#') t--;
                     while (t > b && (ln[t-1] == ' ' || ln[t-1] == '\t')) t--;
                     if (t > b) AddEnt(hn, lineNo, ln + b, t - b);
                     prevIsPara = FALSE;
                     goto nextline;
                 }
             }
-            if (prevIsPara) {                             /* Setext 下划线 */
+            if (prevIsPara) {
                 BOOL allEq = TRUE, allDash = TRUE;
                 for (int k = i; k < ll; k++) {
                     if (ln[k] != '=') allEq = FALSE;
@@ -175,7 +157,6 @@ nextline:
     }
     free(txt);
 }
-
 static int ListH(void) { return O.clientH - CaptionH(); }
 static int MaxScroll(void) {
     int m = O.n * ItemH() - ListH();
@@ -186,7 +167,6 @@ static void ClampScroll(void) {
     int m = MaxScroll();
     if (O.scrollY > m) O.scrollY = m;
 }
-
 static void RecalcCur(void) {
     int line = -1;
     if (g_curDoc >= 0 && g_curDoc < g_docCount) {
@@ -201,7 +181,6 @@ static void RecalcCur(void) {
     }
     O.cur = c;
 }
-
 static void EnsureVisible(int idx) {
     int y = idx * ItemH();
     int lh = ListH();
@@ -210,7 +189,6 @@ static void EnsureVisible(int idx) {
     else if (y + ItemH() > O.scrollY + lh) O.scrollY = y + ItemH() - lh;
     ClampScroll();
 }
-
 static void JumpTo(int idx) {
     if (idx < 0 || idx >= O.n) return;
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
@@ -220,8 +198,6 @@ static void JumpTo(int idx) {
     EnsureVisible(idx);
     InvalidateRect(O.hwnd, NULL, FALSE);
     if (MdView_IsVisible()) {
-        /* 预览按行比例滚动（与分屏同步一致）；分屏下编辑器滚动本身
-           也会经 SCN_UPDATEUI 再同步一次 */
         int total = (int)SendMessage(d->hwndEdit, SCI_GETLINECOUNT, 0, 0);
         double frac = total > 1 ? (double)O.ents[idx].line / (double)(total - 1) : 0.0;
         if (frac < 0) frac = 0;
@@ -231,7 +207,6 @@ static void JumpTo(int idx) {
     if (!MdView_IsVisible() || g_mdSplit)
         SetFocus(d->hwndEdit);
 }
-
 static void Paint(void) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(O.hwnd, &ps);
@@ -243,7 +218,6 @@ static void Paint(void) {
     HBITMAP bmp = CreateCompatibleBitmap(hdc, w, h);
     HBITMAP def = (HBITMAP)SelectObject(mem, bmp);
     FontsEnsure(mem);
-
     COLORREF bg      = g_dark ? RGB(37,37,40)   : RGB(243,244,246);
     COLORREF capBg   = g_dark ? RGB(45,45,48)   : RGB(234,237,240);
     COLORREF capLine = g_dark ? RGB(56,58,62)   : RGB(216,220,224);
@@ -251,12 +225,10 @@ static void Paint(void) {
     COLORREF muted   = g_dark ? RGB(139,148,158): RGB(110,119,129);
     COLORREF hoverBg = g_dark ? RGB(47,51,57)   : RGB(228,232,236);
     COLORREF curBg   = g_dark ? RGB(55,61,72)   : RGB(214,221,229);
-
     RECT full = { 0, 0, w, h };
     HBRUSH br = CreateSolidBrush(bg);
     FillRect(mem, &full, br);
     DeleteObject(br);
-
     int capH = CaptionH();
     RECT cap = { 0, 0, w, capH };
     br = CreateSolidBrush(capBg);
@@ -265,19 +237,16 @@ static void Paint(void) {
     SetBkMode(mem, TRANSPARENT);
     SetTextColor(mem, muted);
     RECT cb = CloseBtnRect();
-    /* 标题（右侧给 F6 提示与关闭按钮留位） */
     HFONT of = (HFONT)SelectObject(mem, O.fontBold);
     RECT capText = { UI_Scale(10), 0, cb.left - UI_Scale(34), capH };
     DrawTextW(mem, T(STR_MD_OUTLINE_TITLE), -1, &capText,
               DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
     SelectObject(mem, of);
-    /* 快捷键提示 */
     HFONT ofF = (HFONT)SelectObject(mem, O.font);
     RECT hk = { 0, 0, cb.left - UI_Scale(8), capH };
     DrawTextW(mem, L"F6", -1, &hk,
               DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
     SelectObject(mem, ofF);
-    /* 关闭按钮：悬停红底白叉（Windows 标题按钮风格） */
     if (O.closeHot) {
         br = CreateSolidBrush(RGB(232,17,35));
         FillRect(mem, &cb, br);
@@ -299,7 +268,6 @@ static void Paint(void) {
     LineTo(mem, w, capH - 1);
     SelectObject(mem, open_);
     DeleteObject(pen);
-
     int itemH = ItemH();
     int lh = ListH();
     if (O.n == 0) {
@@ -336,7 +304,6 @@ static void Paint(void) {
                       DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
             SelectObject(mem, f);
         }
-        /* 细滚动条（与预览一致的风格） */
         int maxS = MaxScroll();
         if (maxS > 0 && lh > 0) {
             COLORREF trackClr = g_dark ? RGB(37,37,40) : RGB(240,241,242);
@@ -354,14 +321,12 @@ static void Paint(void) {
             DeleteObject(br);
         }
     }
-
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
     SelectObject(mem, def);
     DeleteObject(bmp);
     DeleteDC(mem);
     EndPaint(O.hwnd, &ps);
 }
-
 static LRESULT CALLBACK OutlineProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_ERASEBKGND:
@@ -382,7 +347,7 @@ static LRESULT CALLBACK OutlineProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_LBUTTONDOWN: {
             int px = GET_X_LPARAM(lp), py = GET_Y_LPARAM(lp);
-            if (InCloseBtn(px, py)) {       /* 关闭 = 同 F6 开关 */
+            if (InCloseBtn(px, py)) {
                 O.closeHot = FALSE;
                 MdOutline_Toggle();
                 return 0;
@@ -432,7 +397,7 @@ static LRESULT CALLBACK OutlineProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 O.hover = idx;
                 InvalidateRect(hwnd, NULL, FALSE);
             }
-            if (O.hover != -1 || O.closeHot) {   /* 悬停期间挂 MOUSELEAVE 跟踪 */
+            if (O.hover != -1 || O.closeHot) {
                 TRACKMOUSEEVENT tme;
                 tme.cbSize = sizeof(tme);
                 tme.dwFlags = TME_LEAVE;
@@ -468,7 +433,6 @@ static LRESULT CALLBACK OutlineProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-
 void MdOutline_Register(void) {
     WNDCLASSEXW wc;
     ZeroMemory(&wc, sizeof(wc));
@@ -481,7 +445,6 @@ void MdOutline_Register(void) {
     wc.lpszClassName = L"ETONMDOutline";
     RegisterClassExW(&wc);
 }
-
 void MdOutline_Create(HWND parent) {
     O.hover = O.cur = -1;
     O.docIdx = -1;
@@ -490,16 +453,13 @@ void MdOutline_Create(HWND parent) {
                              0, 0, 0, 0, parent, NULL, g_hInst, NULL);
     ShowWindow(O.hwnd, SW_HIDE);
 }
-
 BOOL MdOutline_IsVisible(void) {
     return O.hwnd && IsWindowVisible(O.hwnd);
 }
-
 void MdOutline_OnLayout(int x, int y, int w, int h) {
     if (!O.hwnd) return;
     SetWindowPos(O.hwnd, NULL, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
 }
-
 void MdOutline_OnDocChange(void) {
     if (!O.hwnd) return;
     BOOL show = g_mdOutline && g_curDoc >= 0 && g_curDoc < g_docCount &&
@@ -517,13 +477,11 @@ void MdOutline_OnDocChange(void) {
         ShowWindow(O.hwnd, SW_HIDE);
     }
 }
-
 void MdOutline_Toggle(void) {
     g_mdOutline = !g_mdOutline;
     MdOutline_OnDocChange();
     Editor_Layout();
 }
-
 void MdOutline_NotifyModified(int index) {
     if (!O.hwnd || !MdOutline_IsVisible()) return;
     if (index != g_curDoc) return;
@@ -531,7 +489,6 @@ void MdOutline_NotifyModified(int index) {
         g_docs[g_curDoc].lang != LANG_MD) return;
     SetTimer(O.hwnd, TID_RESCAN, 400, NULL);
 }
-
 void MdOutline_OnCaretLine(int line) {
     if (!MdOutline_IsVisible()) return;
     int c = -1;
@@ -544,11 +501,9 @@ void MdOutline_OnCaretLine(int line) {
         InvalidateRect(O.hwnd, NULL, FALSE);
     }
 }
-
 void MdOutline_OnThemeChange(void) {
     if (O.hwnd) InvalidateRect(O.hwnd, NULL, FALSE);
 }
-
 void MdOutline_OnDpiChanged(void) {
     FontsFree();
     if (O.hwnd) InvalidateRect(O.hwnd, NULL, FALSE);

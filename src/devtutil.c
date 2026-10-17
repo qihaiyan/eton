@@ -1,19 +1,10 @@
-/* devtutil.c — 开发者工具的纯算法层
-   （Base64 / URL / Unicode 编解码、CNG 哈希、UUID v4）。
-   刻意不引用 common.h 与任何应用全局状态，便于独立编译做向量自测。 */
-
 #include <windows.h>
 #include <bcrypt.h>
 #include <stdlib.h>
 #include <string.h>
-
 #pragma comment(lib, "bcrypt.lib")
-
-/* ---------------- Base64 ---------------- */
-
 static const char kB64Tab[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 char* DevUtil_B64Encode(const char* in, size_t n, size_t* outN) {
     size_t m = (n + 2) / 3 * 4;
     char* o = (char*)malloc(m + 1);
@@ -48,9 +39,6 @@ char* DevUtil_B64Encode(const char* in, size_t n, size_t* outN) {
     if (outN) *outN = k;
     return o;
 }
-
-/* 解码同时接受标准与 URL-safe（- _）字母表；忽略空白；
-   '=' 只允许出现在收尾（至多两个）；失败时 errPos 为输入中的字节下标。 */
 static int B6Val(char c) {
     if (c >= 'A' && c <= 'Z') return c - 'A';
     if (c >= 'a' && c <= 'z') return c - 'a' + 26;
@@ -59,7 +47,6 @@ static int B6Val(char c) {
     if (c == '/' || c == '_') return 63;
     return -1;
 }
-
 BOOL DevUtil_B64Decode(const char* in, size_t n, char** out,
                        size_t* outN, size_t* errPos) {
     *out = NULL;
@@ -108,15 +95,11 @@ BOOL DevUtil_B64Decode(const char* in, size_t n, char** out,
     if (outN) *outN = k;
     return TRUE;
 }
-
-/* ---------------- URL (RFC 3986) ---------------- */
-
 static BOOL UrlUnreserved(unsigned char c) {
     return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
            (c >= '0' && c <= '9') ||
            c == '-' || c == '.' || c == '_' || c == '~';
 }
-
 char* DevUtil_UrlEncode(const char* in, size_t n, size_t* outN) {
     static const char hx[] = "0123456789ABCDEF";
     char* o = (char*)malloc(n * 3 + 1);
@@ -136,14 +119,12 @@ char* DevUtil_UrlEncode(const char* in, size_t n, size_t* outN) {
     if (outN) *outN = k;
     return o;
 }
-
 static int HexVal(char c) {
     if (c >= '0' && c <= '9') return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
     return -1;
 }
-
 BOOL DevUtil_UrlDecode(const char* in, size_t n, char** out,
                        size_t* outN, size_t* errPos) {
     *out = NULL;
@@ -173,9 +154,6 @@ BOOL DevUtil_UrlDecode(const char* in, size_t n, char** out,
     if (outN) *outN = k;
     return TRUE;
 }
-
-/* ---------------- Unicode 转义 (\uXXXX) ---------------- */
-
 static size_t Utf8Enc(unsigned cp, char* o) {
     if (cp < 0x80) {
         o[0] = (char)cp;
@@ -198,9 +176,6 @@ static size_t Utf8Enc(unsigned cp, char* o) {
     o[3] = (char)(0x80 | (cp & 63));
     return 4;
 }
-
-/* 可打印 ASCII 原样；'\' → \\；\n \t \r 用短转义；其余 → \uXXXX。
-   wchar_t 即 UTF-16 单元，非 BMP 字符自然输出为一对代理转义。 */
 char* DevUtil_Escape(const char* in, size_t n, size_t* outN) {
     static const char hx[] = "0123456789abcdef";
     char* o = (char*)malloc(n * 6 + 8);
@@ -233,9 +208,6 @@ char* DevUtil_Escape(const char* in, size_t n, size_t* outN) {
     if (outN) *outN = k;
     return o;
 }
-
-/* 支持 \uXXXX（含代理对）、\n \t \r \b \f \" \\ \/；
-   严格模式：非法转义、孤立代理、截断的 \u 均报错。 */
 BOOL DevUtil_Unescape(const char* in, size_t n, char** out,
                       size_t* outN, size_t* errPos) {
     *out = NULL;
@@ -280,7 +252,7 @@ BOOL DevUtil_Unescape(const char* in, size_t n, char** out,
                 k += Utf8Enc(cp, o + k);
                 i += 12;
             } else if (u1 >= 0xDC00 && u1 <= 0xDFFF) {
-                UNFAIL(i);                     /* 孤立低位代理 */
+                UNFAIL(i);
             } else {
                 k += Utf8Enc(u1, o + k);
                 i += 6;
@@ -295,9 +267,6 @@ BOOL DevUtil_Unescape(const char* in, size_t n, char** out,
     if (outN) *outN = k;
     return TRUE;
 }
-
-/* ---------------- CNG 哈希 / UUID ---------------- */
-
 BOOL DevUtil_Hash(const wchar_t* alg, const BYTE* data, DWORD len,
                   BYTE* out, DWORD outLen) {
     BCRYPT_ALG_HANDLE ha = NULL;
@@ -314,13 +283,12 @@ BOOL DevUtil_Hash(const wchar_t* alg, const BYTE* data, DWORD len,
     }
     return ok;
 }
-
 BOOL DevUtil_UuidV4(char out[37]) {
     BYTE b[16];
     if (BCryptGenRandom(NULL, b, sizeof(b), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
         return FALSE;
-    b[6] = (BYTE)((b[6] & 0x0F) | 0x40);   /* version 4 */
-    b[8] = (BYTE)((b[8] & 0x3F) | 0x80);   /* RFC 4122 variant */
+    b[6] = (BYTE)((b[6] & 0x0F) | 0x40);
+    b[8] = (BYTE)((b[8] & 0x3F) | 0x80);
     static const char hx[] = "0123456789abcdef";
     int k = 0;
     for (int i = 0; i < 16; i++) {

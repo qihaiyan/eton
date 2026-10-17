@@ -1,29 +1,19 @@
 #include "common.h"
 #include <wchar.h>
-
 wchar_t g_findText[512];
 wchar_t g_replText[512];
 BOOL g_findCase = FALSE, g_findWord = FALSE, g_findDown = TRUE;
 BOOL g_findRegex = FALSE;
-BOOL g_findExt = FALSE;      /* Notepad++ 扩展模式：\n \r \t \b \f \v \0 \xHH \dDDD \\ */
+BOOL g_findExt = FALSE;
 BOOL g_findAllTabs = FALSE;
-
 HWND g_hFindDlg = NULL;
-
 LONG g_findStart = 0;
-
 static int HexV(wchar_t c) {
     if (c >= L'0' && c <= L'9') return c - L'0';
     if (c >= L'a' && c <= L'f') return c - L'a' + 10;
     if (c >= L'A' && c <= L'F') return c - L'A' + 10;
     return -1;
 }
-
-/* Notepad++ 扩展模式转义解码。返回解码后的 wchar 数（可含内嵌 L'\0'）：
- *   \n → LF   \r → CR   \t → TAB   \b / \0 → NUL（N++ 的 \b 即 binary zero）
- *   \f → FF   \v → VT   \\ → 反斜杠
- *   \xHH → 字节值（1~2 位十六进制）   \dDDD → 字节值（1~3 位十进制，≤255）
- * 未识别的转义原样保留（如 \q 保持两个字符） */
 static int FindUnescapeW(const wchar_t* s, int n, wchar_t* dst, int dstMax) {
     int j = 0;
     for (int i = 0; i < n && j < dstMax - 1; ) {
@@ -43,7 +33,7 @@ static int FindUnescapeW(const wchar_t* s, int n, wchar_t* dst, int dstMax) {
                 while (d < 2 && i + 2 + d < n && HexV(s[i + 2 + d]) >= 0) {
                     v = v * 16 + HexV(s[i + 2 + d]); d++;
                 }
-                if (d == 0) { lit = TRUE; out = 0; adv = 1; break; }  /* \x 后无十六进制：保留反斜杠 */
+                if (d == 0) { lit = TRUE; out = 0; adv = 1; break; }
                 dst[j++] = (wchar_t)v;
                 i += 2 + d;
                 continue;
@@ -60,16 +50,13 @@ static int FindUnescapeW(const wchar_t* s, int n, wchar_t* dst, int dstMax) {
             }
             default: lit = TRUE; out = 0; break;
         }
-        if (lit) { dst[j++] = L'\\'; dst[j++] = e; }   /* 未识别转义原样保留 */
+        if (lit) { dst[j++] = L'\\'; dst[j++] = e; }
         else dst[j++] = out;
         i += adv;
     }
     dst[j] = 0;
     return j;
 }
-
-/* 查找/替换文本 → UTF-8；扩展模式下先解码转义。
- * 返回字节数（可含内嵌 NUL），-1 = 失败 */
 int Find_TextToUtf8(const wchar_t* src, char* utf8, int utf8Max) {
     wchar_t un[512];
     const wchar_t* p = src;
@@ -83,23 +70,19 @@ int Find_TextToUtf8(const wchar_t* src, char* utf8, int utf8Max) {
     utf8[n] = 0;
     return n;
 }
-
 LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re, BOOL down, LONG start, BOOL wrap, BOOL* found) {
     *found = FALSE;
     if (!hed) return -1;
     char utf8[2048];
     int u8len = Find_TextToUtf8(text, utf8, sizeof(utf8));
     if (u8len <= 0) return -1;
-
     Sci_Position docLen = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
     if (docLen == 0) return -1;
-
     int flags = 0;
     if (cs) flags |= SCFIND_MATCHCASE;
     if (ww) flags |= SCFIND_WHOLEWORD;
     if (re) flags |= SCFIND_REGEXP;
     SendMessage(hed, SCI_SETSEARCHFLAGS, flags, 0);
-
     SendMessage(hed, SCI_SETTARGETSTART, start, 0);
     SendMessage(hed, SCI_SETTARGETEND, down ? docLen : 0, 0);
     Sci_Position pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8);
@@ -127,7 +110,6 @@ LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re, BOOL d
     }
     return -1;
 }
-
 void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re) {
     if (!hed) return;
     SendMessage(hed, SCI_SETINDICATORCURRENT, 20, 0);
@@ -156,10 +138,8 @@ void Find_MarkAll(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re) {
         count++;
     }
 }
-
 static void ReadFindOptions(HWND hdlg, HWND* lastEdit) {
     GetDlgItemTextW(hdlg, IDC_FIND_TEXT, g_findText, 512);
-    /* 替换框内容必须读回：历史版本从不读取，用户输入的替换词从未生效 */
     if (GetDlgItem(hdlg, IDC_REPL_TEXT))
         GetDlgItemTextW(hdlg, IDC_REPL_TEXT, g_replText, 512);
     g_findCase = IsDlgButtonChecked(hdlg, IDC_FIND_CASE) == BST_CHECKED;
@@ -167,7 +147,7 @@ static void ReadFindOptions(HWND hdlg, HWND* lastEdit) {
     g_findRegex = IsDlgButtonChecked(hdlg, IDC_FIND_REGEX) == BST_CHECKED;
     g_findExt = (GetDlgItem(hdlg, IDC_FIND_EXT) != NULL) &&
                 (IsDlgButtonChecked(hdlg, IDC_FIND_EXT) == BST_CHECKED);
-    if (g_findExt) g_findRegex = FALSE;   /* 扩展与正则互斥 */
+    if (g_findExt) g_findRegex = FALSE;
     g_findAllTabs = IsDlgButtonChecked(hdlg, IDC_FIND_ALL) == BST_CHECKED;
     HWND hed = Editor_ActiveEdit();
     if (hed != *lastEdit) {
@@ -175,8 +155,6 @@ static void ReadFindOptions(HWND hdlg, HWND* lastEdit) {
         g_findStart = (hed) ? (LONG)SendMessage(hed, SCI_GETCURRENTPOS, 0, 0) : 0;
     }
 }
-
-/* 单文档全部替换（使用当前查找选项），返回替换处数 */
 static int ReplaceAllInDoc(HWND hed, const char* utf8find, const char* utf8repl,
                            int u8len, int rlen) {
     int count = 0;
@@ -203,8 +181,6 @@ static int ReplaceAllInDoc(HWND hed, const char* utf8find, const char* utf8repl,
     }
     return count;
 }
-
-/* 跨标签查找：当前文档先搜到尾（不回绕），未命中则按标签顺序轮转其余文档 */
 static void FindNextAllTabs(HWND hdlg, HWND* lastEdit, BOOL down) {
     HWND hed = *lastEdit;
     if (wcslen(g_findText) == 0) {
@@ -227,7 +203,7 @@ static void FindNextAllTabs(HWND hdlg, HWND* lastEdit, BOOL down) {
             pos = DoFindFrom(h2, g_findText, g_findCase, g_findWord, g_findRegex,
                              down, start, FALSE, &found);
             if (found) {
-                Editor_Activate(i);       /* 切到命中标签并定位显示 */
+                Editor_Activate(i);
                 *lastEdit = h2;
             }
         }
@@ -240,20 +216,16 @@ static void FindNextAllTabs(HWND hdlg, HWND* lastEdit, BOOL down) {
         SetDlgItemTextW(hdlg, IDC_FIND_STATUS, T(STR_NO_MATCH));
     }
 }
-
 static void DestroyFindDlg(HWND hdlg) {
     g_hFindDlg = NULL;
     DestroyWindow(hdlg);
 }
-
-/* 扩展与正则互斥（Notepad++ 是三选一模式，这里用复选框近似后点击即互斥） */
 static void FindModeExclusive(HWND hdlg, int id) {
     if (id == IDC_FIND_EXT && IsDlgButtonChecked(hdlg, IDC_FIND_EXT) == BST_CHECKED)
         CheckDlgButton(hdlg, IDC_FIND_REGEX, BST_UNCHECKED);
     else if (id == IDC_FIND_REGEX && IsDlgButtonChecked(hdlg, IDC_FIND_REGEX) == BST_CHECKED)
         CheckDlgButton(hdlg, IDC_FIND_EXT, BST_UNCHECKED);
 }
-
 static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static HWND s_lastEdit = NULL;
     if (msg == WM_INITDIALOG) {
@@ -300,7 +272,6 @@ static INT_PTR CALLBACK FindProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         return (INT_PTR)I18n_DlgCtlColor(hdlg, (HDC)wp, msg);
     return FALSE;
 }
-
 static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static HWND s_lastEdit = NULL;
     if (msg == WM_INITDIALOG) {
@@ -428,7 +399,6 @@ static INT_PTR CALLBACK ReplaceProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         return (INT_PTR)I18n_DlgCtlColor(hdlg, (HDC)wp, msg);
     return FALSE;
 }
-
 void Dlg_Find(HWND hwnd, BOOL replace) {
     if (g_hFindDlg) { DestroyFindDlg(g_hFindDlg); }
     g_hFindDlg = CreateDialogParamW(g_hInst,
@@ -436,7 +406,6 @@ void Dlg_Find(HWND hwnd, BOOL replace) {
                     hwnd, replace ? ReplaceProc : FindProc, 0);
     if (g_hFindDlg) ShowWindow(g_hFindDlg, SW_SHOW);
 }
-
 static INT_PTR CALLBACK GotoProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static HWND hed = NULL;
     if (msg == WM_INITDIALOG) {
@@ -468,11 +437,9 @@ static INT_PTR CALLBACK GotoProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         return (INT_PTR)I18n_DlgCtlColor(hdlg, (HDC)wp, msg);
     return FALSE;
 }
-
 void Dlg_Goto(HWND hwnd) {
     DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_GOTO), hwnd, GotoProc, 0);
 }
-
 static INT_PTR CALLBACK AboutProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_INITDIALOG) { I18n_ApplyDialog(hdlg, IDD_ABOUT); return TRUE; }
     if (msg == WM_COMMAND) {
@@ -486,7 +453,6 @@ static INT_PTR CALLBACK AboutProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
 void Dlg_About(HWND hwnd) {
     DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_ABOUT), hwnd, AboutProc, 0);
 }
-
 static const struct { Encoding enc; } g_encList[] = {
     { ENC_ANSI     },
     { ENC_UTF8     },
@@ -494,7 +460,6 @@ static const struct { Encoding enc; } g_encList[] = {
     { ENC_UTF16LE  },
     { ENC_UTF16BE  },
 };
-
 static INT_PTR CALLBACK OpenEncProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
     static HWND hlist = NULL;
     if (msg == WM_INITDIALOG) {
@@ -519,7 +484,6 @@ static INT_PTR CALLBACK OpenEncProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
         return (INT_PTR)I18n_DlgCtlColor(hdlg, (HDC)wp, msg);
     return FALSE;
 }
-
 void Dlg_OpenEnc(HWND hwnd) {
     INT_PTR r = DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_OPENENC), hwnd, OpenEncProc, 0);
     if (r <= 0) return;
@@ -536,7 +500,6 @@ void Dlg_OpenEnc(HWND hwnd) {
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameW(&ofn)) return;
-
     int existing = Editor_FindDocByPath(fname);
     if (existing >= 0) { Editor_Activate(existing); return; }
     int ni = Editor_NewDoc(fname, NULL, FALSE);
@@ -548,5 +511,3 @@ void Dlg_OpenEnc(HWND hwnd) {
     AddRecent(fname);
     Editor_Activate(ni);
 }
-
-/* build refresh */

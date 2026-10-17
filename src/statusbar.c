@@ -1,14 +1,10 @@
 #include "common.h"
-
 #define SB_PARTS 5
-
 static wchar_t s_text[SB_PARTS][64];
 static int s_partR[SB_PARTS];
 static BOOL s_haveParts = FALSE;
-
 static HFONT s_font = NULL;
 static UINT s_fontDpi = 0;
-
 static HFONT StatusFont(HWND hwnd) {
     UINT dpi = GetDpiForWindow(hwnd);
     if (s_font && dpi == s_fontDpi) return s_font;
@@ -23,7 +19,6 @@ static HFONT StatusFont(HWND hwnd) {
     s_fontDpi = dpi;
     return s_font;
 }
-
 static LRESULT CALLBACK StatusProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps; HDC hdc = BeginPaint(hwnd, &ps);
@@ -55,7 +50,6 @@ static LRESULT CALLBACK StatusProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_ERASEBKGND) return 1;
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-
 void StatusBar_Register(void) {
     WNDCLASSEXW sc; memset(&sc, 0, sizeof(sc));
     sc.cbSize = sizeof(sc);
@@ -66,14 +60,12 @@ void StatusBar_Register(void) {
     sc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     RegisterClassExW(&sc);
 }
-
 void StatusBar_SetParts(const int* rightEdges, int n) {
     if (n != SB_PARTS) return;
     for (int i = 0; i < SB_PARTS; i++) s_partR[i] = rightEdges[i];
     s_haveParts = TRUE;
     InvalidateRect(g_hwndStatus, NULL, FALSE);
 }
-
 BOOL StatusBar_SetText(int part, const wchar_t* text) {
     if (part < 0 || part >= SB_PARTS || !text) return FALSE;
     if (wcscmp(s_text[part], text) == 0) return TRUE;
