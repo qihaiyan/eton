@@ -60,6 +60,40 @@ $manifest = Get-Content (Join-Path $PSScriptRoot "AppxManifest.template.xml") -R
 $manifest = $manifest.Replace("__NAME__", $Name).Replace("__PUBLISHER__", $Publisher).Replace("__VERSION__", $Version)
 [System.IO.File]::WriteAllText((Join-Path $layout "AppxManifest.xml"), $manifest, (New-Object System.Text.UTF8Encoding $false))
 
+$langs = @{
+    "en-US" = @{ PublisherDisplayName = "HiEASE";             AppDescription = "Lightweight text editor" }
+    "zh-CN" = @{ PublisherDisplayName = "海易华天";             AppDescription = "轻量级文本编辑器" }
+}
+foreach ($lang in $langs.Keys) {
+    $dir = Join-Path $layout "Strings\$lang"
+    New-Item $dir -ItemType Directory -Force | Out-Null
+    $resw = "<?xml version=`"1.0`" encoding=`"utf-8`"?>`n<root>`n"
+    foreach ($k in $langs[$lang].Keys) {
+        $resw += "  <data name=`"$k`" xml:space=`"preserve`"><value>" + $langs[$lang][$k] + "</value></data>`n"
+    }
+    $resw += "</root>`n"
+    [System.IO.File]::WriteAllText((Join-Path $dir "Resources.resw"), $resw, (New-Object System.Text.UTF8Encoding $false))
+}
+
+$makepri = Get-ChildItem $sdkRoot -Recurse -Filter makepri.exe -ErrorAction SilentlyContinue |
+           Where-Object { $_.FullName -match "\\x64\\" } |
+           Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+if (-not $makepri) { throw "未找到 makepri.exe，请安装 Windows SDK" }
+$runTag = [System.IO.Path]::GetRandomFileName()
+$priCfg = Join-Path $env:TEMP "eton-pc-$runTag.xml"
+$priOut = Join-Path $env:TEMP "eton-pri-$runTag.pri"
+$mkOut = Join-Path $env:TEMP "eton-mk-$runTag.log"
+$mkErr = Join-Path $env:TEMP "eton-mk-$runTag.err"
+$pr0 = Start-Process -FilePath $makepri -ArgumentList @('createconfig','/cf',$priCfg,'/dq','en-US','/pv','10.0.0') -RedirectStandardOutput $mkOut -RedirectStandardError $mkErr -NoNewWindow -Wait -PassThru
+if ($pr0.ExitCode -ne 0) { throw "makepri createconfig 失败" }
+$cfgText = [System.IO.File]::ReadAllText($priCfg)
+$cfgText = [regex]::Replace($cfgText, '<packaging>.*?</packaging>', '', 'Singleline')
+[System.IO.File]::WriteAllText($priCfg, $cfgText)
+$pr1 = Start-Process -FilePath $makepri -ArgumentList @('new','/pr',$layout,'/cf',$priCfg,'/of',$priOut) -RedirectStandardOutput $mkOut -RedirectStandardError $mkErr -NoNewWindow -Wait -PassThru
+if ($pr1.ExitCode -ne 0) { throw "makepri 生成 resources.pri 失败" }
+Copy-Item $priOut (Join-Path $layout "resources.pri") -Force
+
+
 $tag = if ($Name -eq "A99C7AF7.ETON") { "" } else { "-$($Name.ToLower())" }
 $outMsix = Join-Path $root ("eton{0}-{1}-x64.msix" -f $tag, $Version)
 if (Test-Path $outMsix) { Remove-Item $outMsix -Force }
