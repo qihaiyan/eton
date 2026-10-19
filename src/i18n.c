@@ -180,6 +180,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"大纲(&O)\tF6",
         L"大纲",
         L"（无标题）",
+        L"DirectWrite 渲染(&R)",
     },
     {
         L"ETON",
@@ -357,6 +358,7 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"&Outline\tF6",
         L"Outline",
         L"(no headings)",
+        L"DirectWrite &Rendering",
     },
 };
 const wchar_t* T(StrId id) {
@@ -422,15 +424,33 @@ void I18n_ApplyMenuTheme(HMENU root) {
     mi.hbrBack = s_menuBrush;
     SetMenuInfo(root, &mi);
 }
-static HFONT MenuFont(void) {
-    static HFONT font = NULL;
-    if (!font) {
-        NONCLIENTMETRICSW ncm; memset(&ncm, 0, sizeof(ncm));
-        ncm.cbSize = sizeof(ncm);
-        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
-        font = CreateFontIndirectW(&ncm.lfMenuFont);
+static HFONT s_menuFont = NULL;
+static void MenuFont_Create(UINT dpi) {
+    NONCLIENTMETRICSW ncm; memset(&ncm, 0, sizeof(ncm));
+    ncm.cbSize = sizeof(ncm);
+    BOOL ok = FALSE;
+    if (dpi) {
+        typedef BOOL (WINAPI *SpiForDpiFn)(UINT, UINT, PVOID, UINT, UINT);
+        static SpiForDpiFn pSpiForDpi;
+        if (!pSpiForDpi)
+            pSpiForDpi = (SpiForDpiFn)(void*)GetProcAddress(
+                GetModuleHandleW(L"user32.dll"), "SystemParametersInfoForDpi");
+        if (pSpiForDpi)
+            ok = pSpiForDpi(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0, dpi);
     }
-    return font;
+    if (!ok && !SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0))
+        return;
+    HFONT f = CreateFontIndirectW(&ncm.lfMenuFont);
+    if (!f) return;
+    if (s_menuFont) DeleteObject(s_menuFont);
+    s_menuFont = f;
+}
+static HFONT MenuFont(void) {
+    if (!s_menuFont) MenuFont_Create(g_dpi);
+    return s_menuFont;
+}
+void I18n_OnDpiChanged(void) {
+    MenuFont_Create(g_dpi);
 }
 void I18n_OwnerAppend(HMENU m, UINT flags, UINT_PTR cmd, const wchar_t* text) {
     AppendMenuW(m, (flags & ~MF_OWNERDRAW) | MF_OWNERDRAW, cmd, (LPCVOID)text);
@@ -451,13 +471,13 @@ static void SplitAccel(const wchar_t* text, wchar_t* label, int lcch, wchar_t* a
 BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     if (mis->CtlType != ODT_MENU) return FALSE;
     if (!mis->itemData) {
-        mis->itemHeight = UI_Scale(7) + 4;
+        mis->itemHeight = UI_Scale(7) + UI_Scale(4);
         mis->itemWidth = 1;
         return TRUE;
     }
     uintptr_t raw = (uintptr_t)mis->itemData;
     int isBar = (int)(raw & 1);
-    const wchar_t* text = (const wchar_t*)(raw & ~(uintptr_t)1);
+    const wchar_t* text = (const wchar_t*)(raw & ~(uintptr_t)3);
     wchar_t label[200], accel[64];
     SplitAccel(text, label, 200, accel, 64);
     HDC hdc = GetDC(hwnd);
@@ -475,7 +495,7 @@ BOOL I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis) {
     }
     int gutter = lh + 6;
     mis->itemHeight = lh + 9;
-    mis->itemWidth  = 10 + gutter + lw + (accel[0] ? aw + 20 : 0) + 14;
+    mis->itemWidth  = UI_Scale(10) + gutter + lw + (accel[0] ? aw + UI_Scale(20) : 0) + UI_Scale(14);
     if (mis->itemData && ((uintptr_t)mis->itemData & 2))
         mis->itemWidth += UI_Scale(14);
     UINT maxw = (UINT)UI_Scale(560);
@@ -501,7 +521,7 @@ BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
     }
     uintptr_t raw = (uintptr_t)dis->itemData;
     int isBar = (int)(raw & 1);
-    const wchar_t* text = (const wchar_t*)(raw & ~(uintptr_t)1);
+    const wchar_t* text = (const wchar_t*)(raw & ~(uintptr_t)3);
     if (!text) text = L"";
     BOOL selected = (dis->itemState & ODS_SELECTED) != 0;
     BOOL disabled = (dis->itemState & (ODS_GRAYED | ODS_DISABLED)) != 0;
@@ -533,7 +553,7 @@ BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
         DeleteObject(cb);
     }
     if (checked) {
-        int tx = dis->rcItem.left + 6 + gutter;
+        int tx = dis->rcItem.left + UI_Scale(6) + gutter;
         int gh = ls.cy + 6;
         int cy = (dis->rcItem.top + dis->rcItem.bottom) / 2;
         POINT pts[3] = {
@@ -551,13 +571,14 @@ BOOL I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis) {
         SelectObject(hdc, oldp);
         DeleteObject(pen);
     }
-    RECT lr = { dis->rcItem.left + 6 + gutter, dis->rcItem.top,
-                dis->rcItem.right - 8 - (isBar ? gutter : 0), dis->rcItem.bottom };
+    RECT lr = { dis->rcItem.left + UI_Scale(6) + gutter, dis->rcItem.top,
+                dis->rcItem.right - UI_Scale(8) - (isBar ? gutter : 0), dis->rcItem.bottom };
     if (isBar) lr.left = dis->rcItem.left + UI_Scale(4);
     DrawTextW(hdc, label, -1, &lr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     if (accel[0]) {
         SetTextColor(hdc, dim);
-        RECT ar = { dis->rcItem.right - 210, dis->rcItem.top, dis->rcItem.right - 8, dis->rcItem.bottom };
+        RECT ar = { dis->rcItem.right - UI_Scale(210), dis->rcItem.top,
+                    dis->rcItem.right - UI_Scale(8), dis->rcItem.bottom };
         DrawTextW(hdc, accel, -1, &ar, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
     }
     SelectObject(hdc, old);
@@ -627,11 +648,11 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mEdit, STR_BM_PREV, IDM_BM_PREV);
     AddSep(mEdit);
     AddIt(mEdit, STR_ITEM_TIME, IDM_TIME);
-    AddSep(mEdit);
-    AddIt(mEdit, STR_ITEM_JSONFMT, IDM_JSON_FMT);
-    AddIt(mEdit, STR_ITEM_JSONMIN, IDM_JSON_MIN);
     AddBar(bar, (UINT_PTR)mEdit, STR_MENU_EDIT);
     HMENU mTools = CreatePopupMenu();
+    AddIt(mTools, STR_ITEM_JSONFMT, IDM_JSON_FMT);
+    AddIt(mTools, STR_ITEM_JSONMIN, IDM_JSON_MIN);
+    AddSep(mTools);
     AddIt(mTools, STR_DT_B64ENC, IDM_DT_B64_ENC);
     AddIt(mTools, STR_DT_B64DEC, IDM_DT_B64_DEC);
     AddIt(mTools, STR_DT_URLENC, IDM_DT_URL_ENC);
@@ -652,6 +673,7 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mView, STR_ITEM_ZOOMRST, IDM_ZOOMRST);
     AddSep(mView);
     AddIt(mView, STR_ITEM_THEME, IDM_THEME);
+    AddIt(mView, STR_ITEM_DWRENDER, IDM_VIEW_DW);
     AddSep(mView);
     AddIt(mView, STR_ITEM_MDOUTLINE, IDM_VIEW_MDOUTLINE);
     AddIt(mView, STR_ITEM_MDPREVIEW, IDM_VIEW_MD);

@@ -2,6 +2,8 @@
 #include "md4c.h"
 #include "nanosvg.h"
 #include "nanosvgrast.h"
+#include "dwtext.h"
+int g_tselFill = 0;
 typedef enum { ITM_LINES, ITM_RECT, ITM_FRAME, ITM_DIAGRAM, ITM_IMAGE, ITM_MATH } MdItemType;
 enum { RCT_CODEBG = 0, RCT_QUOTEBAR, RCT_HRULE, RCT_TABLEHEAD, RCT_CANVAS };
 typedef struct MdFrag {
@@ -60,6 +62,7 @@ static struct {
 } V;
 #define TID_MDIMG 2
 static void SelReset(void) {
+    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "selreset\n"); fclose(f); } }
     V.selActive = FALSE;
     V.selDrag = FALSE;
     if (V.pendLink) { free(V.pendLink); V.pendLink = NULL; }
@@ -1163,6 +1166,11 @@ static MdBlock* MdParseDoc(const char* utf8, DWORD len) {
     free(ctx.codeBuf);
     return root;
 }
+static struct {
+    DwtFmt *body, *bold, *emph, *boldemph, *h[6], *mono, *sm;
+    int bodyH, bodyAsc;
+    BOOL ok;
+} F;
 static HFONT MkFont(int pt, int weight, BOOL italic, const wchar_t* face) {
     int h = -MulDiv(pt, (int)g_dpi, 72);
     if (h > -4) h = -4;
@@ -1174,6 +1182,8 @@ static void FontsFree(void) {
     Mermaid_FontsChanged();
     CwInvalidate();
     Math_MeasureCacheReset();
+    Dwt_FontsChanged();
+    ZeroMemory(&F, sizeof(F));
     if (!V.fontsOk) return;
     DeleteObject(V.fonts.body); DeleteObject(V.fonts.bold);
     DeleteObject(V.fonts.emph); DeleteObject(V.fonts.boldemph);
@@ -1209,6 +1219,41 @@ static void FontsEnsure(HDC hdc) {
     SelectObject(hdc, of);
     f->lineH = tm.tmHeight * 14 / 10;
     V.fontsOk = TRUE;
+    if (Dwt_Ok()) {
+        F.bodyH = tm.tmHeight;
+        F.bodyAsc = tm.tmAscent;
+        struct { HFONT hf; int pt, weight; BOOL italic; const wchar_t* face; } specs[] = {
+            { f->body,     b,           FW_NORMAL, FALSE, L"Segoe UI" },
+            { f->bold,     b,           FW_BOLD,   FALSE, L"Segoe UI" },
+            { f->emph,     b,           FW_NORMAL, TRUE,  L"Segoe UI" },
+            { f->boldemph, b,           FW_BOLD,   TRUE,  L"Segoe UI" },
+            { f->mono,     b,           FW_NORMAL, FALSE, L"Consolas" },
+            { f->sm,       b - 2 > 8 ? b - 2 : 8, FW_NORMAL, FALSE, L"Segoe UI" },
+        };
+        F.ok = TRUE;
+        DwtFmt** dst[] = { &F.body, &F.bold, &F.emph, &F.boldemph, &F.mono, &F.sm };
+        for (int i = 0; i < 6; i++) {
+            TEXTMETRICW tmf;
+            HFONT o2 = (HFONT)SelectObject(hdc, specs[i].hf);
+            GetTextMetricsW(hdc, &tmf);
+            SelectObject(hdc, o2);
+            *dst[i] = Dwt_Font(specs[i].face,
+                               MulDiv(specs[i].pt, (int)g_dpi, 72),
+                               specs[i].weight, specs[i].italic,
+                               tmf.tmHeight, tmf.tmAscent);
+            if (!*dst[i]) F.ok = FALSE;
+        }
+        for (int i = 0; i < 6; i++) {
+            int hp = (int)(b * kHead[i] + 0.5);
+            TEXTMETRICW tmf;
+            HFONT o2 = (HFONT)SelectObject(hdc, f->h[i]);
+            GetTextMetricsW(hdc, &tmf);
+            SelectObject(hdc, o2);
+            F.h[i] = Dwt_Font(L"Segoe UI", MulDiv(hp, (int)g_dpi, 72),
+                              FW_BOLD, FALSE, tmf.tmHeight, tmf.tmAscent);
+            if (!F.h[i]) F.ok = FALSE;
+        }
+    }
 }
 enum { ROLE_BODY = 0, ROLE_H1 = 1, ROLE_MONO = 7, ROLE_SMALL = 8 };
 static HFONT FontFor(unsigned style, int role) {
@@ -1223,6 +1268,19 @@ static HFONT FontFor(unsigned style, int role) {
     if (b) return f->bold;
     if (e) return f->emph;
     return f->body;
+}
+static DwtFmt* FmtFor(unsigned style, int role) {
+    if (!F.ok) return NULL;
+    if (role == ROLE_MONO) return F.mono;
+    if (role == ROLE_SMALL) return F.sm;
+    if (role >= ROLE_H1 && role <= ROLE_H1 + 5) return F.h[role - ROLE_H1];
+    if (style & STY_CODE) return F.mono;
+    if (style & STY_IMG) return F.emph;
+    BOOL b = (style & STY_BOLD) != 0, e = (style & STY_EM) != 0;
+    if (b && e) return F.boldemph;
+    if (b) return F.bold;
+    if (e) return F.emph;
+    return F.body;
 }
 static void ItemResetAll(void) {
     SelReset();
@@ -1305,8 +1363,10 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
     TEXTMETRICW curTm; ZeroMemory(&curTm, sizeof(curTm));
     int spaceW = 0;
     {
-        HFONT bf = FontFor(0, role == ROLE_MONO || role == ROLE_SMALL ? role : ROLE_BODY);
-        spaceW = SpaceWFor(hdc, bf);
+        int spaceRole = role == ROLE_MONO || role == ROLE_SMALL ? role : ROLE_BODY;
+        HFONT bf = FontFor(0, spaceRole);
+        DwtFmt* bdf = FmtFor(0, spaceRole);
+        spaceW = bdf ? Dwt_Width(bdf, L" ", 1) : SpaceWFor(hdc, bf);
     }
     for (int i = 0; i <= nT; i++) {
         BOOL flush = (i == nT);
@@ -1350,21 +1410,26 @@ static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
                     curFont = fnt;
                 }
                 int tw;
-                short* cwt = (tk->len == 1) ? CwTableFor(fnt) : NULL;
-                if (cwt) {
-                    unsigned ch = (unsigned)tk->s[0];
-                    if (cwt[ch]) {
-                        tw = (int)cwt[ch] - 1;
+                DwtFmt* df = FmtFor(tk->run->style, role);
+                if (df) {
+                    tw = Dwt_Width(df, tk->s, tk->len);
+                } else {
+                    short* cwt = (tk->len == 1) ? CwTableFor(fnt) : NULL;
+                    if (cwt) {
+                        unsigned ch = (unsigned)tk->s[0];
+                        if (cwt[ch]) {
+                            tw = (int)cwt[ch] - 1;
+                        } else {
+                            SIZE sz;
+                            GetTextExtentPoint32W(hdc, tk->s, 1, &sz);
+                            tw = sz.cx;
+                            cwt[ch] = (short)(tw + 1);
+                        }
                     } else {
                         SIZE sz;
-                        GetTextExtentPoint32W(hdc, tk->s, 1, &sz);
+                        GetTextExtentPoint32W(hdc, tk->s, tk->len, &sz);
                         tw = sz.cx;
-                        cwt[ch] = (short)(tw + 1);
                     }
-                } else {
-                    SIZE sz;
-                    GetTextExtentPoint32W(hdc, tk->s, tk->len, &sz);
-                    tw = sz.cx;
                 }
                 if (nF > 0 && x + tw > avail) { flush = TRUE; overflow = TRUE; }
                 else {
@@ -1546,12 +1611,19 @@ static void LayoutTable(HDC hdc, MdBlock* b, int x0, int avail, int* y) {
         for (int c = 0; c < nC; c++) {
             MdBlock* cell = b->cells[r * nC + c];
             for (int i = 0; i < cell->nRuns; i++) {
-                HFONT f = FontFor(cell->runs[i].style, ROLE_BODY);
-                if (f != cf) { SelectObject(hdc, f); cf = f; }
-                SIZE sz;
-                GetTextExtentPoint32W(hdc, cell->runs[i].text,
-                                      (int)wcslen(cell->runs[i].text), &sz);
-                int w = sz.cx;
+                int w;
+                DwtFmt* df = FmtFor(cell->runs[i].style, ROLE_BODY);
+                if (df) {
+                    w = Dwt_Width(df, cell->runs[i].text,
+                                  (int)wcslen(cell->runs[i].text));
+                } else {
+                    HFONT f = FontFor(cell->runs[i].style, ROLE_BODY);
+                    if (f != cf) { SelectObject(hdc, f); cf = f; }
+                    SIZE sz;
+                    GetTextExtentPoint32W(hdc, cell->runs[i].text,
+                                          (int)wcslen(cell->runs[i].text), &sz);
+                    w = sz.cx;
+                }
                 if (w > colW[c]) colW[c] = w;
             }
         }
@@ -1654,11 +1726,15 @@ static void LayoutList(HDC hdc, MdBlock* b, int x0, int avail, int* y, int qd) {
             wcscpy(mark, L"•");
         int mw = 0;
         {
-            HFONT of = (HFONT)SelectObject(hdc, V.fonts.body);
-            SIZE sz;
-            GetTextExtentPoint32W(hdc, mark, (int)wcslen(mark), &sz);
-            mw = sz.cx;
-            SelectObject(hdc, of);
+            if (F.body) {
+                mw = Dwt_Width(F.body, mark, (int)wcslen(mark));
+            } else {
+                HFONT of = (HFONT)SelectObject(hdc, V.fonts.body);
+                SIZE sz;
+                GetTextExtentPoint32W(hdc, mark, (int)wcslen(mark), &sz);
+                mw = sz.cx;
+                SelectObject(hdc, of);
+            }
         }
         int indent = mw + UI_Scale(10);
         RECT mk = { x0, *y, x0 + mw, *y + V.fonts.lineH };
@@ -1781,9 +1857,15 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
         } else {
             wchar_t label[80];
             ImgFallbackLabel(src, r->text, label, 80);
-            SIZE sz = { UI_Scale(20), 0 };
-            GetTextExtentPoint32W(hdc, label, (int)wcslen(label), &sz);
-            int w = sz.cx + UI_Scale(24);
+            int lw;
+            if (F.body) {
+                lw = Dwt_Width(F.body, label, (int)wcslen(label));
+            } else {
+                SIZE sz;
+                GetTextExtentPoint32W(hdc, label, (int)wcslen(label), &sz);
+                lw = sz.cx;
+            }
+            int w = lw + UI_Scale(24);
             if (r->imgW > 0) {
                 int tw = UI_Scale(r->imgW);
                 if (tw > w) w = tw;
@@ -1833,24 +1915,35 @@ static BOOL LayoutImageParagraph(HDC hdc, MdBlock* b, int x0, int avail, int* y)
                 mr->text = _wcsdup(label);
                 mr->style = STY_LINK;
                 mr->href = click ? _wcsdup(click) : NULL;
-                SIZE sz = { 0, 0 };
-                if (mr->text)
-                    GetTextExtentPoint32W(hdc, label, (int)wcslen(label), &sz);
-                TEXTMETRICW tm;
-                GetTextMetricsW(hdc, &tm);
+                int lw = 0;
+                int lh = F.bodyH, lasc = F.bodyAsc;
+                if (!lh) lh = V.fonts.lineH, lasc = lh / 2;
+                if (F.body) {
+                    if (mr->text)
+                        lw = Dwt_Width(F.body, label, (int)wcslen(label));
+                } else {
+                    HFONT ofb = (HFONT)SelectObject(hdc, V.fonts.body);
+                    SIZE sz = { 0, 0 };
+                    if (mr->text)
+                        GetTextExtentPoint32W(hdc, label, (int)wcslen(label), &sz);
+                    TEXTMETRICW tm;
+                    GetTextMetricsW(hdc, &tm);
+                    SelectObject(hdc, ofb);
+                    lw = sz.cx; lh = tm.tmHeight; lasc = tm.tmAscent;
+                }
                 if (mr->text) {
                     fr->run = mr; fr->s = mr->text; fr->len = (int)wcslen(mr->text);
-                    fr->x = 0; fr->w = sz.cx;
+                    fr->x = 0; fr->w = lw;
                     ln->frags = fr; ln->nF = 1;
-                    ln->h = tm.tmHeight; ln->asc = tm.tmAscent; ln->y = 0;
+                    ln->h = lh; ln->asc = lasc; ln->y = 0;
                     RECT box = { cx, *y, cx + U[i].w, *y + U[i].h };
                     ItemPush(ITM_FRAME, box, 0);
                     MdItem* it = ItemAlloc();
                     if (it) {
                         it->type = ITM_LINES;
-                        int tx = cx + (U[i].w - sz.cx) / 2;
+                        int tx = cx + (U[i].w - lw) / 2;
                         if (tx < cx + UI_Scale(6)) tx = cx + UI_Scale(6);
-                        int ty = *y + (U[i].h - (int)tm.tmHeight) / 2;
+                        int ty = *y + (U[i].h - lh) / 2;
                         if (ty < *y + UI_Scale(4)) ty = *y + UI_Scale(4);
                         it->rc.left = tx; it->rc.top = ty;
                         it->rc.right = cx + U[i].w; it->rc.bottom = *y + U[i].h;
@@ -2231,67 +2324,101 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                         if (!fr->s || fr->len == 0) continue;
                         int fx = it->rc.left + fr->x;
                         HFONT f = FontFor(run->style, it->role);
-                        HFONT of = (HFONT)SelectObject(hdc, f);
+                        DwtFmt* df = FmtFor(run->style, it->role);
+                        COLORREF tcol;
                         if ((run->style & STY_CODE) && it->role == ROLE_BODY) {
                             RECT chip = { fx - 3, baseY - ln->asc,
                                           fx + fr->w + 3, baseY - ln->asc + ln->h };
                             FillRect(hdc, &chip, codeBgBr);
-                            SetTextColor(hdc, th->codeFg);
+                            tcol = th->codeFg;
                         } else if (run->style & STY_LINK) {
-                            SetTextColor(hdc, th->link);
+                            tcol = th->link;
                         } else if (run->style & STY_IMG) {
-                            SetTextColor(hdc, th->link);
+                            tcol = th->link;
                         } else if (it->role >= ROLE_H1 && it->role <= ROLE_H1 + 5) {
-                            SetTextColor(hdc, th->head);
+                            tcol = th->head;
                         } else if (it->role == ROLE_MONO) {
-                            if (run->style & STY_COM)      SetTextColor(hdc, th->synCom);
-                            else if (run->style & STY_KW)   SetTextColor(hdc, th->synKw);
-                            else if (run->style & STY_STR)  SetTextColor(hdc, th->synStr);
-                            else if (run->style & STY_NUM)  SetTextColor(hdc, th->synNum);
-                            else if (run->style & STY_PRE)  SetTextColor(hdc, th->synPre);
-                            else                            SetTextColor(hdc, th->codeFg);
+                            if (run->style & STY_COM)      tcol = th->synCom;
+                            else if (run->style & STY_KW)   tcol = th->synKw;
+                            else if (run->style & STY_STR)  tcol = th->synStr;
+                            else if (run->style & STY_NUM)  tcol = th->synNum;
+                            else if (run->style & STY_PRE)  tcol = th->synPre;
+                            else                            tcol = th->codeFg;
                         } else {
-                            SetTextColor(hdc, th->fg);
+                            tcol = th->fg;
                         }
                         int sa = 0, sb = 0;
-                        SIZE za = { 0, 0 }, zb = { 0, 0 };
+                        int za = 0, zb = 0;
                         if (selBr) {
                             SelFragRange(i, l, k, fr->len, &sa, &sb);
                             if (sb > sa) {
-                                GetTextExtentPoint32W(hdc, fr->s, sa, &za);
-                                GetTextExtentPoint32W(hdc, fr->s, sb, &zb);
-                                RECT sr = { fx + za.cx, baseY - ln->asc,
-                                            fx + zb.cx, baseY - ln->asc + ln->h };
+                                if (df) {
+                                    za = Dwt_Width(df, fr->s, sa);
+                                    zb = Dwt_Width(df, fr->s, sb);
+                                } else {
+                                    SIZE sz;
+                                    GetTextExtentPoint32W(hdc, fr->s, sa, &sz);
+                                    za = sz.cx;
+                                    GetTextExtentPoint32W(hdc, fr->s, sb, &sz);
+                                    zb = sz.cx;
+                                }
+                                RECT sr = { fx + za, baseY - ln->asc,
+                                            fx + zb, baseY - ln->asc + ln->h };
                                 FillRect(hdc, &sr, selBr);
+                                g_tselFill++;
                             } else {
                                 sa = sb = 0;
                             }
                         }
-                        SetTextAlign(hdc, TA_LEFT | TA_BASELINE);
-                        if (sb > sa) {
-                            if (sa > 0) TextOutW(hdc, fx, baseY, fr->s, sa);
-                            SetTextColor(hdc, RGB(255,255,255));
-                            TextOutW(hdc, fx + za.cx, baseY, fr->s + sa, sb - sa);
-                            if (sb < fr->len)
-                                TextOutW(hdc, fx + zb.cx, baseY, fr->s + sb,
-                                         fr->len - sb);
+                        if (df) {
+                            if (sb > sa) {
+                                if (sa > 0)
+                                    Dwt_Text(df, fx, baseY, fr->s, sa, za, tcol);
+                                Dwt_Text(df, fx + za, baseY, fr->s + sa,
+                                         sb - sa, zb - za, RGB(255,255,255));
+                                if (sb < fr->len)
+                                    Dwt_Text(df, fx + zb, baseY, fr->s + sb,
+                                             fr->len - sb, fr->w - zb, tcol);
+                            } else {
+                                Dwt_Text(df, fx, baseY, fr->s, fr->len, fr->w, tcol);
+                            }
                         } else {
-                            TextOutW(hdc, fx, baseY, fr->s, fr->len);
+                            HFONT of = (HFONT)SelectObject(hdc, f);
+                            SetTextColor(hdc, tcol);
+                            SetTextAlign(hdc, TA_LEFT | TA_BASELINE);
+                            if (sb > sa) {
+                                if (sa > 0) TextOutW(hdc, fx, baseY, fr->s, sa);
+                                SetTextColor(hdc, RGB(255,255,255));
+                                TextOutW(hdc, fx + za, baseY, fr->s + sa, sb - sa);
+                                if (sb < fr->len)
+                                    TextOutW(hdc, fx + zb, baseY, fr->s + sb,
+                                             fr->len - sb);
+                            } else {
+                                TextOutW(hdc, fx, baseY, fr->s, fr->len);
+                            }
+                            SelectObject(hdc, of);
                         }
                         if (run->style & STY_LINK) {
-                            HPEN op = (HPEN)SelectObject(hdc, ulPen);
-                            MoveToEx(hdc, fx, baseY + 1, NULL);
-                            LineTo(hdc, fx + fr->w, baseY + 1);
-                            SelectObject(hdc, op);
+                            if (df) {
+                                Dwt_Line(fx, baseY + 1, fr->w, th->link);
+                            } else {
+                                HPEN op = (HPEN)SelectObject(hdc, ulPen);
+                                MoveToEx(hdc, fx, baseY + 1, NULL);
+                                LineTo(hdc, fx + fr->w, baseY + 1);
+                                SelectObject(hdc, op);
+                            }
                         }
                         if (run->style & STY_STRIKE) {
-                            HPEN op = (HPEN)SelectObject(hdc, strikePen);
                             int midy = baseY - ln->asc / 2;
-                            MoveToEx(hdc, fx, midy, NULL);
-                            LineTo(hdc, fx + fr->w, midy);
-                            SelectObject(hdc, op);
+                            if (df) {
+                                Dwt_Line(fx, midy, fr->w, th->fgMuted);
+                            } else {
+                                HPEN op = (HPEN)SelectObject(hdc, strikePen);
+                                MoveToEx(hdc, fx, midy, NULL);
+                                LineTo(hdc, fx + fr->w, midy);
+                                SelectObject(hdc, op);
+                            }
                         }
-                        SelectObject(hdc, of);
                     }
                 }
                 SetTextAlign(hdc, TA_LEFT | TA_TOP);
@@ -2370,9 +2497,23 @@ static void Paint(void) {
     FillRect(mem, &full, bg);
     DeleteObject(bg);
     if (!V.fontsOk) { HDC tmp = GetDC(V.hwnd); FontsEnsure(tmp); ReleaseDC(V.hwnd, tmp); }
+    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "paint t=%lu act=%d sel=%d\n", GetTickCount(), V.selActive, SelHasText()); fclose(f); } }
+    g_tselFill = 0;
     PaintContent(mem, &th, TRUE);
+    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "paintdone t=%lu fills=%d\n", GetTickCount(), g_tselFill); fclose(f); } }
     PaintScrollbar(mem, &th);
+    Dwt_Flush(mem, &full);
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
+    GdiFlush();
+    {
+        typedef HRESULT (WINAPI *PFN_DwmFlush)(void);
+        static PFN_DwmFlush pFlush;
+        if (!pFlush) {
+            HMODULE m = GetModuleHandleW(L"dwmapi.dll");
+            pFlush = m ? (PFN_DwmFlush)(void*)GetProcAddress(m, "DwmFlush") : NULL;
+        }
+        if (pFlush) pFlush();
+    }
     EndPaint(V.hwnd, &ps);
 }
 static void ClampScroll(void) {
@@ -2461,16 +2602,23 @@ static void SelFragRange(int item, int line, int frag, int len, int* a, int* b) 
 }
 static int ChAtX(HDC hdc, MdItem* it, MdFrag* fr, int off) {
     if (fr->len <= 0 || !fr->s || off <= 0) return 0;
-    HFONT of = (HFONT)SelectObject(hdc, FontFor(fr->run->style, it->role));
+    DwtFmt* df = FmtFor(fr->run->style, it->role);
+    HFONT of = df ? NULL : (HFONT)SelectObject(hdc, FontFor(fr->run->style, it->role));
     int lo = 0, hi = fr->len;
     while (lo < hi) {
         int mid = lo + (hi - lo) / 2;
-        SIZE sz;
-        GetTextExtentPoint32W(hdc, fr->s, mid, &sz);
-        if (sz.cx < off) lo = mid + 1;
+        int w;
+        if (df) {
+            w = Dwt_Width(df, fr->s, mid);
+        } else {
+            SIZE sz;
+            GetTextExtentPoint32W(hdc, fr->s, mid, &sz);
+            w = sz.cx;
+        }
+        if (w < off) lo = mid + 1;
         else hi = mid;
     }
-    SelectObject(hdc, of);
+    if (of) SelectObject(hdc, of);
     return lo;
 }
 static BOOL HitTextPos(int px, int py, MdPos* out) {
@@ -2535,6 +2683,7 @@ static BOOL HitTextPos(int px, int py, MdPos* out) {
 }
 static void SelectAllDoc(void) {
     LayoutEnsure(0x7FFFFFFF);
+    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "selall t=%lu items=%d act=%d\n", GetTickCount(), V.nItems, V.selActive); fclose(f); } }
     if (!V.nItems) return;
     MdPos a = { 0, 0, 0, 0 };
     MdPos b = a;
@@ -2553,6 +2702,10 @@ static void SelectAllDoc(void) {
     if (PosCmp(a, b) == 0) return;
     V.selAnchor = a; V.selCaret = b; V.selActive = TRUE;
     InvalidateRect(V.hwnd, NULL, FALSE);
+    UpdateWindow(V.hwnd);
+    SetWindowPos(V.hwnd, NULL, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                 SWP_FRAMECHANGED);
 }
 static BOOL AppEnd(wchar_t** buf, int* len, int* cap, const wchar_t* s, int n) {
     if (n <= 0 || !s) return TRUE;
@@ -2699,6 +2852,7 @@ static wchar_t* BuildSelText(void) {
     return buf;
 }
 static void DoCopySelection(void) {
+    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "copy: sel=%d\n", SelHasText()); fclose(f); } }
     wchar_t* txt = BuildSelText();
     if (!txt) return;
     if (OpenClipboard(V.hwnd)) {

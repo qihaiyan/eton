@@ -178,6 +178,7 @@ typedef enum {
     STR_ITEM_MDOUTLINE,
     STR_MD_OUTLINE_TITLE,
     STR_MD_OUTLINE_EMPTY,
+    STR_ITEM_DWRENDER,
     STR_COUNT
 } StrId;
 void I18n_Init(void);
@@ -188,6 +189,7 @@ HMENU I18n_BuildMainMenu(void);
 void  I18n_OwnerAppend(HMENU m, UINT flags, UINT_PTR cmd, const wchar_t* text);
 BOOL  I18n_OnMeasureItem(HWND hwnd, MEASUREITEMSTRUCT* mis);
 BOOL  I18n_OnDrawItem(HWND hwnd, const DRAWITEMSTRUCT* dis);
+void  I18n_OnDpiChanged(void);
 int   I18n_FindMnemonic(HMENU menu, wchar_t ch);
 void  I18n_ApplyMenuTheme(HMENU root);
 void  I18n_RefreshMenuColors(void);

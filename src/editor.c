@@ -51,9 +51,19 @@ void Editor_SetFont(void) {
 }
 void Editor_OnDpiChanged(void) {
     RecreateTabFont();
+    I18n_OnDpiChanged();
     MdOutline_OnDpiChanged();
     Editor_Layout();
     InvalidateRect(g_hwndTab, NULL, TRUE);
+}
+void Editor_ApplyTextRendering(void) {
+    int tech = g_editorDWrite ? SC_TECHNOLOGY_DIRECTWRITERETAIN : SC_TECHNOLOGY_DEFAULT;
+    for (int i = 0; i < g_docCount; i++)
+        if (g_docs[i].hwndEdit) {
+            SendMessage(g_docs[i].hwndEdit, SCI_SETTECHNOLOGY, tech, 0);
+            Editor_ApplyTheme(i);
+            InvalidateRect(g_docs[i].hwndEdit, NULL, TRUE);
+        }
 }
 BOOL Editor_Init(void) {
     Scintilla_RegisterClasses(g_hInst);
@@ -166,6 +176,11 @@ static void ApplyLexer(HWND hed, LangID lang) {
         }
         SendMessage(hed, SCI_STYLESETFORE, 2, (LPARAM)cHead);
         SendMessage(hed, SCI_STYLESETBOLD, 2, 1);
+        // Consolas has no italic face: DirectWrite then cross-family matches a
+        // much larger italic font. Courier New ships with Windows and has a
+        // real italic, so use it for the italic style in DirectWrite mode.
+        if (g_editorDWrite)
+            SendMessage(hed, SCI_STYLESETFONT, 3, (LPARAM)"Courier New");
         SendMessage(hed, SCI_STYLESETITALIC, 3, 1);
         for (int s = 4; s <= 9; s++) {
             SendMessage(hed, SCI_STYLESETFORE, s, (LPARAM)cHead);
@@ -312,6 +327,8 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
         0, 0, 0, 0, g_hwndMain, NULL, g_hInst, NULL);
     if (!d->hwndEdit) { MessageBoxW(g_hwndMain, T(STR_MSG_SCINTILLA_FAIL), T(STR_ERROR), MB_ICONERROR); return -1; }
     SendMessage(d->hwndEdit, SCI_SETCODEPAGE, SC_CP_UTF8, 0);
+    SendMessage(d->hwndEdit, SCI_SETTECHNOLOGY,
+                g_editorDWrite ? SC_TECHNOLOGY_DIRECTWRITERETAIN : SC_TECHNOLOGY_DEFAULT, 0);
     SendMessage(d->hwndEdit, SCI_SETEOLMODE, SC_EOL_LF, 0);
     SendMessage(d->hwndEdit, SCI_SETCARETWIDTH, 1, 0);
     SendMessage(d->hwndEdit, SCI_EMPTYUNDOBUFFER, 0, 0);

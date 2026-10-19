@@ -14,6 +14,8 @@
 HINSTANCE g_hInst;
 HWND g_hwndMain, g_hwndTab, g_hwndTool, g_hwndStatus;
 UINT g_dpi = 96;
+int g_editorDWrite = 0;
+#define ETON_COPYDATA_MAGIC 0x45544F4Eu
 int UI_Scale(int px) {
     return MulDiv(px, (int)g_dpi, 96);
 }
@@ -125,6 +127,7 @@ static void UpdateMenuChecks(void) {
     Check(m, IDM_WRAP, g_wordWrap);
     Check(m, IDM_GUTTER, g_showGutter);
     Check(m, IDM_THEME, g_dark);
+    Check(m, IDM_VIEW_DW, g_editorDWrite);
     BOOL isMd = (g_curDoc >= 0 && g_docs[g_curDoc].lang == LANG_MD);
     Check(m, IDM_VIEW_MD, isMd && g_docs[g_curDoc].previewOn);
     EnableMenuItem(m, IDM_VIEW_MD, isMd ? MF_BYCOMMAND | MF_ENABLED
@@ -348,6 +351,11 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             UpdateMenuChecks();
             break;
         }
+        case IDM_VIEW_DW:
+            g_editorDWrite = !g_editorDWrite;
+            Editor_ApplyTextRendering();
+            UpdateMenuChecks();
+            break;
         case IDM_ENC_ANSI: case IDM_ENC_UTF8: case IDM_ENC_UTF8BOM: case IDM_ENC_UTF16LE: case IDM_ENC_UTF16BE:
             if (g_curDoc >= 0) { g_docs[g_curDoc].enc = (Encoding)(id - IDM_ENC_ANSI); UpdateMenuChecks(); } break;
         case IDM_REOPEN_ANSI: case IDM_REOPEN_UTF8: case IDM_REOPEN_UTF8BOM: case IDM_REOPEN_UTF16LE: case IDM_REOPEN_UTF16BE:
@@ -531,6 +539,29 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_COMMAND:
             return OnCommand(hwnd, wp, lp);
+        case WM_COPYDATA: {
+            const COPYDATASTRUCT* cds = (const COPYDATASTRUCT*)lp;
+            if (cds && cds->dwData == ETON_COPYDATA_MAGIC &&
+                cds->cbData >= 2 * sizeof(DWORD) && cds->lpData) {
+                const DWORD* hdr = (const DWORD*)cds->lpData;
+                DWORD count = hdr[1];
+                const wchar_t* p =
+                    (const wchar_t*)((const BYTE*)cds->lpData + 2 * sizeof(DWORD));
+                const wchar_t* end =
+                    (const wchar_t*)((const BYTE*)cds->lpData + cds->cbData);
+                for (DWORD i = 0; i < count && p < end; i++) {
+                    const wchar_t* q = p;
+                    while (q < end && *q) q++;
+                    if (q >= end) break;
+                    if (*p) OpenFileByPath(p);
+                    p = q + 1;
+                }
+                if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
+                return TRUE;
+            }
+            break;
+        }
         case WM_DROPFILES: {
             HDROP drop = (HDROP)wp;
             UINT count = DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0);
@@ -622,8 +653,46 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
+static BOOL ForwardFilesToExisting(void) {
+    int argc = 0;
+    wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return FALSE;
+    int n = 0;
+    for (int i = 1; i < argc; i++)
+        if (argv[i] && argv[i][0]) n++;
+    HWND target = (n > 0) ? FindWindowW(L"etonClass", NULL) : NULL;
+    if (!target) { LocalFree(argv); return FALSE; }
+    size_t bytes = 2 * sizeof(DWORD);
+    for (int i = 1; i < argc; i++)
+        if (argv[i] && argv[i][0]) bytes += (wcslen(argv[i]) + 1) * sizeof(wchar_t);
+    BYTE* buf = (BYTE*)malloc(bytes);
+    if (!buf) { LocalFree(argv); return FALSE; }
+    ((DWORD*)buf)[0] = ETON_COPYDATA_MAGIC;
+    ((DWORD*)buf)[1] = (DWORD)n;
+    wchar_t* p = (wchar_t*)(buf + 2 * sizeof(DWORD));
+    for (int i = 1; i < argc; i++) {
+        if (!argv[i] || !argv[i][0]) continue;
+        size_t l = wcslen(argv[i]) + 1;
+        memcpy(p, argv[i], l * sizeof(wchar_t));
+        p += l;
+    }
+    COPYDATASTRUCT cds;
+    cds.dwData = ETON_COPYDATA_MAGIC;
+    cds.cbData = (DWORD)bytes;
+    cds.lpData = buf;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(target, &pid);
+    if (pid) AllowSetForegroundWindow(pid);
+    DWORD_PTR res = 0;
+    SendMessageTimeoutW(target, WM_COPYDATA, 0, (LPARAM)&cds,
+                        SMTO_ABORTIFHUNG, 4000, &res);
+    free(buf);
+    LocalFree(argv);
+    return res != 0;
+}
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmdLine, int nShow) {
     (void)cmdLine; (void)hPrev;
+    if (ForwardFilesToExisting()) return 0;
     g_hInst = hInst;
     I18n_Init();
     Settings_Load();

@@ -346,6 +346,7 @@ void Settings_Load(void) {
     g_mdOutline = GetPrivateProfileIntW(L"settings", L"mdoutline", 1, ini) != 0;
     int fs = (int)GetPrivateProfileIntW(L"settings", L"fontsize", 11, ini);
     if (fs >= 6 && fs <= 48) g_fontSize = fs;
+    g_editorDWrite = GetPrivateProfileIntW(L"settings", L"dwrite", 0, ini) != 0;
 }
 void Settings_Save(void) {
     wchar_t ini[MAX_PATH];
@@ -356,6 +357,8 @@ void Settings_Save(void) {
     WritePrivateProfileStringW(L"settings", L"mdoutline", g_mdOutline ? L"1" : L"0", ini);
     wchar_t v[16]; WFmt(v, L"%d", g_fontSize);
     WritePrivateProfileStringW(L"settings", L"fontsize", v, ini);
+    WritePrivateProfileStringW(L"settings", L"dwrite",
+                               g_editorDWrite ? L"1" : L"0", ini);
 }
 #define AUTOBACK_MAX (4 * 1024 * 1024)
 static BOOL Session_AutoBackupPath(const wchar_t* path, wchar_t* out, DWORD cch) {
