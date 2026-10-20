@@ -3,7 +3,6 @@
 #include "nanosvg.h"
 #include "nanosvgrast.h"
 #include "dwtext.h"
-int g_tselFill = 0;
 typedef enum { ITM_LINES, ITM_RECT, ITM_FRAME, ITM_DIAGRAM, ITM_IMAGE, ITM_MATH } MdItemType;
 enum { RCT_CODEBG = 0, RCT_QUOTEBAR, RCT_HRULE, RCT_TABLEHEAD, RCT_CANVAS };
 typedef struct MdFrag {
@@ -62,7 +61,6 @@ static struct {
 } V;
 #define TID_MDIMG 2
 static void SelReset(void) {
-    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "selreset\n"); fclose(f); } }
     V.selActive = FALSE;
     V.selDrag = FALSE;
     if (V.pendLink) { free(V.pendLink); V.pendLink = NULL; }
@@ -2365,7 +2363,6 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                                 RECT sr = { fx + za, baseY - ln->asc,
                                             fx + zb, baseY - ln->asc + ln->h };
                                 FillRect(hdc, &sr, selBr);
-                                g_tselFill++;
                             } else {
                                 sa = sb = 0;
                             }
@@ -2497,10 +2494,7 @@ static void Paint(void) {
     FillRect(mem, &full, bg);
     DeleteObject(bg);
     if (!V.fontsOk) { HDC tmp = GetDC(V.hwnd); FontsEnsure(tmp); ReleaseDC(V.hwnd, tmp); }
-    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "paint t=%lu act=%d sel=%d\n", GetTickCount(), V.selActive, SelHasText()); fclose(f); } }
-    g_tselFill = 0;
     PaintContent(mem, &th, TRUE);
-    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "paintdone t=%lu fills=%d\n", GetTickCount(), g_tselFill); fclose(f); } }
     PaintScrollbar(mem, &th);
     Dwt_Flush(mem, &full);
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
@@ -2683,7 +2677,6 @@ static BOOL HitTextPos(int px, int py, MdPos* out) {
 }
 static void SelectAllDoc(void) {
     LayoutEnsure(0x7FFFFFFF);
-    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "selall t=%lu items=%d act=%d\n", GetTickCount(), V.nItems, V.selActive); fclose(f); } }
     if (!V.nItems) return;
     MdPos a = { 0, 0, 0, 0 };
     MdPos b = a;
@@ -2703,9 +2696,6 @@ static void SelectAllDoc(void) {
     V.selAnchor = a; V.selCaret = b; V.selActive = TRUE;
     InvalidateRect(V.hwnd, NULL, FALSE);
     UpdateWindow(V.hwnd);
-    SetWindowPos(V.hwnd, NULL, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
-                 SWP_FRAMECHANGED);
 }
 static BOOL AppEnd(wchar_t** buf, int* len, int* cap, const wchar_t* s, int n) {
     if (n <= 0 || !s) return TRUE;
@@ -2852,7 +2842,6 @@ static wchar_t* BuildSelText(void) {
     return buf;
 }
 static void DoCopySelection(void) {
-    { FILE* f = fopen("C:\\Users\\haiyan\\AppData\\Local\\Temp\\eton_tlog.txt", "a"); if (f) { fprintf(f, "copy: sel=%d\n", SelHasText()); fclose(f); } }
     wchar_t* txt = BuildSelText();
     if (!txt) return;
     if (OpenClipboard(V.hwnd)) {
@@ -2955,6 +2944,7 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_LBUTTONDOWN: {
             int px = GET_X_LPARAM(lp), py = GET_Y_LPARAM(lp);
+            if (GetFocus() != hwnd) SetFocus(hwnd);
             int sbw = SbThickness();
             if (V.docH > V.clientH && px >= V.clientW - sbw) {
                 int thumbH = V.clientH * V.clientH / V.docH;
@@ -3067,6 +3057,7 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         case WM_CONTEXTMENU:
+            if (GetFocus() != hwnd) SetFocus(hwnd);
             ShowContextMenu(hwnd, lp);
             return 0;
         case WM_KEYDOWN:
@@ -3127,10 +3118,13 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 KillTimer(hwnd, TID_MDIMG);
                 V.imgTimerOn = FALSE;
                 if (V.docIdx >= 0 && V.docIdx < g_docCount) {
+                    MdPos z = { 0, 0, 0, 0 };
+                    BOOL wasAll = SelHasText() && PosCmp(V.selAnchor, z) == 0;
                     int save = V.scrollY;
                     LoadContentEx(V.docIdx, TRUE);
                     V.scrollY = save;
                     ClampScroll();
+                    if (wasAll) SelectAllDoc();
                     InvalidateRect(hwnd, NULL, FALSE);
                 }
             }
