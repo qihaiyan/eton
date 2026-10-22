@@ -174,27 +174,36 @@ static void ApplyLexer(HWND hed, LangID lang) {
             cQuote = RGB(0,128,0);
             cCode  = RGB(163,21,21);
         }
+        // Style numbers per bundled Lexilla markdown lexer (SciLexer.h):
+        // 2/3 strong, 4/5 emphasis, 6..11 H1..H6, 12 pre-char marker,
+        // 13/14 list marker, 15 blockquote, 18 link, 19..21 code.
         SendMessage(hed, SCI_STYLESETFORE, 2, (LPARAM)cHead);
         SendMessage(hed, SCI_STYLESETBOLD, 2, 1);
+        SendMessage(hed, SCI_STYLESETFORE, 3, (LPARAM)cHead);
+        SendMessage(hed, SCI_STYLESETBOLD, 3, 1);
         // Consolas has no italic face: DirectWrite then cross-family matches a
         // much larger italic font. Courier New ships with Windows and has a
-        // real italic, so use it for the italic style in DirectWrite mode.
-        if (g_editorDWrite)
-            SendMessage(hed, SCI_STYLESETFONT, 3, (LPARAM)"Courier New");
-        SendMessage(hed, SCI_STYLESETITALIC, 3, 1);
-        for (int s = 4; s <= 9; s++) {
+        // real italic, so use it for the emphasis styles in DirectWrite mode.
+        if (g_editorDWrite) {
+            SendMessage(hed, SCI_STYLESETFONT, 4, (LPARAM)"Courier New");
+            SendMessage(hed, SCI_STYLESETFONT, 5, (LPARAM)"Courier New");
+        }
+        SendMessage(hed, SCI_STYLESETITALIC, 4, 1);
+        SendMessage(hed, SCI_STYLESETITALIC, 5, 1);
+        for (int s = 6; s <= 11; s++) {
             SendMessage(hed, SCI_STYLESETFORE, s, (LPARAM)cHead);
             SendMessage(hed, SCI_STYLESETBOLD, s, 1);
-            SendMessage(hed, SCI_STYLESETSIZE, s, g_fontSize + (9 - s));
+            SendMessage(hed, SCI_STYLESETSIZE, s, g_fontSize + (11 - s));
         }
-        SendMessage(hed, SCI_STYLESETFORE, 13, (LPARAM)cQuote);
-        SendMessage(hed, SCI_STYLESETFORE, 14, (LPARAM)g_clrGutterFg);
-        SendMessage(hed, SCI_STYLESETFORE, 15, (LPARAM)g_clrGutterFg);
-        SendMessage(hed, SCI_STYLESETFORE, 16, (LPARAM)cLink);
-        SendMessage(hed, SCI_STYLESETUNDERLINE, 16, 1);
-        SendMessage(hed, SCI_STYLESETFORE, 18, (LPARAM)cCode);
-        SendMessage(hed, SCI_STYLESETFORE, 11, (LPARAM)cQuote);
         SendMessage(hed, SCI_STYLESETFORE, 12, (LPARAM)cQuote);
+        SendMessage(hed, SCI_STYLESETFORE, 13, (LPARAM)cQuote);
+        SendMessage(hed, SCI_STYLESETFORE, 14, (LPARAM)cQuote);
+        SendMessage(hed, SCI_STYLESETFORE, 15, (LPARAM)cQuote);
+        SendMessage(hed, SCI_STYLESETFORE, 18, (LPARAM)cLink);
+        SendMessage(hed, SCI_STYLESETUNDERLINE, 18, 1);
+        SendMessage(hed, SCI_STYLESETFORE, 19, (LPARAM)cCode);
+        SendMessage(hed, SCI_STYLESETFORE, 20, (LPARAM)cCode);
+        SendMessage(hed, SCI_STYLESETFORE, 21, (LPARAM)cCode);
         return;
     }
     COLORREF c_comment, c_string, c_number, c_keyword, c_preproc, c_operator;
@@ -627,7 +636,7 @@ void Editor_OnNotify(LPARAM lp) {
         if (g_mdSplit && MdView_IsVisible() && !g_mdSyncLock &&
             (scn->updated & (SC_UPDATE_V_SCROLL | SC_UPDATE_SELECTION))) {
             int first = (int)SendMessage(hed, SCI_GETFIRSTVISIBLELINE, 0, 0);
-            int total = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
+            int total = ScrollBars_TotalLines(hed);
             int page = (int)SendMessage(hed, SCI_LINESONSCREEN, 0, 0);
             int span = total - page;
             if (span <= 0) span = 1;
@@ -656,6 +665,7 @@ void Editor_OnNotify(LPARAM lp) {
             }
         }
     } else if (scn->nmhdr.code == SCN_SAVEPOINTREACHED) {
+        Editor_MarkDirty(idx, FALSE);
         MdView_RefreshIfActive(idx);
     }
 }

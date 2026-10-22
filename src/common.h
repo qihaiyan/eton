@@ -301,6 +301,7 @@ void StatusBar_Register(void);
 void StatusBar_SetParts(const int* rightEdges, int n);
 BOOL StatusBar_SetText(int part, const wchar_t* text);
 void ScrollBars_Create(HWND parent);
+int  ScrollBars_TotalLines(HWND hed);
 int  ScrollBars_Thickness(void);
 void ScrollBars_Layout(int x, int y, int w, int h, int thickness, BOOL showH);
 void ScrollBars_Update(void);

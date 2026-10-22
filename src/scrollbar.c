@@ -16,6 +16,13 @@ static RECT s_rc[2];
 static BOOL s_haveLayout = FALSE;
 int ScrollBars_Thickness(void) { return UI_Scale(SB_THICK_96); }
 static HWND Hed(void) { return Editor_ActiveEdit(); }
+// Wrap 折行后 GETLINECOUNT(逻辑行) 与 SET/GETFIRSTVISIBLELINE(显示行) 数值不同，
+// 滚动条一律按显示行计算；VISIBLEFROMDOCLINE 在不换行时是恒等映射。
+int ScrollBars_TotalLines(HWND hed) {
+    int lastDoc = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0) - 1;
+    if (lastDoc < 0) return 0;
+    return (int)SendMessage(hed, SCI_VISIBLEFROMDOCLINE, (WPARAM)lastDoc, 0) + 1;
+}
 static void SBGeom(SBState* st, int* trackLen, int* thumbLen, int* thumbPos) {
     RECT rc; GetClientRect(st->hwnd, &rc);
     int len = st->horiz ? rc.right : rc.bottom;
@@ -40,7 +47,7 @@ static void SBScrollTo(SBState* st, double ratio) {
     if (ratio < 0) ratio = 0;
     if (ratio > 1) ratio = 1;
     if (!st->horiz) {
-        int total = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
+        int total = ScrollBars_TotalLines(hed);
         int vis = (int)SendMessage(hed, SCI_LINESONSCREEN, 0, 0);
         int scrollable = total - vis;
         if (scrollable < 0) scrollable = 0;
@@ -173,7 +180,7 @@ void ScrollBars_Update(void) {
     HWND hed = Hed();
     BOOL showV = FALSE, showH = FALSE;
     if (hed && g_curDoc >= 0 && s_haveLayout) {
-        int total = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
+        int total = ScrollBars_TotalLines(hed);
         int vis = (int)SendMessage(hed, SCI_LINESONSCREEN, 0, 0);
         if (vis < 1) vis = 1;
         showV = TRUE;
