@@ -56,11 +56,30 @@ void Editor_OnDpiChanged(void) {
     Editor_Layout();
     InvalidateRect(g_hwndTab, NULL, TRUE);
 }
+// DirectWrite 按 locale 选 CJK 回退字体；默认 en-us 会选中日文字体，汉字
+// 字形与中文不同（如"类"字中间出现孤立点，Scintilla bug #2027）。
+// 跟随系统区域：zh/ja/ko 用户得到各自字形；其他区域按 zh-CN 回退，
+// 保证非 CJK 用户查看中文内容时的字形正确。
+static const char* DwFontLocale(void) {
+    static char loc[LOCALE_NAME_MAX_LENGTH];
+    if (!loc[0]) {
+        wchar_t w[LOCALE_NAME_MAX_LENGTH];
+        BOOL cjk = GetUserDefaultLocaleName(w, LOCALE_NAME_MAX_LENGTH) > 0 &&
+                   (wcsncmp(w, L"zh", 2) == 0 || wcsncmp(w, L"ja", 2) == 0 ||
+                    wcsncmp(w, L"ko", 2) == 0);
+        if (cjk)
+            WideCharToMultiByte(CP_UTF8, 0, w, -1, loc, sizeof loc, NULL, NULL);
+        else
+            strcpy_s(loc, sizeof loc, "zh-CN");
+    }
+    return loc;
+}
 void Editor_ApplyTextRendering(void) {
-    int tech = g_editorDWrite ? SC_TECHNOLOGY_DIRECTWRITERETAIN : SC_TECHNOLOGY_DEFAULT;
+    int tech = g_editorDWrite ? SC_TECHNOLOGY_DIRECTWRITE : SC_TECHNOLOGY_DEFAULT;
     for (int i = 0; i < g_docCount; i++)
         if (g_docs[i].hwndEdit) {
             SendMessage(g_docs[i].hwndEdit, SCI_SETTECHNOLOGY, tech, 0);
+            SendMessage(g_docs[i].hwndEdit, SCI_SETFONTLOCALE, 0, (LPARAM)DwFontLocale());
             Editor_ApplyTheme(i);
             InvalidateRect(g_docs[i].hwndEdit, NULL, TRUE);
         }
@@ -337,7 +356,8 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     if (!d->hwndEdit) { MessageBoxW(g_hwndMain, T(STR_MSG_SCINTILLA_FAIL), T(STR_ERROR), MB_ICONERROR); return -1; }
     SendMessage(d->hwndEdit, SCI_SETCODEPAGE, SC_CP_UTF8, 0);
     SendMessage(d->hwndEdit, SCI_SETTECHNOLOGY,
-                g_editorDWrite ? SC_TECHNOLOGY_DIRECTWRITERETAIN : SC_TECHNOLOGY_DEFAULT, 0);
+                g_editorDWrite ? SC_TECHNOLOGY_DIRECTWRITE : SC_TECHNOLOGY_DEFAULT, 0);
+    SendMessage(d->hwndEdit, SCI_SETFONTLOCALE, 0, (LPARAM)DwFontLocale());
     SendMessage(d->hwndEdit, SCI_SETEOLMODE, SC_EOL_LF, 0);
     SendMessage(d->hwndEdit, SCI_SETCARETWIDTH, 1, 0);
     SendMessage(d->hwndEdit, SCI_EMPTYUNDOBUFFER, 0, 0);
