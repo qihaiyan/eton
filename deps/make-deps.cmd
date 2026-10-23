@@ -1,5 +1,5 @@
 @echo off
-REM Build Scintilla 5.6.6 + Lexilla 5.4.9 static libs. ASCII only (cmd codepage).
+REM Build Scintilla 5.6.7 + Lexilla 5.4.9 static libs. ASCII only (cmd codepage).
 REM Usage: make-deps.cmd <src-root> <out-dir>
 setlocal
 set "SRC=%~1"

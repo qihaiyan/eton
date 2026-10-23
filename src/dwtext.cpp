@@ -1,6 +1,3 @@
-// DirectWrite text engine for the Markdown preview. Compiled as C++ because
-// the SDK dwrite.h declares its interfaces in C++-only syntax; everything
-// exported through dwtext.h stays plain C.
 #include <windows.h>
 #include <stdlib.h>
 #include <string.h>
@@ -70,10 +67,6 @@ static BOOL DwtInit() {
     return TRUE;
 }
 
-// Render text into a private WIC bitmap (premultiplied BGRA) and composite it
-// with a hand-driven AlphaBlend. A DC render target's EndDraw composites its
-// own way and was observed filling the whole bound rect opaque black on some
-// paths, so every step of the transfer is kept under our control here.
 static BOOL DwtEnsureTarget(int w, int h) {
     if (s_rt && s_rtW == w && s_rtH == h) return TRUE;
     if (s_brush) { s_brush->Release(); s_brush = NULL; }
@@ -93,8 +86,6 @@ static BOOL DwtEnsureTarget(int w, int h) {
     props.dpiY = 96.0f;
     if (FAILED(s_factory->CreateWicBitmapRenderTarget(s_wib, props, &s_rt)) || !s_rt)
         return FALSE;
-    // Bitmap targets have no subpixel geometry; grayscale AA is the only valid
-    // mode (and matches Chromium/Feishu on Windows).
     s_rt->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
     if (FAILED(s_rt->CreateSolidColorBrush(
             D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f), &s_brush)))
@@ -107,9 +98,6 @@ extern "C" BOOL Dwt_Ok() {
     return DwtInit();
 }
 
-// Custom fallback: CJK han ranges -> SimHei (its glyphs keep every stroke
-// inside the character box, unlike Microsoft YaHei's protruding 类 dot);
-// all other scripts keep the system fallback via AddMappings.
 static IDWriteFontFallback* DwtBuildFallback() {
     IDWriteFactory2* f2 = NULL;
     if (FAILED(s_dw->QueryInterface(__uuidof(IDWriteFactory2), (void**)&f2)) || !f2)
@@ -120,13 +108,13 @@ static IDWriteFontFallback* DwtBuildFallback() {
     HRESULT hr = f2->CreateFontFallbackBuilder(&b);
     if (SUCCEEDED(hr) && b) {
         static const DWRITE_UNICODE_RANGE cjk[] = {
-            { 0x2E80, 0x2EFF },   // CJK radicals
-            { 0x3000, 0x303F },   // CJK symbols & punctuation
-            { 0x31C0, 0x31EF },   // CJK strokes
-            { 0x3400, 0x4DBF },   // CJK ext A
-            { 0x4E00, 0x9FFF },   // CJK unified ideographs
-            { 0xF900, 0xFAFF },   // CJK compatibility ideographs
-            { 0x20000, 0x2A6DF }, // CJK ext B
+            { 0x2E80, 0x2EFF },
+            { 0x3000, 0x303F },
+            { 0x31C0, 0x31EF },
+            { 0x3400, 0x4DBF },
+            { 0x4E00, 0x9FFF },
+            { 0xF900, 0xFAFF },
+            { 0x20000, 0x2A6DF },
         };
         const wchar_t* heit = L"SimHei";
         b->AddMapping(cjk, (UINT32)(sizeof(cjk) / sizeof(cjk[0])),
@@ -257,7 +245,7 @@ static BOOL DwtEnsureDib(int w, int h) {
     ZeroMemory(&bi, sizeof(bi));
     bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bi.bmiHeader.biWidth = w;
-    bi.bmiHeader.biHeight = -h;          // top-down
+    bi.bmiHeader.biHeight = -h;
     bi.bmiHeader.biPlanes = 1;
     bi.bmiHeader.biBitCount = 32;
     bi.bmiHeader.biCompression = BI_RGB;

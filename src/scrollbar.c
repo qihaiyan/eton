@@ -16,8 +16,6 @@ static RECT s_rc[2];
 static BOOL s_haveLayout = FALSE;
 int ScrollBars_Thickness(void) { return UI_Scale(SB_THICK_96); }
 static HWND Hed(void) { return Editor_ActiveEdit(); }
-// Wrap 折行后 GETLINECOUNT(逻辑行) 与 SET/GETFIRSTVISIBLELINE(显示行) 数值不同，
-// 滚动条一律按显示行计算；VISIBLEFROMDOCLINE 在不换行时是恒等映射。
 int ScrollBars_TotalLines(HWND hed) {
     int lastDoc = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0) - 1;
     if (lastDoc < 0) return 0;

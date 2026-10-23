@@ -56,10 +56,6 @@ void Editor_OnDpiChanged(void) {
     Editor_Layout();
     InvalidateRect(g_hwndTab, NULL, TRUE);
 }
-// DirectWrite 按 locale 选 CJK 回退字体；默认 en-us 会选中日文字体，汉字
-// 字形与中文不同（如"类"字中间出现孤立点，Scintilla bug #2027）。
-// 跟随系统区域：zh/ja/ko 用户得到各自字形；其他区域按 zh-CN 回退，
-// 保证非 CJK 用户查看中文内容时的字形正确。
 static const char* DwFontLocale(void) {
     static char loc[LOCALE_NAME_MAX_LENGTH];
     if (!loc[0]) {
@@ -193,16 +189,10 @@ static void ApplyLexer(HWND hed, LangID lang) {
             cQuote = RGB(0,128,0);
             cCode  = RGB(163,21,21);
         }
-        // Style numbers per bundled Lexilla markdown lexer (SciLexer.h):
-        // 2/3 strong, 4/5 emphasis, 6..11 H1..H6, 12 pre-char marker,
-        // 13/14 list marker, 15 blockquote, 18 link, 19..21 code.
         SendMessage(hed, SCI_STYLESETFORE, 2, (LPARAM)cHead);
         SendMessage(hed, SCI_STYLESETBOLD, 2, 1);
         SendMessage(hed, SCI_STYLESETFORE, 3, (LPARAM)cHead);
         SendMessage(hed, SCI_STYLESETBOLD, 3, 1);
-        // Consolas has no italic face: DirectWrite then cross-family matches a
-        // much larger italic font. Courier New ships with Windows and has a
-        // real italic, so use it for the emphasis styles in DirectWrite mode.
         if (g_editorDWrite) {
             SendMessage(hed, SCI_STYLESETFONT, 4, (LPARAM)"Courier New");
             SendMessage(hed, SCI_STYLESETFONT, 5, (LPARAM)"Courier New");

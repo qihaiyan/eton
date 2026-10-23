@@ -204,7 +204,7 @@ After launching:
 
 ## Implementation notes (for contributors)
 
-- **Editing core**: Scintilla 5.6.6 + Lexilla 5.4.9 (the same core as Notepad++), statically linked (see `deps\make-deps.cmd` to rebuild the libs). Scintilla colors text via style IDs (0–255) without touching selections, scrolling, or causing repaint storms — excellent large-file performance.
+- **Editing core**: Scintilla 5.6.7 + Lexilla 5.4.9 (the same core as Notepad++), statically linked (see `deps\make-deps.cmd` to rebuild the libs). Scintilla colors text via style IDs (0–255) without touching selections, scrolling, or causing repaint storms — excellent large-file performance.
 - **Tab bar**: a custom window class (`NPPTabBar`) that paints tabs + close buttons in `WM_PAINT`.
 - **Line numbers**: Scintilla's built-in `SC_MARGIN_NUMBER` — no custom gutter drawing needed.
 - **Syntax coloring**: `ApplyLexer` in `editor.c` creates a lexer via `CreateLexer("cpp"/"python"/...)`, sets it with `SCI_SETILEXER`, then applies theme colors per style ID.
