@@ -2495,7 +2495,7 @@ static void Paint(void) {
     DeleteObject(bg);
     if (!V.fontsOk) { HDC tmp = GetDC(V.hwnd); FontsEnsure(tmp); ReleaseDC(V.hwnd, tmp); }
     PaintContent(mem, &th, TRUE);
-    PaintScrollbar(mem, &th);
+    if (!g_mdSplit) PaintScrollbar(mem, &th);
     Dwt_Flush(mem, &full);
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
     GdiFlush();
@@ -2934,6 +2934,13 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_MOUSEWHEEL: {
             static int acc = 0;
+            if (g_mdSplit) {
+                HWND hed = (g_curDoc >= 0 && g_curDoc < g_docCount) ? g_docs[g_curDoc].hwndEdit : NULL;
+                if (hed && IsWindowVisible(hed)) {
+                    SendMessage(hed, WM_MOUSEWHEEL, wp, lp);
+                    return 0;
+                }
+            }
             acc += (short)HIWORD(wp);
             int steps = acc / WHEEL_DELTA;
             acc %= WHEEL_DELTA;
@@ -2946,7 +2953,7 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             int px = GET_X_LPARAM(lp), py = GET_Y_LPARAM(lp);
             if (GetFocus() != hwnd) SetFocus(hwnd);
             int sbw = SbThickness();
-            if (V.docH > V.clientH && px >= V.clientW - sbw) {
+            if (!g_mdSplit && V.docH > V.clientH && px >= V.clientW - sbw) {
                 int thumbH = V.clientH * V.clientH / V.docH;
                 if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
                 int maxScroll = V.docH - V.clientH;
