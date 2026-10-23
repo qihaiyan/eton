@@ -83,7 +83,7 @@ cl /nologo /W3 /utf-8 /MT /O2 /DUNICODE /D_UNICODE /D_CRT_SECURE_NO_WARNINGS ^
    /Fo"build/" /Fe:eton.exe ^
    src\main.c src\editor.c src\tabbar.c src\toolbar.c src\fileio.c src\dialogs.c src\jsonfmt.c src\devtutil.c src\devtools.c src\session.c src\i18n.c src\statusbar.c src\scrollbar.c src\mdview.c src\mdoutline.c src\mdimg.c src\mdhl.c src\mermaid.c src\mdmath.c src\mdexport.c src\docx.c src\dwtext.cpp deps\md4c\md4c.c deps\md4c\md4c-html.c deps\md4c\entity.c deps\nanosvg\nanosvg.c deps\nanosvg\nanosvgrast.c build\eton.res build\app.res ^
    /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /LIBPATH:"deps\scintilla" /LIBPATH:"deps\lexilla" ^
-   libscintilla.lib liblexilla.lib ^
+   libscintilla.lib liblexilla.lib d2d1.lib dwrite.lib ^
    user32.lib gdi32.lib gdiplus.lib comctl32.lib kernel32.lib shell32.lib shlwapi.lib comdlg32.lib imm32.lib ole32.lib oleaut32.lib advapi32.lib winhttp.lib bcrypt.lib
 if errorlevel 1 goto :fail_cl
 
