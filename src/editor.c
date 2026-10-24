@@ -657,6 +657,14 @@ void Editor_OnNotify(LPARAM lp) {
             MdView_SyncScrollFromEdit(frac);
             g_mdSyncLock = FALSE;
         }
+    } else if (scn->nmhdr.code == SCN_ZOOM) {
+        int z = (int)SendMessage(hed, SCI_GETZOOM, 0, 0);
+        if (z) {
+            SendMessage(hed, SCI_SETZOOM, 0, 0);
+            Editor_Zoom(z);
+        } else {
+            Editor_UpdateStatus();
+        }
     } else if (scn->nmhdr.code == SCN_MARGINCLICK) {
         if (scn->margin == 1) {
             int line = (int)SendMessage(hed, SCI_LINEFROMPOSITION, scn->position, 0);

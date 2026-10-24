@@ -61,8 +61,8 @@ $manifest = $manifest.Replace("__NAME__", $Name).Replace("__PUBLISHER__", $Publi
 [System.IO.File]::WriteAllText((Join-Path $layout "AppxManifest.xml"), $manifest, (New-Object System.Text.UTF8Encoding $false))
 
 $langs = @{
-    "en-US" = @{ PublisherDisplayName = "HiEASE";             AppDescription = "Lightweight text editor" }
-    "zh-CN" = @{ PublisherDisplayName = "海易华天";             AppDescription = "轻量级文本编辑器" }
+    "en-US" = @{ AppDescription = "Lightweight text editor" }
+    "zh-CN" = @{ AppDescription = "轻量级文本编辑器" }
 }
 foreach ($lang in $langs.Keys) {
     $dir = Join-Path $layout "Strings\$lang"
