@@ -1021,6 +1021,31 @@ static void FlowLayoutDagre(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
         if (d->subs[i].y < minY) minY = d->subs[i].y;
     }
 
+    /* 边的折点（normalize 打断出来的 dummy 链，即 dagre 的 originalEdge.points）
+       也是要画出来的内容，得先取出来参与包围盒，否则回边和跨层绕行会跑到画布外。
+       之前只按节点/子图算尺寸，实测右侧边距只剩 12px，边缘的线会贴着裁切线。 */
+    for (e = 0; e < nE; e++) {
+        int buf[128];
+        int np, k;
+        free(d->edges[e].wps);
+        d->edges[e].wps = NULL;
+        d->edges[e].nWps = 0;
+        if (eIdx[e] < 0) continue;
+        np = mdg_edge_waypoints(&g, eIdx[e], buf, 64);
+        if (np <= 0) continue;
+        d->edges[e].wps = (int*)malloc(sizeof(int) * 2 * (size_t)np);
+        if (!d->edges[e].wps) continue;
+        for (k = 0; k < np; k++) {
+            int wx = lr ? buf[k * 2 + 1] : buf[k * 2];
+            int wy = lr ? buf[k * 2] : buf[k * 2 + 1];
+            d->edges[e].wps[k * 2] = wx;
+            d->edges[e].wps[k * 2 + 1] = wy;
+            if (wx < minX) minX = wx;
+            if (wy < minY) minY = wy;
+        }
+        d->edges[e].nWps = np;
+    }
+
     {
         int shiftX = 0, shiftY = 0;
         if (minX < margin || minY < margin) {
@@ -1034,25 +1059,13 @@ static void FlowLayoutDagre(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
                 d->subs[i].x += shiftX;
                 d->subs[i].y += shiftY;
             }
-        }
-        /* 边的折点：normalize 打断出来的 dummy 链坐标，即 dagre 的
-           originalEdge.points。折点与节点同一坐标系，要跟着一起平移。 */
-        for (e = 0; e < nE; e++) {
-            int buf[128];
-            int np, k;
-            free(d->edges[e].wps);
-            d->edges[e].wps = NULL;
-            d->edges[e].nWps = 0;
-            if (eIdx[e] < 0) continue;
-            np = mdg_edge_waypoints(&g, eIdx[e], buf, 64);
-            if (np <= 0) continue;
-            d->edges[e].wps = (int*)malloc(sizeof(int) * 2 * (size_t)np);
-            if (!d->edges[e].wps) continue;
-            for (k = 0; k < np; k++) {
-                d->edges[e].wps[k * 2] = (lr ? buf[k * 2 + 1] : buf[k * 2]) + shiftX;
-                d->edges[e].wps[k * 2 + 1] = (lr ? buf[k * 2] : buf[k * 2 + 1]) + shiftY;
+            for (e = 0; e < nE; e++) {
+                int k;
+                for (k = 0; k < d->edges[e].nWps; k++) {
+                    d->edges[e].wps[k * 2] += shiftX;
+                    d->edges[e].wps[k * 2 + 1] += shiftY;
+                }
             }
-            d->edges[e].nWps = np;
         }
     }
 
@@ -1066,6 +1079,15 @@ static void FlowLayoutDagre(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
             if (d->subs[i].w <= 0) continue;
             if (d->subs[i].x + d->subs[i].w > maxX) maxX = d->subs[i].x + d->subs[i].w;
             if (d->subs[i].y + d->subs[i].h > maxY) maxY = d->subs[i].y + d->subs[i].h;
+        }
+        for (e = 0; e < nE; e++) {
+            int k;
+            for (k = 0; k < d->edges[e].nWps; k++) {
+                int wx = d->edges[e].wps[k * 2] + UI_Scale(2);
+                int wy = d->edges[e].wps[k * 2 + 1] + UI_Scale(2);
+                if (wx > maxX) maxX = wx;
+                if (wy > maxY) maxY = wy;
+            }
         }
         d->sz.cx = maxX + margin;
         d->sz.cy = maxY + margin;
@@ -2405,13 +2427,17 @@ static void SeqLayout(MermaidDiagram* d, HDC hdc, const MdFonts* f) {
     d->sz.cx = totalW;
     d->sz.cy = y + margin;
 }
+/* 箭头尺寸随线宽走：Mermaid 的 marker 默认 markerUnits=strokeWidth，粗线的
+   箭头本来就更大。0 表示用默认值，由 FlowDraw 在画粗边时临时置位。 */
+static int g_arrowSize = 0, g_arrowHalf = 0;
 static void DrawArrowHead(HDC hdc, COLORREF clr, BOOL filled, int x, int y, double dx, double dy) {
     double len = sqrt(dx * dx + dy * dy);
     float xy[6];
     if (len < 0.001) return;
     dx /= len; dy /= len;
     double px = -dy, py = dx;
-    int size = UI_Scale(10), hw = UI_Scale(4);
+    int size = g_arrowSize ? g_arrowSize : UI_Scale(10);
+    int hw = g_arrowHalf ? g_arrowHalf : UI_Scale(4);
     xy[0] = (float)x;
     xy[1] = (float)y;
     xy[2] = (float)(x - size * dx + hw * px);
@@ -2490,17 +2516,22 @@ static int PolyPathPoints(const int (*p)[2], int n, int rad, float* xy, int maxP
             continue;
         }
         cr = (double)d1x * d2y - (double)d1y * d2x;
-        /* 几乎共线（转角小于约 1.5°）或掉头，就不倒角，保证长直段严格直 */
-        if ((double)d1x * d2x + (double)d1y * d2y <= 0 ||
-            (cr < 0.026 * d1 * d2 && -cr < 0.026 * d1 * d2)) {
+        /* 几乎共线（转角小于约 1.5°）或原地掉头，就不倒角，保证长直段严格直。
+           注意这里不能再用点积 <= 0 判掉头：正交走线的转角正好是 90°，点积
+           恰好等于 0，会把这个分支全吃掉，直角永远倒不上圆角。180° 掉头的
+           叉积本身就是 0，已经被共线条件覆盖。 */
+        if (cr < 0.026 * d1 * d2 && -cr < 0.026 * d1 * d2) {
             xy[cnt * 2] = (float)px;
             xy[cnt * 2 + 1] = (float)py;
             cnt++;
             continue;
         }
         r = (double)rad;
-        if (r > d1 * 0.5) r = d1 * 0.5;
-        if (r > d2 * 0.5) r = d2 * 0.5;
+        /* 半径既不能超过半段（否则相邻两点会互相吃掉），也不要吃掉整段：
+           两段都只有十来像素时按 d/2 倒角，一整段都是圆弧，看起来就成了曲线。
+           压到 d/4，保证每段中间还留着直线。 */
+        if (r > d1 * 0.25) r = d1 * 0.25;
+        if (r > d2 * 0.25) r = d2 * 0.25;
         u1x = (double)-d1x / d1;
         u1y = (double)-d1y / d1;
         u2x = (double)d2x / d2;
@@ -2741,6 +2772,8 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         MerNode* b = &d->nodes[ed->b];
         HPEN pen = ed->thick ? penThick : (ed->dash ? penDash : penSolid);
         HPEN op = (HPEN)SelectObject(hdc, pen);
+        g_arrowSize = ed->thick ? UI_Scale(13) : 0;
+        g_arrowHalf = ed->thick ? UI_Scale(5) : 0;
         int ax = a->x + a->w / 2, ay = a->y + a->h / 2;
         int bx = b->x + b->w / 2, by = b->y + b->h / 2;
         double fx = (double)(bx - ax), fy = (double)(by - ay);
@@ -2825,14 +2858,30 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
         } else if (ed->a == ed->b) {
             int top = a->y;
             int cx = a->x + a->w / 2;
-            POINT pts[4] = {
-                { cx - UI_Scale(8), top }, { cx - UI_Scale(8), top - UI_Scale(18) },
-                { cx + UI_Scale(8), top - UI_Scale(18) }, { cx + UI_Scale(8), top }
+            /* 自环挂在节点四分之三处，别压着正中——正中是普通入边的落点，
+               两者叠在一起会出现三个箭头挤成一团。 */
+            int lx = a->x + a->w * 3 / 4;
+            int lw = UI_Scale(10), lh = UI_Scale(20);
+            int ptsi[4][2] = {
+                { lx - lw, top }, { lx - lw, top - lh },
+                { lx + lw, top - lh }, { lx + lw, top }
             };
-            if (!MerAAPolylineDC(hdc, pts, 4)) Polyline(hdc, pts, 4);
+            /* 自环以前是硬直角的门形，和旁边圆角的连线放在一起很突兀。
+               这里同样走「直段 + 转角圆角」，只在四个角上倒个小圆。 */
+            {
+                float xy[64];
+                int cnt = PolyPathPoints(ptsi, 4, UI_Scale(6), xy, 32);
+                if (cnt < 2 ||
+                    !MerAAPolyline(hdc, xy, cnt, th->merEdge, ed->thick ? 2 : 1, ed->dash)) {
+                    POINT pts[4];
+                    for (int q = 0; q < 4; q++) { pts[q].x = ptsi[q][0]; pts[q].y = ptsi[q][1]; }
+                    if (!MerAAPolylineDC(hdc, pts, 4)) Polyline(hdc, pts, 4);
+                }
+            }
             if (ed->arrow)
-                DrawArrowHead(hdc, th->merEdge, TRUE, cx + UI_Scale(8), top, 0, 1);
-            lbx = cx; lby = top - UI_Scale(18);
+                DrawArrowHead(hdc, th->merEdge, TRUE, lx + lw, top, 0, 1);
+            lbx = lx; lby = top - lh;
+            (void)cx;
         } else if (!d->dirLR) {
             if (ed->side) {
                 BOOL localSide = (a->sub >= 0 && a->sub == b->sub &&
@@ -3079,7 +3128,7 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             SIZE sz;
             HFONT of = (HFONT)SelectObject(hdc, f->sm);
             GetTextExtentPoint32W(hdc, ed->label, (int)wcslen(ed->label), &sz);
-            int px2 = (d->kind == 2) ? 5 : 3, py2 = (d->kind == 2) ? 3 : 1;
+            int px2 = (d->kind == 2) ? 5 : 4, py2 = (d->kind == 2) ? 3 : 2;
             RECT chip = { mx - sz.cx / 2 - px2, my - sz.cy / 2 - py2,
                           mx + sz.cx / 2 + px2, my + sz.cy / 2 + py2 };
             RECT clashTmp;
@@ -3123,7 +3172,12 @@ static void FlowDraw(MermaidDiagram* d, HDC hdc, int ox, int oy, const MdFonts* 
             }
         }
     }
-    if (bTgt) {
+    g_arrowSize = 0;
+    g_arrowHalf = 0;
+    /* 汇聚竖线只在手写布局下成立：那套规则会把入边的终点抬到 y-bStem，
+       再由这条竖线收口。dagre 分支的入边是按 dagre 折点各自落到节点框上的，
+       没人接到这里，画出来就是节点上方一截悬空的短竖线加箭头（看着像断线）。 */
+    if (bTgt && !useDagre) {
         for (int i = 0; i < d->nNodes; i++) {
             if (!bTgt[i] || !bCnt || bCnt[i] < 4) continue;
             MerNode* bb = &d->nodes[i];

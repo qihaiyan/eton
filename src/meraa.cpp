@@ -39,11 +39,19 @@ BOOL MerAAPolyline(HDC hdc, const float* xy, int n, COLORREF col, int width, BOO
     if (!EnsureGA()) return FALSE;
     {
         Graphics g(hdc);
+        int w = width > 0 ? width : 1;
+        /* PixelOffsetModeNone 下整数坐标落在像素中心：奇数宽正好压满一列，
+           偶数宽以整数为中线时只盖住左右各半列（实测 94/159/94），看着仍是
+           1px 亮线带灰边。偶宽整体偏半像素，才能得到实心的两列。 */
+        REAL off = (w % 2) ? 0.0f : 0.5f;
+        PointF* tmp = NULL;
+        const PointF* pts = reinterpret_cast<const PointF*>(xy);
+        Status st;
         if (g.GetLastStatus() != Ok) return FALSE;
         g.SetSmoothingMode(SmoothingModeAntiAlias);
         g.SetPixelOffsetMode(PixelOffsetModeNone);
         Color c = ToColor(col);
-        Pen pen(c, (REAL)(width > 0 ? width : 1));
+        Pen pen(c, (REAL)w);
         pen.SetLineJoin(LineJoinRound);
         if (dash) {
             /* 系统 DashStyle 在 1px 抗锯齿下每段太短、整体发灰，这里用更长的图案 */
@@ -52,7 +60,18 @@ BOOL MerAAPolyline(HDC hdc, const float* xy, int n, COLORREF col, int width, BOO
             pat[1] = 2.0f;
             pen.SetDashPattern(pat, 2);
         }
-        if (g.DrawLines(&pen, reinterpret_cast<const PointF*>(xy), n) != Ok) return FALSE;
+        if (off > 0.0f) {
+            tmp = new PointF[n];
+            if (!tmp) return FALSE;
+            for (int i = 0; i < n; i++) {
+                tmp[i].X = pts[i].X + off;
+                tmp[i].Y = pts[i].Y + off;
+            }
+            pts = tmp;
+        }
+        st = g.DrawLines(&pen, pts, n);
+        delete[] tmp;
+        if (st != Ok) return FALSE;
     }
     return TRUE;
 }
