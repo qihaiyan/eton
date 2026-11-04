@@ -16,5 +16,6 @@
 ## Build and Verification
 
 - Build: run `build.bat auto` from the repository root; success prints `BUILD_OK`. The output is `eton.exe` in the root (Scintilla/Lexilla statically linked).
-- Current dependency: Scintilla 5.6.7 (2026-09-28), compiled from source into `deps/scintilla/libscintilla.lib`; the link line needs `d2d1.lib dwrite.lib`. Lexilla remains the repository's original version.
+- Current dependency: Scintilla 5.6.9 (2026-11-02), compiled from source into `deps/scintilla/libscintilla.lib`; the link line needs `d2d1.lib dwrite.lib`. Lexilla 5.5.5 (2026-10-31). Markdown lexer styles 0-21 are unchanged from 5.4.9; 5.5.x adds SCE_MARKDOWN_FRONT_MARK/FRONT/FRONT_KEY (22/23/24) for front matter.
+- Rebuilding the dep libs: put `scintilla/` and `lexilla/` source trees under one root, then run `deps\make-deps.cmd <src-root> <out-dir>` inside an MSVC x64 environment; copy the two `.lib` files plus changed headers from `scintilla/include` and `lexilla/include` into `deps/`.
 - For UI verification, use PowerShell screenshots (CopyFromScreen / PrintWindow) with pixel analysis; no extra dependencies.

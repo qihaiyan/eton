@@ -514,6 +514,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 int ni = Editor_NewDoc(NULL, T(STR_UNTITLED), TRUE);
                 Editor_Activate(ni);
             }
+            Editor_PrewarmRender();
             SetTimer(hwnd, 1, 10000, NULL);
             ApplyTitleBarTheme(hwnd);
             RefreshRecentMenu();

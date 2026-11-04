@@ -83,6 +83,7 @@ void Editor_Activate(int index);
 void Editor_Layout(void);
 void Editor_SetFont(void);
 void Editor_OnDpiChanged(void);
+void Editor_PrewarmRender(void);
 void Editor_ApplyTextRendering(void);
 void Editor_Zoom(int delta);
 void Editor_ApplyTheme(int index);

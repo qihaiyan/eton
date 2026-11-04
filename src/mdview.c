@@ -3,6 +3,9 @@
 #include "nanosvg.h"
 #include "nanosvgrast.h"
 #include "dwtext.h"
+#ifndef WM_MOUSEHWHEEL
+#define WM_MOUSEHWHEEL 0x020E
+#endif
 typedef enum { ITM_LINES, ITM_RECT, ITM_FRAME, ITM_DIAGRAM, ITM_IMAGE, ITM_MATH } MdItemType;
 enum { RCT_CODEBG = 0, RCT_QUOTEBAR, RCT_HRULE, RCT_TABLEHEAD, RCT_CANVAS };
 typedef struct MdFrag {
@@ -44,11 +47,13 @@ static struct {
     unsigned modGen;
     MdItem* items; int nItems, capItems;
     int docH, scrollY, clientW, clientH;
+    int docW, scrollX;
     MdFonts fonts;
     BOOL fontsOk;
     wchar_t baseDir[MAX_PATH];
     HCURSOR hHand;
     BOOL sbDrag; int sbDragOff;
+    BOOL sbDragX; int sbDragXOff;
     int lastLayoutW;
     BOOL imgTimerOn;
     int layIdx, layY;
@@ -2137,12 +2142,16 @@ static int DocHEstimate(void) {
     }
     return base;
 }
+static void ClampScroll(void);
+static void DocWUpdate(void);
 static void LayoutBegin(void) {
     ItemResetAll();
     V.layIdx = 0;
     V.layY = UI_Scale(16);
     V.layDone = (V.root == NULL || V.root->nChildren == 0);
     V.docH = DocHEstimate();
+    V.docW = V.clientW;
+    V.scrollX = 0;
     V.lastLayoutW = V.clientW;
 }
 static void LayoutEnsure(int throughY) {
@@ -2163,6 +2172,7 @@ static void LayoutEnsure(int throughY) {
     }
     ReleaseDC(V.hwnd, hdc);
     V.docH = DocHEstimate();
+    DocWUpdate();
 }
 static void LayoutAll(void) {
     if (V.clientW <= 0 || V.clientH <= 0) {
@@ -2243,6 +2253,7 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
     RECT rcClient;
     GetClientRect(V.hwnd, &rcClient);
     int top = V.scrollY, bot = V.scrollY + V.clientH;
+    int ox = V.scrollX;
     SetBkMode(hdc, TRANSPARENT);
     HPEN ulPen = CreatePen(PS_SOLID, 1, th->link);
     HPEN strikePen = CreatePen(PS_SOLID, 1, th->fgMuted);
@@ -2268,14 +2279,14 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                 }
                 if (br) {
                     RECT rc = it->rc;
-                    OffsetRect(&rc, 0, -V.scrollY);
+                    OffsetRect(&rc, -ox, -V.scrollY);
                     FillRect(hdc, &rc, br);
                 }
                 break;
             }
             case ITM_FRAME: {
                 RECT rc = it->rc;
-                OffsetRect(&rc, 0, -V.scrollY);
+                OffsetRect(&rc, -ox, -V.scrollY);
                 HPEN op = (HPEN)SelectObject(hdc, framePen);
                 HBRUSH ob = (HBRUSH)SelectObject(hdc, GetStockObject(NULL_BRUSH));
                 Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
@@ -2287,10 +2298,10 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                 if (it->diag) {
                     RECT drc = it->rc;
                     InflateRect(&drc, UI_Scale(16), UI_Scale(16));
-                    OffsetRect(&drc, 0, -V.scrollY);
+                    OffsetRect(&drc, -ox, -V.scrollY);
                     SaveDC(hdc);
                     IntersectClipRect(hdc, drc.left, drc.top, drc.right, drc.bottom);
-                    Mermaid_Draw(it->diag, hdc, it->rc.left, it->rc.top - V.scrollY,
+                    Mermaid_Draw(it->diag, hdc, it->rc.left - ox, it->rc.top - V.scrollY,
                                  &V.fonts, th);
                     RestoreDC(hdc, -1);
                 }
@@ -2298,7 +2309,7 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
             case ITM_IMAGE: {
                 if (!s_gdipOk || !it->image) break;
                 RECT rc = it->rc;
-                OffsetRect(&rc, 0, -V.scrollY);
+                OffsetRect(&rc, -ox, -V.scrollY);
                 int dw = rc.right - rc.left, dh = rc.bottom - rc.top;
                 if (dw <= 0 || dh <= 0) break;
                 GpGraphics* g = NULL;
@@ -2351,11 +2362,12 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                 if (it->mathRun && it->mathRun->math) {
                     if (selBr && SelPointCovered(i, 0, 0)) {
                         RECT sr = it->rc;
-                        OffsetRect(&sr, 0, -V.scrollY);
+                        OffsetRect(&sr, -ox, -V.scrollY);
                         FillRect(hdc, &sr, selBr);
                     }
                     Math_Draw(it->mathRun->math, hdc,
-                              it->rc.left, it->rc.top + Math_Ascent(it->mathRun->math) - V.scrollY,
+                              it->rc.left - ox,
+                              it->rc.top + Math_Ascent(it->mathRun->math) - V.scrollY,
                               th, &V.fonts);
                 }
                 break;
@@ -2371,7 +2383,7 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                         MdFrag* fr = &ln->frags[k];
                         MdRun* run = fr->run;
                         if ((run->style & STY_MATH) && run->math) {
-                            int fx2 = it->rc.left + fr->x;
+                            int fx2 = it->rc.left + fr->x - ox;
                             if (selBr && SelPointCovered(i, l, k)) {
                                 RECT mr = { fx2, baseY - ln->asc,
                                             fx2 + (fr->w > 0 ? fr->w : UI_Scale(12)),
@@ -2382,7 +2394,7 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
                             continue;
                         }
                         if (!fr->s || fr->len == 0) continue;
-                        int fx = it->rc.left + fr->x;
+                        int fx = it->rc.left + fr->x - ox;
                         HFONT f = FontFor(run->style, it->role);
                         DwtFmt* df = FmtFor(run->style, it->role);
                         COLORREF tcol;
@@ -2496,22 +2508,43 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
 }
 static void PaintScrollbar(HDC hdc, const MdTheme* th) {
     int sbw = SbThickness();
-    if (V.docH <= V.clientH) return;
-    int trackX = V.clientW - sbw;
+    BOOL vOn = V.docH > V.clientH;
+    BOOL hOn = V.docW > V.clientW;
+    if (!vOn && !hOn) return;
     COLORREF trackClr = g_dark ? RGB(37,37,40) : RGB(240,241,242);
     COLORREF thumbClr = g_dark ? RGB(82,86,93) : RGB(193,198,203);
-    RECT tr = { trackX, 0, V.clientW, V.clientH };
-    HBRUSH br = CreateSolidBrush(trackClr);
-    FillRect(hdc, &tr, br);
-    DeleteObject(br);
-    int thumbH = V.clientH * V.clientH / V.docH;
-    if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
-    int maxScroll = V.docH - V.clientH;
-    int thumbY = V.scrollY * (V.clientH - thumbH) / maxScroll;
-    RECT thr = { trackX + 2, thumbY, V.clientW - 2, thumbY + thumbH };
-    br = CreateSolidBrush(thumbClr);
-    FillRect(hdc, &thr, br);
-    DeleteObject(br);
+    if (vOn) {
+        int trackX = V.clientW - sbw;
+        RECT tr = { trackX, 0, V.clientW, V.clientH };
+        HBRUSH br = CreateSolidBrush(trackClr);
+        FillRect(hdc, &tr, br);
+        DeleteObject(br);
+        int thumbH = V.clientH * V.clientH / V.docH;
+        if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
+        int maxScroll = V.docH - V.clientH;
+        int trackH = V.clientH - (hOn ? sbw : 0);
+        int thumbY = V.scrollY * (trackH - thumbH) / maxScroll;
+        RECT thr = { trackX + 2, thumbY, V.clientW - 2, thumbY + thumbH };
+        br = CreateSolidBrush(thumbClr);
+        FillRect(hdc, &thr, br);
+        DeleteObject(br);
+    }
+    if (hOn) {
+        int trackR = V.clientW - (vOn ? sbw : 0);
+        RECT tr = { 0, V.clientH - sbw, trackR, V.clientH };
+        HBRUSH br = CreateSolidBrush(trackClr);
+        FillRect(hdc, &tr, br);
+        DeleteObject(br);
+        int thumbW = V.clientW * V.clientW / V.docW;
+        if (thumbW < UI_Scale(24)) thumbW = UI_Scale(24);
+        int maxScroll = V.docW - V.clientW;
+        int trackW = trackR - 4;
+        int thumbX = V.scrollX * (trackW - thumbW) / maxScroll;
+        RECT thr = { 2 + thumbX, V.clientH - sbw + 2, 2 + thumbX + thumbW, V.clientH - 2 };
+        br = CreateSolidBrush(thumbClr);
+        FillRect(hdc, &thr, br);
+        DeleteObject(br);
+    }
     (void)th;
 }
 static struct {
@@ -2543,6 +2576,7 @@ static void Paint(void) {
     PAINTSTRUCT ps;
     HDC hdc = BeginPaint(V.hwnd, &ps);
     LayoutEnsure(V.scrollY + V.clientH * 2);
+    DocWUpdate();
     RECT rc;
     GetClientRect(V.hwnd, &rc);
     int w = rc.right, h = rc.bottom;
@@ -2577,6 +2611,27 @@ static void ClampScroll(void) {
     if (maxScroll < 0) maxScroll = 0;
     if (V.scrollY < 0) V.scrollY = 0;
     if (V.scrollY > maxScroll) V.scrollY = maxScroll;
+    int maxX = V.docW - V.clientW;
+    if (maxX < 0) maxX = 0;
+    if (V.scrollX < 0) V.scrollX = 0;
+    if (V.scrollX > maxX) V.scrollX = maxX;
+}
+static void DocWUpdate(void) {
+    int mr = 0;
+    for (int i = 0; i < V.nItems; i++)
+        if (V.items[i].rc.right > mr) mr = V.items[i].rc.right;
+    int w = mr + UI_Scale(40);
+    if (w < V.clientW) w = V.clientW;
+    if (w != V.docW) {
+        V.docW = w;
+        ClampScroll();
+    }
+}
+static void ScrollByX(int dx) {
+    int old = V.scrollX;
+    V.scrollX += dx;
+    ClampScroll();
+    if (V.scrollX != old) InvalidateRect(V.hwnd, NULL, FALSE);
 }
 static void ScrollBy(int dy) {
     int old = V.scrollY;
@@ -2593,7 +2648,7 @@ static void ScrollBy(int dy) {
 }
 static const wchar_t* HitLink(int px, int py) {
     int dy = py + V.scrollY;
-    int dx = px;
+    int dx = px + V.scrollX;
     for (int i = 0; i < V.nItems; i++) {
         MdItem* it = &V.items[i];
         if (it->type == ITM_IMAGE) {
@@ -2683,7 +2738,7 @@ static BOOL HitTextPos(int px, int py, MdPos* out) {
     if (!hdc) return FALSE;
     if (!V.fontsOk) FontsEnsure(hdc);
     int dy = py + V.scrollY;
-    int dx = px;
+    int dx = px + V.scrollX;
     int best = -1, bestV = 0, bestH = 0;
     for (int i = 0; i < V.nItems; i++) {
         MdItem* it = &V.items[i];
@@ -3007,8 +3062,19 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             int steps = acc / WHEEL_DELTA;
             acc %= WHEEL_DELTA;
             int line = V.fonts.lineH * 3;
-            if (wp & MK_SHIFT) line *= 3;
+            if (wp & MK_SHIFT) {
+                if (steps) ScrollByX(steps * line);
+                return 0;
+            }
             if (steps) ScrollBy(-steps * line);
+            return 0;
+        }
+        case WM_MOUSEHWHEEL: {
+            int d = (short)HIWORD(wp);
+            int steps = d / WHEEL_DELTA;
+            d %= WHEEL_DELTA;
+            if (!steps && d) steps = d > 0 ? 1 : -1;
+            if (steps) ScrollByX(steps * V.fonts.lineH * 3);
             return 0;
         }
         case WM_LBUTTONDOWN: {
@@ -3019,13 +3085,30 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 int thumbH = V.clientH * V.clientH / V.docH;
                 if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
                 int maxScroll = V.docH - V.clientH;
-                int thumbY = maxScroll ? V.scrollY * (V.clientH - thumbH) / maxScroll : 0;
+                int trackH = V.clientH - (V.docW > V.clientW ? sbw : 0);
+                int thumbY = maxScroll ? V.scrollY * (trackH - thumbH) / maxScroll : 0;
                 if (py >= thumbY && py < thumbY + thumbH) {
                     V.sbDrag = TRUE;
                     V.sbDragOff = py - thumbY;
                     SetCapture(hwnd);
                 } else {
                     ScrollBy((py < thumbY ? -1 : 1) * V.clientH * 9 / 10);
+                }
+                return 0;
+            }
+            if (!g_mdSplit && V.docW > V.clientW && py >= V.clientH - sbw) {
+                int trackR = V.clientW - ((V.docH > V.clientH) ? sbw : 0);
+                int thumbW = V.clientW * V.clientW / V.docW;
+                if (thumbW < UI_Scale(24)) thumbW = UI_Scale(24);
+                int maxX = V.docW - V.clientW;
+                int trackW = trackR - 4;
+                int thumbX = maxX ? V.scrollX * (trackW - thumbW) / maxX : 0;
+                if (px >= 2 + thumbX && px < 2 + thumbX + thumbW) {
+                    V.sbDragX = TRUE;
+                    V.sbDragXOff = px - (2 + thumbX);
+                    SetCapture(hwnd);
+                } else {
+                    ScrollByX((px < 2 + thumbX ? -1 : 1) * V.clientW * 9 / 10);
                 }
                 return 0;
             }
@@ -3051,12 +3134,27 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_MOUSEMOVE: {
             int px = GET_X_LPARAM(lp), py = GET_Y_LPARAM(lp);
+            if (V.sbDragX && V.docW > V.clientW) {
+                int sbw = SbThickness();
+                int trackR = V.clientW - ((V.docH > V.clientH) ? sbw : 0);
+                int thumbW = V.clientW * V.clientW / V.docW;
+                if (thumbW < UI_Scale(24)) thumbW = UI_Scale(24);
+                int maxX = V.docW - V.clientW;
+                int trackW = trackR - 4;
+                int t = px - V.sbDragXOff - 2;
+                V.scrollX = maxX * t / (trackW - thumbW);
+                ClampScroll();
+                InvalidateRect(hwnd, NULL, FALSE);
+                return 0;
+            }
             if (V.sbDrag && V.docH > V.clientH) {
+                int sbw = SbThickness();
                 int thumbH = V.clientH * V.clientH / V.docH;
                 if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
                 int t = py - V.sbDragOff;
                 int maxScroll = V.docH - V.clientH;
-                V.scrollY = maxScroll * t / (V.clientH - thumbH);
+                int trackH = V.clientH - (V.docW > V.clientW ? sbw : 0);
+                V.scrollY = maxScroll * t / (trackH - thumbH);
                 ClampScroll();
                 InvalidateRect(hwnd, NULL, FALSE);
                 if (g_mdSplit && !g_mdSyncLock) {
@@ -3097,6 +3195,11 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_LBUTTONUP: {
+            if (V.sbDragX) {
+                V.sbDragX = FALSE;
+                if (GetCapture() == hwnd) ReleaseCapture();
+                return 0;
+            }
             if (V.sbDrag) {
                 V.sbDrag = FALSE;
                 if (GetCapture() == hwnd) ReleaseCapture();
@@ -3120,6 +3223,8 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_CAPTURECHANGED:
+            V.sbDrag = FALSE;
+            V.sbDragX = FALSE;
             if (V.selDrag) {
                 V.selDrag = FALSE;
                 if (V.pendLink) { free(V.pendLink); V.pendLink = NULL; }

@@ -58,6 +58,33 @@ void Editor_OnDpiChanged(void) {
     Editor_Layout();
     InvalidateRect(g_hwndTab, NULL, TRUE);
 }
+void Editor_PrewarmRender(void) {
+    for (int i = 0; i < g_docCount; i++) {
+        HWND hed = g_docs[i].hwndEdit;
+        if (!hed) continue;
+        RECT rc;
+        GetClientRect(hed, &rc);
+        int w = rc.right - rc.left, hgt = rc.bottom - rc.top;
+        if (w <= 0 || hgt <= 0) {
+            Editor_Layout();
+            GetClientRect(hed, &rc);
+            w = rc.right - rc.left; hgt = rc.bottom - rc.top;
+            if (w <= 0 || hgt <= 0) continue;
+        }
+        HDC scr = GetDC(NULL);
+        if (!scr) continue;
+        HDC mem = CreateCompatibleDC(scr);
+        HBITMAP bmp = CreateCompatibleBitmap(scr, w, hgt);
+        if (mem && bmp) {
+            HBITMAP ob = (HBITMAP)SelectObject(mem, bmp);
+            SendMessage(hed, WM_PRINT, (WPARAM)mem, PRF_CLIENT);
+            SelectObject(mem, ob);
+        }
+        if (bmp) DeleteObject(bmp);
+        if (mem) DeleteDC(mem);
+        ReleaseDC(NULL, scr);
+    }
+}
 static const char* DwFontLocale(void) {
     static char loc[LOCALE_NAME_MAX_LENGTH];
     if (!loc[0]) {
