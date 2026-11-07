@@ -142,19 +142,25 @@ static void ApplyScintillaStyle(HWND hed) {
     {
         COLORREF fFold = g_dark ? RGB(220,220,220) : RGB(80,80,80);
         COLORREF bFold = g_dark ? RGB(60,70,90)    : RGB(200,200,200);
-        struct { int num; int mark; } fm[] = {
-            { SC_MARKNUM_FOLDEROPEN,    SC_MARK_BOXMINUS },
-            { SC_MARKNUM_FOLDER,        SC_MARK_BOXPLUS },
-            { SC_MARKNUM_FOLDERSUB,     SC_MARK_VLINE },
-            { SC_MARKNUM_FOLDERTAIL,    SC_MARK_TCORNER },
-            { SC_MARKNUM_FOLDEREND,     SC_MARK_BOXPLUSCONNECTED },
-            { SC_MARKNUM_FOLDEROPENMID, SC_MARK_BOXMINUSCONNECTED },
-            { SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_TCORNER },
+        struct { int num; int mark; BOOL boxy; } fm[] = {
+            { SC_MARKNUM_FOLDEROPEN,    SC_MARK_BOXMINUS, TRUE },
+            { SC_MARKNUM_FOLDER,        SC_MARK_BOXPLUS, TRUE },
+            { SC_MARKNUM_FOLDERSUB,     SC_MARK_VLINE, FALSE },
+            { SC_MARKNUM_FOLDERTAIL,    SC_MARK_TCORNER, FALSE },
+            { SC_MARKNUM_FOLDEREND,     SC_MARK_BOXPLUSCONNECTED, TRUE },
+            { SC_MARKNUM_FOLDEROPENMID, SC_MARK_BOXMINUSCONNECTED, TRUE },
+            { SC_MARKNUM_FOLDERMIDTAIL, SC_MARK_TCORNER, FALSE },
         };
         for (int i = 0; i < (int)(sizeof(fm)/sizeof(fm[0])); i++) {
             SendMessage(hed, SCI_MARKERDEFINE, fm[i].num, fm[i].mark);
-            SendMessage(hed, SCI_MARKERSETFORE, fm[i].num, (LPARAM)fFold);
-            SendMessage(hed, SCI_MARKERSETBACK, fm[i].num, (LPARAM)bFold);
+            if (fm[i].boxy) {
+                SendMessage(hed, SCI_MARKERSETFORE, fm[i].num, (LPARAM)bFold);
+                SendMessage(hed, SCI_MARKERSETBACK, fm[i].num, (LPARAM)fFold);
+            } else {
+                SendMessage(hed, SCI_MARKERSETFORE, fm[i].num, (LPARAM)fFold);
+                SendMessage(hed, SCI_MARKERSETBACK, fm[i].num, (LPARAM)bFold);
+            }
+            SendMessage(hed, SCI_MARKERSETBACKSELECTED, fm[i].num, (LPARAM)bFold);
         }
     }
     SendMessage(hed, SCI_MARKERDEFINE, 24, SC_MARK_BACKGROUND);
