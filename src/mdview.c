@@ -2248,7 +2248,7 @@ void MdTheme_Build(MdTheme* th) {
         th->frame        = RGB(168,178,190);
     }
 }
-static int SbThickness(void) { return UI_Scale(12); }
+static int SbThickness(void) { return ScrollBars_Thickness(); }
 static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
     RECT rcClient;
     GetClientRect(V.hwnd, &rcClient);
@@ -2508,40 +2508,40 @@ static void PaintContent(HDC hdc, const MdTheme* th, BOOL drawSel) {
 }
 static void PaintScrollbar(HDC hdc, const MdTheme* th) {
     int sbw = SbThickness();
-    BOOL vOn = V.docH > V.clientH;
+    BOOL vOn = !g_mdSplit && V.docH > V.clientH;
     BOOL hOn = V.docW > V.clientW;
     if (!vOn && !hOn) return;
-    COLORREF trackClr = g_dark ? RGB(37,37,40) : RGB(240,241,242);
-    COLORREF thumbClr = g_dark ? RGB(82,86,93) : RGB(193,198,203);
+    int ins = ScrollBars_Inset();
+    int mint = ScrollBars_MinThumb();
     if (vOn) {
         int trackX = V.clientW - sbw;
         RECT tr = { trackX, 0, V.clientW, V.clientH };
-        HBRUSH br = CreateSolidBrush(trackClr);
+        HBRUSH br = CreateSolidBrush(ScrollBars_TrackColor());
         FillRect(hdc, &tr, br);
         DeleteObject(br);
         int thumbH = V.clientH * V.clientH / V.docH;
-        if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
+        if (thumbH < mint) thumbH = mint;
         int maxScroll = V.docH - V.clientH;
         int trackH = V.clientH - (hOn ? sbw : 0);
         int thumbY = V.scrollY * (trackH - thumbH) / maxScroll;
-        RECT thr = { trackX + 2, thumbY, V.clientW - 2, thumbY + thumbH };
-        br = CreateSolidBrush(thumbClr);
+        RECT thr = { trackX + ins, thumbY, V.clientW - ins, thumbY + thumbH };
+        br = CreateSolidBrush(ScrollBars_ThumbColor(FALSE, V.sbDrag));
         FillRect(hdc, &thr, br);
         DeleteObject(br);
     }
     if (hOn) {
         int trackR = V.clientW - (vOn ? sbw : 0);
         RECT tr = { 0, V.clientH - sbw, trackR, V.clientH };
-        HBRUSH br = CreateSolidBrush(trackClr);
+        HBRUSH br = CreateSolidBrush(ScrollBars_TrackColor());
         FillRect(hdc, &tr, br);
         DeleteObject(br);
         int thumbW = V.clientW * V.clientW / V.docW;
-        if (thumbW < UI_Scale(24)) thumbW = UI_Scale(24);
+        if (thumbW < mint) thumbW = mint;
         int maxScroll = V.docW - V.clientW;
-        int trackW = trackR - 4;
+        int trackW = trackR - 2 * ins;
         int thumbX = V.scrollX * (trackW - thumbW) / maxScroll;
-        RECT thr = { 2 + thumbX, V.clientH - sbw + 2, 2 + thumbX + thumbW, V.clientH - 2 };
-        br = CreateSolidBrush(thumbClr);
+        RECT thr = { ins + thumbX, V.clientH - sbw + ins, ins + thumbX + thumbW, V.clientH - ins };
+        br = CreateSolidBrush(ScrollBars_ThumbColor(FALSE, V.sbDragX));
         FillRect(hdc, &thr, br);
         DeleteObject(br);
     }
@@ -2591,7 +2591,7 @@ static void Paint(void) {
     DeleteObject(bg);
     if (!V.fontsOk) { HDC tmp = GetDC(V.hwnd); FontsEnsure(tmp); ReleaseDC(V.hwnd, tmp); }
     PaintContent(mem, &th, TRUE);
-    if (!g_mdSplit) PaintScrollbar(mem, &th);
+    PaintScrollbar(mem, &th);
     Dwt_Flush(mem, &full);
     BitBlt(hdc, 0, 0, w, h, mem, 0, 0, SRCCOPY);
     GdiFlush();
@@ -3052,6 +3052,13 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_MOUSEWHEEL: {
             static int acc = 0;
             if (g_mdSplit) {
+                if ((wp & MK_SHIFT) && V.docW > V.clientW) {
+                    acc += (short)HIWORD(wp);
+                    int steps = acc / WHEEL_DELTA;
+                    acc %= WHEEL_DELTA;
+                    if (steps) ScrollByX(steps * V.fonts.lineH * 3);
+                    return 0;
+                }
                 HWND hed = (g_curDoc >= 0 && g_curDoc < g_docCount) ? g_docs[g_curDoc].hwndEdit : NULL;
                 if (hed && IsWindowVisible(hed)) {
                     SendMessage(hed, WM_MOUSEWHEEL, wp, lp);
@@ -3083,7 +3090,7 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             int sbw = SbThickness();
             if (!g_mdSplit && V.docH > V.clientH && px >= V.clientW - sbw) {
                 int thumbH = V.clientH * V.clientH / V.docH;
-                if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
+                if (thumbH < ScrollBars_MinThumb()) thumbH = ScrollBars_MinThumb();
                 int maxScroll = V.docH - V.clientH;
                 int trackH = V.clientH - (V.docW > V.clientW ? sbw : 0);
                 int thumbY = maxScroll ? V.scrollY * (trackH - thumbH) / maxScroll : 0;
@@ -3096,19 +3103,20 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return 0;
             }
-            if (!g_mdSplit && V.docW > V.clientW && py >= V.clientH - sbw) {
+            if (V.docW > V.clientW && py >= V.clientH - sbw) {
                 int trackR = V.clientW - ((V.docH > V.clientH) ? sbw : 0);
+                int ins = ScrollBars_Inset();
                 int thumbW = V.clientW * V.clientW / V.docW;
-                if (thumbW < UI_Scale(24)) thumbW = UI_Scale(24);
+                if (thumbW < ScrollBars_MinThumb()) thumbW = ScrollBars_MinThumb();
                 int maxX = V.docW - V.clientW;
-                int trackW = trackR - 4;
+                int trackW = trackR - 2 * ins;
                 int thumbX = maxX ? V.scrollX * (trackW - thumbW) / maxX : 0;
-                if (px >= 2 + thumbX && px < 2 + thumbX + thumbW) {
+                if (px >= ins + thumbX && px < ins + thumbX + thumbW) {
                     V.sbDragX = TRUE;
-                    V.sbDragXOff = px - (2 + thumbX);
+                    V.sbDragXOff = px - (ins + thumbX);
                     SetCapture(hwnd);
                 } else {
-                    ScrollByX((px < 2 + thumbX ? -1 : 1) * V.clientW * 9 / 10);
+                    ScrollByX((px < ins + thumbX ? -1 : 1) * V.clientW * 9 / 10);
                 }
                 return 0;
             }
@@ -3137,11 +3145,12 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (V.sbDragX && V.docW > V.clientW) {
                 int sbw = SbThickness();
                 int trackR = V.clientW - ((V.docH > V.clientH) ? sbw : 0);
+                int ins = ScrollBars_Inset();
                 int thumbW = V.clientW * V.clientW / V.docW;
-                if (thumbW < UI_Scale(24)) thumbW = UI_Scale(24);
+                if (thumbW < ScrollBars_MinThumb()) thumbW = ScrollBars_MinThumb();
                 int maxX = V.docW - V.clientW;
-                int trackW = trackR - 4;
-                int t = px - V.sbDragXOff - 2;
+                int trackW = trackR - 2 * ins;
+                int t = px - V.sbDragXOff - ins;
                 V.scrollX = maxX * t / (trackW - thumbW);
                 ClampScroll();
                 InvalidateRect(hwnd, NULL, FALSE);
@@ -3150,7 +3159,7 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (V.sbDrag && V.docH > V.clientH) {
                 int sbw = SbThickness();
                 int thumbH = V.clientH * V.clientH / V.docH;
-                if (thumbH < UI_Scale(24)) thumbH = UI_Scale(24);
+                if (thumbH < ScrollBars_MinThumb()) thumbH = ScrollBars_MinThumb();
                 int t = py - V.sbDragOff;
                 int maxScroll = V.docH - V.clientH;
                 int trackH = V.clientH - (V.docW > V.clientW ? sbw : 0);

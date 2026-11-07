@@ -15,6 +15,16 @@ static BOOL s_show[2] = { FALSE, FALSE };
 static RECT s_rc[2];
 static BOOL s_haveLayout = FALSE;
 int ScrollBars_Thickness(void) { return UI_Scale(SB_THICK_96); }
+int ScrollBars_Inset(void) { return UI_Scale(SB_INSET_96); }
+int ScrollBars_MinThumb(void) { return UI_Scale(SB_MINTHUMB_96); }
+COLORREF ScrollBars_TrackColor(void) {
+    return g_dark ? RGB(37, 37, 38) : RGB(238, 238, 238);
+}
+COLORREF ScrollBars_ThumbColor(BOOL hover, BOOL drag) {
+    if (drag)  return RGB(150, 150, 150);
+    if (hover) return g_dark ? RGB(120, 120, 120) : RGB(180, 180, 180);
+    return g_dark ? RGB(90, 90, 90) : RGB(205, 205, 205);
+}
 static HWND Hed(void) { return Editor_ActiveEdit(); }
 int ScrollBars_TotalLines(HWND hed) {
     int lastDoc = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0) - 1;
@@ -28,7 +38,7 @@ static void SBGeom(SBState* st, int* trackLen, int* thumbLen, int* thumbPos) {
     int tlen = len - 2 * inset;
     if (tlen < UI_Scale(10)) tlen = UI_Scale(10);
     int th = (int)(s_frac[st->horiz] * tlen + 0.5);
-    int mint = UI_Scale(SB_MINTHUMB_96);
+    int mint = ScrollBars_MinThumb();
     if (th < mint) th = mint;
     if (th > tlen) th = tlen;
     *trackLen = tlen;
@@ -79,18 +89,15 @@ static LRESULT CALLBACK SBProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps; HDC hdc = BeginPaint(hwnd, &ps);
         RECT rc; GetClientRect(hwnd, &rc);
-        HBRUSH tb = CreateSolidBrush(g_dark ? RGB(37, 37, 38) : RGB(238, 238, 238));
+        HBRUSH tb = CreateSolidBrush(ScrollBars_TrackColor());
         FillRect(hdc, &rc, tb); DeleteObject(tb);
         int trackLen, thumbLen, thumbPos;
         SBGeom(st, &trackLen, &thumbLen, &thumbPos);
-        int inset = UI_Scale(SB_INSET_96);
+        int inset = ScrollBars_Inset();
         RECT th;
         if (st->horiz) SetRect(&th, thumbPos, inset, thumbPos + thumbLen, rc.bottom - inset);
         else           SetRect(&th, inset, thumbPos, rc.right - inset, thumbPos + thumbLen);
-        COLORREF c = st->dragging ? (g_dark ? RGB(150, 150, 150) : RGB(150, 150, 150))
-                   : st->hover    ? (g_dark ? RGB(120, 120, 120) : RGB(180, 180, 180))
-                   :                (g_dark ? RGB(90, 90, 90)   : RGB(205, 205, 205));
-        HBRUSH hb = CreateSolidBrush(c);
+        HBRUSH hb = CreateSolidBrush(ScrollBars_ThumbColor(st->hover, st->dragging));
         FillRect(hdc, &th, hb); DeleteObject(hb);
         EndPaint(hwnd, &ps);
         return 0;

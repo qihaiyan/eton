@@ -179,6 +179,7 @@ static void ApplyScintillaStyle(HWND hed) {
     SendMessage(hed, SCI_SETVSCROLLBAR, 0, 0);
     SendMessage(hed, SCI_SETHSCROLLBAR, 0, 0);
     Editor_ComputeGutterWidth(Editor_IndexFromHwnd(hed));
+    Editor_UpdateScrollWidth(Editor_IndexFromHwnd(hed));
 }
 static void ApplyLexer(HWND hed, LangID lang) {
     SendMessage(hed, SCI_SETMARGINWIDTHN, 1,
@@ -548,6 +549,7 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
     d->dirty = FALSE;
     d->lang = LangFromPath(path);
     ApplyLexer(d->hwndEdit, d->lang);
+    Editor_UpdateScrollWidth(index);
     DiskWriteTime(d->path, &d->ftWrite);
     Editor_UpdateTitle(index);
     if (Session_AutoBackupExists(path)) {
@@ -690,6 +692,27 @@ void Editor_SetLang(int index, LangID lang) {
     FileTree_OnDocChange();
     Editor_Layout();
 }
+#define TID_SWRESCAN 2
+void Editor_UpdateScrollWidth(int index) {
+    if (index < 0 || index >= g_docCount) return;
+    HWND hed = g_docs[index].hwndEdit;
+    if (!hed) return;
+    int nLines = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
+    HDC dc = GetDC(hed);
+    HFONT of = (HFONT)SelectObject(dc, g_hFont);
+    SIZE unit; GetTextExtentPoint32W(dc, L"W", 1, &unit);
+    SelectObject(dc, of);
+    ReleaseDC(hed, dc);
+    int maxW = UI_Scale(800);
+    for (int i = 0; i < nLines; i++) {
+        int endPos = (int)SendMessage(hed, SCI_GETLINEENDPOSITION, (WPARAM)i, 0);
+        int begPos = (int)SendMessage(hed, SCI_POSITIONFROMLINE, (WPARAM)i, 0);
+        if ((endPos - begPos) * unit.cx * 2 <= maxW) continue;
+        int x = (int)SendMessage(hed, SCI_POINTXFROMPOSITION, 0, (LPARAM)endPos);
+        if (x > maxW) maxW = x;
+    }
+    SendMessage(hed, SCI_SETSCROLLWIDTH, maxW + UI_Scale(64), 0);
+}
 void Editor_ApplyTheme(int index) {
     ApplyScintillaStyle(g_docs[index].hwndEdit);
     if (g_docs[index].lang != LANG_NONE)
@@ -743,6 +766,7 @@ void Editor_OnNotify(LPARAM lp) {
             g_docs[idx].modGen++;
             g_docs[idx].bakRestored = FALSE;
             MdOutline_NotifyModified(idx);
+            SetTimer(g_hwndMain, TID_SWRESCAN, 400, NULL);
             if (!g_suppressDirty) {
                 Editor_MarkDirty(idx, TRUE);
                 Editor_UpdateStatus();

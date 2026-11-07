@@ -649,6 +649,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g_sessionDirty = FALSE;
                 }
                 Session_FlushDirtyAsync();
+            } else if (wp == 2) {
+                KillTimer(hwnd, 2);
+                if (g_curDoc >= 0 && g_curDoc < g_docCount && g_docs[g_curDoc].hwndEdit) {
+                    int nLines = (int)SendMessage(g_docs[g_curDoc].hwndEdit,
+                                                  SCI_GETLINECOUNT, 0, 0);
+                    if (nLines <= 5000) Editor_UpdateScrollWidth(g_curDoc);
+                }
+                ScrollBars_Update();
             }
             return 0;
         case WM_CLOSE:
