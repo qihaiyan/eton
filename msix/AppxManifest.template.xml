@@ -90,15 +90,41 @@
             </uap:SupportedFileTypes>
           </uap:FileTypeAssociation>
         </uap:Extension>
-        <!-- .md/.markdown 右键"用 Eton 编辑"：IExplorerCommand 见 src/etonctx.c -->
+        <!-- 右键"用 Eton 编辑"，类型与 SupportedFileTypes 保持一致：IExplorerCommand 见 src/etonctx.c -->
         <desktop4:Extension Category="windows.fileExplorerContextMenus">
           <desktop4:FileExplorerContextMenus>
-            <desktop4:ItemType Type=".md">
-              <desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" />
-            </desktop4:ItemType>
-            <desktop4:ItemType Type=".markdown">
-              <desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" />
-            </desktop4:ItemType>
+            <desktop4:ItemType Type=".txt"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".log"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".ini"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".cfg"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".conf"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".md"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".markdown"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".json"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".xml"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".yaml"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".yml"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".toml"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".csv"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".c"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".h"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".cpp"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".hpp"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".cc"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".cs"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".java"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".py"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".go"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".rs"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".js"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".ts"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".html"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".htm"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".css"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".sh"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".ps1"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".sql"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
+            <desktop4:ItemType Type=".rc"><desktop4:Verb Id="EtonEdit" Clsid="1D5C4E8A-72B3-4F09-9A26-5E80C3B7D4F1" /></desktop4:ItemType>
           </desktop4:FileExplorerContextMenus>
         </desktop4:Extension>
         <com:Extension Category="windows.comServer">

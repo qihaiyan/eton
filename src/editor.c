@@ -2,6 +2,7 @@
 static const int TOOLBAR_HEIGHT_96 = 32;
 static const int TAB_HEIGHT_96 = 22;
 static const int EDIT_TOP_PAD_96 = 4;
+static const int EDIT_SIDE_PAD_96 = 12;
 static const int STATUS_HEIGHT_96 = 22;
 static const char* LexerName[] = {
     "",
@@ -122,14 +123,20 @@ BOOL Editor_Init(void) {
     Editor_SetFont();
     return TRUE;
 }
+static void ApplyLineSpacing(HWND hed, LangID lang) {
+    int extra = (MulDiv(g_fontSize, (int)g_dpi, 72) + 6) / 13;
+    if (lang != LANG_MD)
+        extra += MulDiv(5, (int)g_dpi, 144);
+    SendMessage(hed, SCI_SETEXTRAASCENT, extra, 0);
+    SendMessage(hed, SCI_SETEXTRADESCENT, extra, 0);
+}
 static void ApplyScintillaStyle(HWND hed) {
     SendMessage(hed, SCI_STYLESETBACK, STYLE_DEFAULT, (LPARAM)g_clrBg);
     SendMessage(hed, SCI_STYLESETFORE, STYLE_DEFAULT, (LPARAM)g_clrFg);
     SendMessage(hed, SCI_STYLESETSIZE, STYLE_DEFAULT, g_fontSize);
     SendMessage(hed, SCI_STYLESETFONT, STYLE_DEFAULT, (LPARAM)"Consolas");
-    int extra = (MulDiv(g_fontSize, (int)g_dpi, 72) + 6) / 13;
-    SendMessage(hed, SCI_SETEXTRAASCENT, extra, 0);
-    SendMessage(hed, SCI_SETEXTRADESCENT, extra, 0);
+    int idx = Editor_IndexFromHwnd(hed);
+    ApplyLineSpacing(hed, idx >= 0 ? g_docs[idx].lang : LANG_NONE);
     SendMessage(hed, SCI_STYLECLEARALL, 0, 0);
     SendMessage(hed, SCI_SETMARGINTYPEN, 0, SC_MARGIN_NUMBER);
     SendMessage(hed, SCI_STYLESETBACK, STYLE_LINENUMBER, (LPARAM)g_clrGutterBg);
@@ -188,6 +195,7 @@ static void ApplyScintillaStyle(HWND hed) {
     Editor_UpdateScrollWidth(Editor_IndexFromHwnd(hed));
 }
 static void ApplyLexer(HWND hed, LangID lang) {
+    ApplyLineSpacing(hed, lang);
     SendMessage(hed, SCI_SETMARGINWIDTHN, 1,
                 (lang == LANG_NONE || lang == LANG_MD) ? 0 : UI_Scale(14));
     if (lang == LANG_NONE) {
@@ -620,8 +628,10 @@ void Editor_ComputeGutterWidth(int index) {
     HWND hed = g_docs[index].hwndEdit;
     if (!g_showGutter) {
         SendMessage(hed, SCI_SETMARGINWIDTHN, 0, 0);
+        SendMessage(hed, SCI_SETMARGINLEFT, 0, UI_Scale(EDIT_SIDE_PAD_96));
         return;
     }
+    SendMessage(hed, SCI_SETMARGINLEFT, 0, 0);
     int lines = (int)SendMessage(hed, SCI_GETLINECOUNT, 0, 0);
     int digits = 3;
     int t = lines; while (t >= 10) { digits++; t /= 10; }
@@ -651,6 +661,7 @@ void Editor_Layout(void) {
     if (olw - tw) MdOutline_OnLayout(tw, top, olw - tw, h);
     if (MdView_IsVisible() && g_mdSplit) {
         int sbw = ScrollBars_Thickness();
+        int pad = g_showGutter ? 0 : UI_Scale(EDIT_SIDE_PAD_96);
         int avail = cx - olw;
         int splitX = olw + avail / 2;
         int minSplit = olw + UI_Scale(120) + sbw;
@@ -661,7 +672,7 @@ void Editor_Layout(void) {
         if (g_curDoc >= 0 && g_curDoc < g_docCount) {
             Editor_ComputeGutterWidth(g_curDoc);
             SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, olw, top,
-                         editW - olw, h - (showH ? sbw : 0), SWP_NOZORDER | SWP_SHOWWINDOW);
+                         editW - olw - pad, h - (showH ? sbw : 0), SWP_NOZORDER | SWP_SHOWWINDOW);
         }
         ScrollBars_Update();
         MdView_OnLayout(splitX, top, cx - splitX, h);
@@ -673,12 +684,13 @@ void Editor_Layout(void) {
         return;
     }
     int sbw = ScrollBars_Thickness();
+    int pad = g_showGutter ? 0 : UI_Scale(EDIT_SIDE_PAD_96);
     BOOL showH = !g_wordWrap;
     ScrollBars_Layout(olw, top, cx - olw, h, sbw, showH);
     if (g_curDoc >= 0 && g_curDoc < g_docCount) {
         Editor_ComputeGutterWidth(g_curDoc);
         SetWindowPos(g_docs[g_curDoc].hwndEdit, NULL, olw, top,
-                     cx - olw - sbw, h - (showH ? sbw : 0), SWP_NOZORDER);
+                     cx - olw - sbw - pad, h - (showH ? sbw : 0), SWP_NOZORDER);
     }
     ScrollBars_Update();
 }

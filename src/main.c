@@ -328,8 +328,7 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
         case IDM_GUTTER:
             g_showGutter = !g_showGutter;
             if (g_curDoc >= 0) {
-                SendMessage(g_docs[g_curDoc].hwndEdit, SCI_SETMARGINWIDTHN, 0,
-                            g_showGutter ? g_gutterWidth : 0);
+                Editor_ComputeGutterWidth(g_curDoc);
                 Editor_Layout();
             }
             UpdateMenuChecks(); break;

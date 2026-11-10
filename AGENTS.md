@@ -12,6 +12,7 @@
 - Bundled Lexilla markdown lexer style numbers: 2/3 strong, 4/5 emphasis, 6..11 are H1..H6, 12 pre-char marker, 13/14 list marker, 15 blockquote, 18 link, 19..21 inline code.
 - The Mermaid native renderer (`mermaid.c`) has two flow layouts: flat (`FlowLayout`) and compound (`FlowLayoutCompound`, flowchart with subgraphs). `FlowDraw` routes a TB edge as horizontal only when `b->layer == a->layer && b->rank == a->rank` — the flat path must keep `layer = rank` on every node or same-rank edges across clusters misroute.
 - merprobe PNG mode draws at `UI_Scale(60)` from the left; its zoom argument is percent ×100 (pass `100` for 100%, `1` also normalizes to 100).
+- Scintilla uses ONE document-wide line height: `ViewStyle::FindMaxAscentDescent` takes the max ascent/descent over ALL defined styles (realized fonts, used or not), so any style sized above STYLE_DEFAULT (markdown H1..H6 get `g_fontSize + (11 - s)` in `ApplyLexer`, max +5) inflates every line of that document. To keep every document type at the same comfortable pitch, `ApplyLineSpacing` in `editor.c` adds `MulDiv(5, dpi, 144)` extra ascent/descent to non-markdown docs (md gets only the base extra). The `5` must stay in sync with the H1 boost `(11 - 6)`; per-line line heights are impossible in Scintilla.
 
 ## Build and Verification
 
