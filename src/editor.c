@@ -320,6 +320,18 @@ static void ApplyLexer(HWND hed, LangID lang) {
     SendMessage(hed, SCI_STYLESETFORE, 10, (LPARAM)c_operator);
     SendMessage(hed, SCI_STYLESETBOLD, 5, 1);
 }
+void Editor_ApplyOverlayStyle(HWND hed) {
+    SendMessage(hed, SCI_SETCODEPAGE, SC_CP_UTF8, 0);
+    SendMessage(hed, SCI_SETTECHNOLOGY,
+                g_editorDWrite ? SC_TECHNOLOGY_DIRECTWRITE : SC_TECHNOLOGY_DEFAULT, 0);
+    SendMessage(hed, SCI_SETFONTLOCALE, 0, (LPARAM)DwFontLocale());
+    ApplyScintillaStyle(hed);
+    ApplyLexer(hed, LANG_MD);
+    SendMessage(hed, SCI_SETMARGINWIDTHN, 0, 0);
+    SendMessage(hed, SCI_SETMARGINWIDTHN, 1, 0);
+    SendMessage(hed, SCI_SETMARGINLEFT, 0, UI_Scale(EDIT_SIDE_PAD_96));
+    SendMessage(hed, SCI_SETWRAPMODE, SC_WRAP_WORD, 0);
+}
 static LangID LangFromPath(const wchar_t* path) {
     static const struct { const wchar_t* ext; LangID lang; } map[] = {
         { L".c",    LANG_C },  { L".h",    LANG_C },
@@ -588,6 +600,7 @@ BOOL Editor_LoadFile(int index, const wchar_t* path, Encoding enc) {
 }
 void Editor_Activate(int index) {
     if (index < 0 || index >= g_docCount) return;
+    MdEdit_OnDocChanging(index);
     g_curDoc = index;
     MdOutline_OnDocChange();
     FileTree_OnDocChange();
@@ -711,6 +724,7 @@ void Editor_SetLang(int index, LangID lang) {
     Editor_Layout();
 }
 #define TID_SWRESCAN 2
+#define TID_MDREFRESH 3
 void Editor_UpdateScrollWidth(int index) {
     if (index < 0 || index >= g_docCount) return;
     HWND hed = g_docs[index].hwndEdit;
@@ -735,6 +749,7 @@ void Editor_ApplyTheme(int index) {
     ApplyScintillaStyle(g_docs[index].hwndEdit);
     if (g_docs[index].lang != LANG_NONE)
         ApplyLexer(g_docs[index].hwndEdit, g_docs[index].lang);
+    MdEdit_Restyle();
 }
 void Editor_UpdateGutter(int index) {
     if (index < 0 || index >= g_docCount) return;
@@ -785,6 +800,8 @@ void Editor_OnNotify(LPARAM lp) {
             g_docs[idx].bakRestored = FALSE;
             MdOutline_NotifyModified(idx);
             SetTimer(g_hwndMain, TID_SWRESCAN, 400, NULL);
+            if (g_docs[idx].lang == LANG_MD && MdView_IsVisible())
+                SetTimer(g_hwndMain, TID_MDREFRESH, 400, NULL);
             if (!g_suppressDirty) {
                 Editor_MarkDirty(idx, TRUE);
                 Editor_UpdateStatus();
@@ -794,6 +811,7 @@ void Editor_OnNotify(LPARAM lp) {
         }
     } else if (scn->nmhdr.code == SCN_SAVEPOINTREACHED) {
         Editor_MarkDirty(idx, FALSE);
+        KillTimer(g_hwndMain, TID_MDREFRESH);
         MdView_RefreshIfActive(idx);
     }
 }
@@ -879,6 +897,7 @@ BOOL Editor_SaveDocAs(int index) {
 }
 void Editor_CloseDoc(int index) {
     if (index < 0 || index >= g_docCount) return;
+    if (MdEdit_Active()) MdEdit_Commit(TRUE);
     Doc* d = &g_docs[index];
     BOOL mod = d->dirty && !d->bakRestored &&
                (!d->isNew || SendMessage(d->hwndEdit, SCI_GETLENGTH, 0, 0) > 0);

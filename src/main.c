@@ -656,6 +656,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     if (nLines <= 5000) Editor_UpdateScrollWidth(g_curDoc);
                 }
                 ScrollBars_Update();
+            } else if (wp == 3) {
+                KillTimer(hwnd, 3);
+                if (MdView_IsVisible()) MdView_SoftRefresh();
             }
             return 0;
         case WM_CLOSE:

@@ -21,6 +21,7 @@ typedef struct MdItem {
     int type;
     RECT rc;
     int flag;
+    int blk;
     MdLine* lines; int nLines;
     int role;
     MermaidDiagram* diag;
@@ -1318,6 +1319,7 @@ static void ItemPush(int type, RECT rc, int flag) {
     MdItem* it = ItemAlloc();
     if (!it) return;
     it->type = type; it->rc = rc; it->flag = flag;
+    it->blk = V.layIdx;
 }
 typedef struct Tok { MdRun* run; const wchar_t* s; int len; BOOL space; } Tok;
 static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
@@ -3029,6 +3031,81 @@ static void ShowContextMenu(HWND hwnd, LPARAM lp) {
     else if (cmd == MDVC_SELALL) SelectAllDoc();
 }
 static void LoadContentEx(int index, BOOL force);
+static BOOL BlockYRange(int blk, int* y0, int* y1) {
+    BOOL found = FALSE;
+    for (int i = 0; i < V.nItems; i++) {
+        if (V.items[i].blk != blk) continue;
+        if (!found) {
+            *y0 = V.items[i].rc.top;
+            *y1 = V.items[i].rc.bottom;
+            found = TRUE;
+        } else {
+            if (V.items[i].rc.top < *y0) *y0 = V.items[i].rc.top;
+            if (V.items[i].rc.bottom > *y1) *y1 = V.items[i].rc.bottom;
+        }
+    }
+    return found;
+}
+static int LastContentBottom(void) {
+    int b = 0;
+    for (int i = 0; i < V.nItems; i++)
+        if (V.items[i].rc.bottom > b) b = V.items[i].rc.bottom;
+    return b;
+}
+static BOOL OverlayRectFromY(int y0, int y1, RECT* out) {
+    RECT rc; GetWindowRect(V.hwnd, &rc);
+    POINT tl = { rc.left, rc.top };
+    ScreenToClient(GetParent(V.hwnd), &tl);
+    int cy0 = y0 - V.scrollY;
+    int cy1 = y1 - V.scrollY;
+    if (cy0 < 0) cy0 = 0;
+    int lineH = V.fontsOk ? V.fonts.lineH : UI_Scale(20);
+    int maxH = V.clientH - UI_Scale(16) - cy0;
+    if (maxH < lineH + UI_Scale(4)) return FALSE;
+    int h = cy1 - cy0 + UI_Scale(6);
+    if (h > maxH) h = maxH;
+    if (h < lineH + UI_Scale(6)) h = lineH + UI_Scale(6);
+    out->left = tl.x + UI_Scale(28);
+    out->right = tl.x + V.clientW - UI_Scale(28);
+    out->top = tl.y + cy0 - UI_Scale(3);
+    out->bottom = out->top + h;
+    return TRUE;
+}
+static void TryEditBlock(int px, int py) {
+    if (g_mdSplit || g_curDoc < 0 || g_curDoc >= g_docCount) return;
+    if (g_docs[g_curDoc].lang != LANG_MD) return;
+    if (!V.root) return;
+    if (HitLink(px, py)) return;
+    int sbw = SbThickness();
+    if ((!g_mdSplit && V.docH > V.clientH && px >= V.clientW - sbw) ||
+        (V.docW > V.clientW && py >= V.clientH - sbw)) return;
+    int yDoc = py + V.scrollY;
+    if (yDoc > LastContentBottom() + UI_Scale(24)) {
+        RECT rcm;
+        if (OverlayRectFromY(yDoc, yDoc, &rcm)) MdEdit_BeginNewRange(g_curDoc, &rcm);
+        return;
+    }
+    int blk = -1, bd = 0x7FFFFFFF;
+    for (int i = 0; i < V.nItems; i++) {
+        int t = V.items[i].rc.top, b = V.items[i].rc.bottom;
+        if (yDoc >= t && yDoc <= b) { blk = V.items[i].blk; break; }
+        int d = (yDoc < t) ? t - yDoc : yDoc - b;
+        if (d < bd) { bd = d; blk = V.items[i].blk; }
+    }
+    if (blk < 0) return;
+    int y0, y1;
+    if (!BlockYRange(blk, &y0, &y1)) return;
+    DWORD len = 0;
+    char* u8 = Editor_GetTextUtf8(g_curDoc, &len);
+    if (!u8) return;
+    MdSrcBlock* bs = NULL;
+    int n = MdEditScanBlocks(u8, (int)len, &bs);
+    RECT rcm;
+    if (n == V.root->nChildren && blk < n && OverlayRectFromY(y0, y1, &rcm))
+        MdEdit_BeginRange(g_curDoc, bs[blk].start, bs[blk].end, &rcm);
+    free(bs);
+    free(u8);
+}
 static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_ERASEBKGND:
@@ -3082,6 +3159,12 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             d %= WHEEL_DELTA;
             if (!steps && d) steps = d > 0 ? 1 : -1;
             if (steps) ScrollByX(steps * V.fonts.lineH * 3);
+            return 0;
+        }
+        case WM_LBUTTONDBLCLK: {
+            int px = GET_X_LPARAM(lp), py = GET_Y_LPARAM(lp);
+            if (MdEdit_Active()) { MdEdit_Commit(TRUE); return 0; }
+            TryEditBlock(px, py);
             return 0;
         }
         case WM_LBUTTONDOWN: {
@@ -3321,7 +3404,7 @@ void MdView_Register(void) {
     WNDCLASSEXW wc;
     ZeroMemory(&wc, sizeof(wc));
     wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     wc.lpfnWndProc = MdViewProc;
     wc.hInstance = g_hInst;
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
@@ -3341,6 +3424,9 @@ void MdView_Create(HWND parent) {
 }
 BOOL MdView_IsVisible(void) {
     return V.hwnd && IsWindowVisible(V.hwnd);
+}
+HWND MdView_Hwnd(void) {
+    return V.hwnd;
 }
 static void LoadContentEx(int index, BOOL force) {
     if (!force && index >= 0 && index < g_docCount && V.docIdx == index &&
@@ -3432,6 +3518,7 @@ void MdView_Toggle(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     Doc* d = &g_docs[g_curDoc];
     if (d->lang != LANG_MD) return;
+    if (MdEdit_Active()) MdEdit_Commit(TRUE);
     d->previewOn = !d->previewOn;
     if (d->previewOn) g_mdSplit = FALSE;
     MdView_OnActivate();
@@ -3439,6 +3526,7 @@ void MdView_Toggle(void) {
 void MdView_ToggleSplit(void) {
     if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
     if (g_docs[g_curDoc].lang != LANG_MD) return;
+    if (MdEdit_Active()) MdEdit_Commit(TRUE);
     g_mdSplit = !g_mdSplit;
     if (g_mdSplit) g_docs[g_curDoc].previewOn = FALSE;
     MdView_OnActivate();
@@ -3475,6 +3563,14 @@ void MdView_OnZoom(void) {
     if (!MdView_IsVisible()) return;
     FontsFree();
     LayoutAll();
+}
+void MdView_SoftRefresh(void) {
+    if (!V.hwnd || V.docIdx < 0 || V.docIdx >= g_docCount) return;
+    int save = V.scrollY;
+    MdView_RefreshIfActive(V.docIdx);
+    V.scrollY = save;
+    ClampScroll();
+    InvalidateRect(V.hwnd, NULL, FALSE);
 }
 void MdView_RefreshIfActive(int index) {
     if (MdView_IsVisible() && index == g_curDoc && V.docIdx == index)
