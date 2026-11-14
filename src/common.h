@@ -16,6 +16,8 @@
 #define WM_APP_TABCLOSE    (WM_APP + 2)
 #define WM_APP_GUTUPDATE   (WM_APP + 3)
 #define WM_APP_RECOLOR     (WM_APP + 4)
+#define WM_APP_STRIP_MENU  (WM_APP + 6)
+#define WM_APP_STRIP_GROUP (WM_APP + 7)
 #define WM_MDIMG_READY     (WM_APP + 5)
 #define MAX_DOCS 64
 #define MAX_RECENT 12
@@ -74,6 +76,7 @@ extern BOOL g_suppressDirty;
 extern BOOL g_draftsDirty;
 extern BOOL g_sessionDirty;
 extern BOOL g_mdSplit;
+extern BOOL g_mdLiveEdit;
 extern BOOL g_mdSyncLock;
 BOOL Editor_Init(void);
 void Editor_ApplyThemeColors(void);
@@ -273,8 +276,14 @@ BOOL MdEdit_Active(void);
 void MdEdit_Commit(BOOL apply);
 void MdEdit_OnDocChanging(int index);
 void MdEdit_Restyle(void);
-void MdEdit_BeginRange(int doc, int start, int end, const RECT* rcMain);
+BOOL MdEdit_OpenAt(int doc, int blkIdx, int caretLine, BOOL caretEnd, int caretChar);
 void MdEdit_BeginNewRange(int doc, const RECT* rcMain);
+BOOL MdEdit_OnNotify(LPARAM lp);
+void MdEdit_Tick(void);
+int  MdView_BlockCount(void);
+BOOL MdView_BlockRect(int blk, RECT* rcMain);
+void MdView_EnsureVisibleDocY(int y0, int y1);
+void MdView_EnsureOverlayVisible(const RECT* rcmMain);
 void Editor_ApplyOverlayStyle(HWND hed);
 void Mermaid_FontsChanged(void);
 void MdView_SyncScrollFromEdit(double frac);
@@ -322,6 +331,11 @@ void TabBar_ApplyTheme(void);
 int  TabBar_HitTestPublic(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow);
 void Toolbar_Register(void);
 void Toolbar_UpdateStates(void);
+int  Toolbar_NaturalWidth(void);
+int  Toolbar_MenuHit(POINT ptScreen);
+BOOL Toolbar_MenuItemRect(int groupIdx, RECT* rcScreen);
+int  CaptionButtonsWidth(void);
+void CaptionButton_ClearHover(void);
 void StatusBar_Register(void);
 void StatusBar_SetParts(const int* rightEdges, int n);
 BOOL StatusBar_SetText(int part, const wchar_t* text);

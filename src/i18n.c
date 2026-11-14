@@ -43,13 +43,11 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"缩小(&-)\tCtrl+-",
         L"重置缩放(&0)\tCtrl+0",
         L"深色主题(&D)",
-        L"编码(&N)",
         L"ANSI",
         L"UTF-8",
         L"UTF-8 (带 BOM)",
         L"UTF-16 LE",
         L"UTF-16 BE",
-        L"以 %s 重新打开",
         L"行尾(&E)",
         L"Windows (CRLF)",
         L"Unix (LF)",
@@ -187,6 +185,8 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"文件比较(&C)...",
         L"两个文件内容相同。",
         L"文件过大，无法比较。",
+        L"此文档结构暂不支持就地编辑",
+        L"预览内编辑(&E)",
     },
     {
         L"ETON",
@@ -227,13 +227,11 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Zoom &Out\tCtrl+-",
         L"&Reset Zoom\tCtrl+0",
         L"&Dark Theme",
-        L"En&coding",
         L"ANSI",
         L"UTF-8",
         L"UTF-8 (BOM)",
         L"UTF-16 LE",
         L"UTF-16 BE",
-        L"Reopen as %s",
         L"&Line Endings",
         L"Windows (CRLF)",
         L"Unix (LF)",
@@ -371,6 +369,8 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"Compare &Files...",
         L"The files are identical.",
         L"The files are too large to compare.",
+        L"In-place editing unavailable for this document structure",
+        L"Edit in &Preview",
     },
 };
 const wchar_t* T(StrId id) {
@@ -417,8 +417,7 @@ static void AddSep(HMENU m) {
     AppendMenuW(m, MF_OWNERDRAW, 0, NULL);
 }
 static void AddBar(HMENU bar, UINT_PTR sub, StrId s) {
-    I18n_OwnerAppend(bar, MF_POPUP, sub,
-                     (const wchar_t*)(uintptr_t)((uintptr_t)T(s) | 1));
+    I18n_OwnerAppend(bar, MF_POPUP, sub, T(s));
 }
 static HBRUSH s_menuBrush = NULL;
 static int s_menuBrushDark = -1;
@@ -617,7 +616,7 @@ int I18n_FindMnemonic(HMENU menu, wchar_t ch) {
     return -1;
 }
 HMENU I18n_BuildMainMenu(void) {
-    HMENU bar = CreateMenu();
+    HMENU bar = CreatePopupMenu();
     if (!bar) return NULL;
     HMENU mFile = CreatePopupMenu();
     AddIt(mFile, STR_ITEM_NEW, IDM_NEW);
@@ -693,19 +692,8 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mView, STR_ITEM_FILETREE, IDM_VIEW_FILETREE);
     AddIt(mView, STR_ITEM_MDPREVIEW, IDM_VIEW_MD);
     AddIt(mView, STR_ITEM_MDSPLIT, IDM_VIEW_MDSPLT);
+    AddIt(mView, STR_ITEM_MDLIVE, IDM_VIEW_MDLIVE);
     AddBar(bar, (UINT_PTR)mView, STR_MENU_VIEW);
-    HMENU mEnc = CreatePopupMenu();
-    for (int i = 0; i <= ENC_UTF16BE; i++)
-        I18n_OwnerAppend(mEnc, MF_STRING, IDM_ENC_ANSI + i, EncodingName((Encoding)i));
-    AddSep(mEnc);
-    {
-        static wchar_t s_reopen[5][80];
-        for (int i = 0; i <= ENC_UTF16BE; i++) {
-            WFmt(s_reopen[i], T(STR_REOPEN_FMT), EncodingName((Encoding)i));
-            I18n_OwnerAppend(mEnc, MF_STRING, IDM_REOPEN_ANSI + i, s_reopen[i]);
-        }
-    }
-    AddBar(bar, (UINT_PTR)mEnc, STR_MENU_ENC);
     HMENU mEol = CreatePopupMenu();
     AddIt(mEol, STR_EOLNAME_CRLF, IDM_EOL_CRLF);
     AddIt(mEol, STR_EOLNAME_LF, IDM_EOL_LF);

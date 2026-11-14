@@ -1,6 +1,14 @@
 #include "common.h"
 typedef struct { int cmd; int strId; int icon; } TbBtn;
 static const TbBtn kBtns[] = {
+    { 0,           STR_MENU_FILE,      -3 },
+    { 1,           STR_MENU_EDIT,      -3 },
+    { 2,           STR_MENU_TOOLS,     -3 },
+    { 3,           STR_MENU_VIEW,      -3 },
+    { 4,           STR_MENU_EOL,       -3 },
+    { 5,           STR_MENU_SYNTAX,    -3 },
+    { 6,           STR_MENU_HELP,      -3 },
+    { 0,           0,                  -1 },
     { IDM_NEW,     STR_ITEM_NEW,        0 },
     { IDM_OPEN,    STR_ITEM_OPEN,       1 },
     { IDM_SAVE,    STR_ITEM_SAVE,       2 },
@@ -35,10 +43,38 @@ static int  s_tipBtn = -1;
 static int BtnW(void) { return UI_Scale(30); }
 static int SepW(void) { return UI_Scale(7); }
 static int PadL(void) { return UI_Scale(2); }
-static void TbRects(RECT rc, RECT* out) {
+static int  s_menuTxtW[7];
+static int  s_menuTxtKey = -1;
+static void MenuTxtWidths(HWND hwnd) {
+    int key = g_fontGen * 100003 + (int)g_dpi;
+    if (s_menuTxtKey == key) return;
+    HDC hdc = GetDC(hwnd);
+    HFONT of = (HFONT)SelectObject(hdc, g_hFont);
+    for (int i = 0; i < 7; i++) {
+        int k = 0;
+        while (k < BTN_N && !(kBtns[k].icon == -3 && kBtns[k].cmd == i)) k++;
+        if (k < BTN_N) {
+            const wchar_t* t = T((StrId)kBtns[k].strId);
+            SIZE sz; GetTextExtentPoint32W(hdc, t, (int)wcslen(t), &sz);
+            s_menuTxtW[i] = sz.cx + UI_Scale(18);
+        } else {
+            s_menuTxtW[i] = UI_Scale(48);
+        }
+    }
+    SelectObject(hdc, of); ReleaseDC(hwnd, hdc);
+    s_menuTxtKey = key;
+}
+static int ItemW(HWND hwnd, int i) {
+    if (kBtns[i].icon == -3) {
+        MenuTxtWidths(hwnd);
+        return s_menuTxtW[kBtns[i].cmd];
+    }
+    return (kBtns[i].icon < 0) ? SepW() : BtnW();
+}
+static void TbRects(HWND hwnd, RECT rc, RECT* out) {
     int x = PadL();
     for (int i = 0; i < BTN_N; i++) {
-        int w = (kBtns[i].icon < 0) ? SepW() : BtnW();
+        int w = ItemW(hwnd, i);
         out[i].left = x; out[i].right = x + w;
         out[i].top = 0; out[i].bottom = rc.bottom;
         x += w;
@@ -47,10 +83,43 @@ static void TbRects(RECT rc, RECT* out) {
 static int HitBtn(HWND hwnd, int mx, int my) {
     RECT rc; GetClientRect(hwnd, &rc);
     if (mx < 0 || mx >= rc.right || my < 0 || my >= rc.bottom) return -1;
-    RECT rects[BTN_N]; TbRects(rc, rects);
+    RECT rects[BTN_N]; TbRects(hwnd, rc, rects);
     for (int i = 0; i < BTN_N; i++)
         if (mx >= rects[i].left && mx < rects[i].right) return i;
     return -1;
+}
+int Toolbar_MenuHit(POINT ptScreen) {
+    if (!g_hwndTool) return -1;
+    POINT pt = ptScreen;
+    if (!ScreenToClient(g_hwndTool, &pt)) return -1;
+    RECT rc; GetClientRect(g_hwndTool, &rc);
+    if (pt.x < 0 || pt.x >= rc.right || pt.y < 0 || pt.y >= rc.bottom) return -1;
+    RECT rects[BTN_N]; TbRects(g_hwndTool, rc, rects);
+    for (int i = 0; i < BTN_N; i++) {
+        if (kBtns[i].icon != -3) continue;
+        if (pt.x >= rects[i].left && pt.x < rects[i].right)
+            return kBtns[i].cmd;
+    }
+    return -1;
+}
+BOOL Toolbar_MenuItemRect(int groupIdx, RECT* rcScreen) {
+    if (!g_hwndTool || !rcScreen) return FALSE;
+    RECT rc; GetClientRect(g_hwndTool, &rc);
+    RECT rects[BTN_N]; TbRects(g_hwndTool, rc, rects);
+    for (int i = 0; i < BTN_N; i++) {
+        if (kBtns[i].icon == -3 && kBtns[i].cmd == groupIdx) {
+            *rcScreen = rects[i];
+            MapWindowPoints(g_hwndTool, NULL, (POINT*)rcScreen, 2);
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+int Toolbar_NaturalWidth(void) {
+    int w = PadL();
+    for (int i = 0; i < BTN_N; i++)
+        w += (kBtns[i].icon < 0) ? SepW() : BtnW();
+    return w;
 }
 static BOOL BtnEnabled(int i) {
     HWND hed = Editor_ActiveEdit();
@@ -273,7 +342,7 @@ static void SetTip(int i) {
 }
 static void ShowExportMenu(HWND hwnd, int btnIndex) {
     RECT rc; GetClientRect(hwnd, &rc);
-    RECT rects[BTN_N]; TbRects(rc, rects);
+    RECT rects[BTN_N]; TbRects(hwnd, rc, rects);
     POINT pt = { rects[btnIndex].left, rects[btnIndex].bottom + 1 };
     ClientToScreen(hwnd, &pt);
     HMENU m = CreatePopupMenu();
@@ -323,9 +392,9 @@ static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         RECT rc; GetClientRect(hwnd, &rc);
         HBRUSH bg = CreateSolidBrush(g_dark ? RGB(37,37,38) : RGB(225,225,228));
         FillRect(hdc, &rc, bg); DeleteObject(bg);
-        RECT rects[BTN_N]; TbRects(rc, rects);
+        RECT rects[BTN_N]; TbRects(hwnd, rc, rects);
         for (int i = 0; i < BTN_N; i++) {
-            if (kBtns[i].icon < 0) {
+            if (kBtns[i].icon == -1) {
                 int mx = (rects[i].left + rects[i].right) / 2;
                 HPEN sp = CreatePen(PS_SOLID, 1, g_dark ? RGB(55,55,57) : RGB(206,206,210));
                 HGDIOBJ old = SelectObject(hdc, sp);
@@ -350,7 +419,17 @@ static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 HBRUSH hb = CreateSolidBrush(g_dark ? RGB(52,52,55) : RGB(238,238,241));
                 FillRect(hdc, &r, hb); DeleteObject(hb);
             }
-            TbDrawIcon(hdc, &r, kBtns[i].icon, en);
+            if (kBtns[i].icon == -3) {
+                SetBkMode(hdc, TRANSPARENT);
+                SetTextColor(hdc, en ? (g_dark ? RGB(220,220,220) : RGB(30,30,30))
+                                     : (g_dark ? RGB(120,120,120) : RGB(160,160,160)));
+                HFONT of = (HFONT)SelectObject(hdc, g_hFont);
+                DrawTextW(hdc, T((StrId)kBtns[i].strId), -1, &r,
+                          DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                SelectObject(hdc, of);
+            } else {
+                TbDrawIcon(hdc, &r, kBtns[i].icon, en);
+            }
         }
         HPEN bp = CreatePen(PS_SOLID, 1, g_dark ? RGB(28,28,29) : RGB(201,201,205));
         HGDIOBJ old = SelectObject(hdc, bp);
@@ -365,7 +444,7 @@ static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_LBUTTONDOWN) {
         int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
         int i = HitBtn(hwnd, mx, my);
-        if (i >= 0 && kBtns[i].icon >= 0 && BtnEnabled(i)) {
+        if (i >= 0 && kBtns[i].icon != -1 && BtnEnabled(i)) {
             s_pressBtn = i;
             SetCapture(hwnd);
             InvalidateRect(hwnd, NULL, FALSE);
@@ -381,7 +460,15 @@ static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             s_pressBtn = -1;
             InvalidateRect(hwnd, NULL, FALSE);
             if (clicked >= 0 && BtnEnabled(clicked)) {
-                if (kBtns[clicked].cmd == IDM_EXPORT_DOCX)
+                if (kBtns[clicked].icon == -3) {
+                    RECT wr; GetWindowRect(hwnd, &wr);
+                    RECT rects[BTN_N]; RECT crc; GetClientRect(hwnd, &crc);
+                    TbRects(hwnd, crc, rects);
+                    PostMessage(g_hwndMain, WM_APP_STRIP_GROUP,
+                                (WPARAM)kBtns[clicked].cmd,
+                                MAKELPARAM(wr.left + (rects[clicked].left + rects[clicked].right) / 2,
+                                           wr.bottom + 1));
+                } else if (kBtns[clicked].cmd == IDM_EXPORT_DOCX)
                     ShowExportMenu(hwnd, clicked);
                 else
                     PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(kBtns[clicked].cmd, 0), 0);
@@ -391,16 +478,22 @@ static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == WM_MOUSEMOVE) {
         int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
+        CaptionButton_ClearHover();
         if (s_tip) {
             MSG m; m.hwnd = hwnd; m.message = WM_MOUSEMOVE; m.wParam = 0; m.lParam = lp;
             m.pt.x = mx; m.pt.y = my;
             SendMessage(s_tip, TTM_RELAYEVENT, 0, (LPARAM)&m);
         }
         int i = HitBtn(hwnd, mx, my);
-        if (i >= 0 && kBtns[i].icon < 0) i = -1;
+        if (i >= 0 && kBtns[i].icon == -1) i = -1;
         if (i != s_hover) {
+            RECT rc; GetClientRect(hwnd, &rc);
+            RECT rects[BTN_N]; TbRects(hwnd, rc, rects);
+            if (s_hover >= 0 && s_hover < BTN_N)
+                InvalidateRect(hwnd, &rects[s_hover], FALSE);
+            if (i >= 0 && i < BTN_N)
+                InvalidateRect(hwnd, &rects[i], FALSE);
             s_hover = i;
-            InvalidateRect(hwnd, NULL, FALSE);
             SetTip(i);
         }
         if (!s_tracking) {
@@ -414,8 +507,11 @@ static LRESULT CALLBACK ToolbarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_MOUSELEAVE) {
         s_tracking = FALSE;
         if (s_hover != -1) {
+            RECT rc; GetClientRect(hwnd, &rc);
+            RECT rects[BTN_N]; TbRects(hwnd, rc, rects);
+            if (s_hover >= 0 && s_hover < BTN_N)
+                InvalidateRect(hwnd, &rects[s_hover], FALSE);
             s_hover = -1;
-            InvalidateRect(hwnd, NULL, FALSE);
         }
         return 0;
     }
@@ -429,6 +525,6 @@ void Toolbar_Register(void) {
     tc.hInstance = g_hInst;
     tc.hCursor = LoadCursorW(NULL, IDC_ARROW);
     tc.lpszClassName = L"ETONToolbar";
-    tc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    tc.hbrBackground = NULL;
     RegisterClassExW(&tc);
 }

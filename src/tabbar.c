@@ -1,13 +1,20 @@
 #include "common.h"
 static const int ARROW_W_96 = 16;
+static const int MENU_W_96 = 34;
+static const int NEW_W_96 = 28;
 #define MTBH_SCROLL_STEP UI_Scale(80)
+#define TB_ZONE_MENU 0
+#define TB_ZONE_NEW  1
 static int  s_scroll = 0;
 static int  s_lastCurDoc = -2;
 static int  s_hoverTab = -1;
 static BOOL s_hoverClose = FALSE;
 static int  s_hoverArrow = -1;
+static int  s_hoverZone = -1;
 static BOOL s_tracking = FALSE;
 static HWND s_tip = NULL;
+static int MenuW(void) { return UI_Scale(MENU_W_96); }
+static int NewW(void) { return UI_Scale(NEW_W_96); }
 void TabBar_ApplyTheme(void) {
     if (!s_tip) return;
     typedef BOOL (WINAPI *SetThemeFn)(HWND, LPCWSTR, LPCWSTR);
@@ -48,7 +55,7 @@ static int TabWidth(HWND hwnd, int i) {
 static void TabBar_Rects(HWND hwnd, RECT* out, int* n) {
     RECT rc; GetClientRect(hwnd, &rc);
     int count = g_docCount;
-    int x = 0;
+    int x = MenuW();
     for (int i = 0; i < count && i < MAX_DOCS; i++) {
         int w = TabWidth(hwnd, i);
         out[i].left = x; out[i].top = 0;
@@ -58,9 +65,24 @@ static void TabBar_Rects(HWND hwnd, RECT* out, int* n) {
     *n = count;
 }
 static int ArrowW(void) { return UI_Scale(ARROW_W_96); }
-static BOOL TabBar_Overflow(HWND hwnd, int totalW) {
+static RECT PlusRect(HWND hwnd) {
     RECT rc; GetClientRect(hwnd, &rc);
-    return totalW > rc.right;
+    RECT r = { rc.right - NewW(), 0, rc.right, rc.bottom };
+    RECT rects[MAX_DOCS]; int n = 0;
+    TabBar_Rects(hwnd, rects, &n);
+    int totalW = n ? rects[n - 1].right : 0;
+    if (!TabBar_Overflow(hwnd, totalW)) {
+        r.left = totalW - s_scroll;
+        r.right = r.left + NewW();
+    }
+    return r;
+}
+static int TabsVisibleW(HWND hwnd, BOOL ovf) {
+    RECT rc; GetClientRect(hwnd, &rc);
+    return ovf ? (rc.right - NewW() - 2 * ArrowW()) : (rc.right - NewW());
+}
+static BOOL TabBar_Overflow(HWND hwnd, int totalW) {
+    return totalW > TabsVisibleW(hwnd, FALSE);
 }
 static void TabBar_ClampScroll(int totalW, int visible) {
     int maxScroll = totalW - visible;
@@ -68,17 +90,21 @@ static void TabBar_ClampScroll(int totalW, int visible) {
     if (s_scroll > maxScroll) s_scroll = maxScroll;
     if (s_scroll < 0) s_scroll = 0;
 }
-static int TabBar_HitTest(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow) {
+static int TabBar_HitTest(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow, int* zone) {
     *closeHit = FALSE;
     if (arrow) *arrow = -1;
+    if (zone) *zone = -1;
     RECT rc; GetClientRect(hwnd, &rc);
     if (mx < 0 || mx >= rc.right || my < 0 || my >= rc.bottom) return -1;
+    if (mx < MenuW()) { if (zone) *zone = TB_ZONE_MENU; return -1; }
+    RECT pl = PlusRect(hwnd);
+    if (mx >= pl.left && mx < pl.right) { if (zone) *zone = TB_ZONE_NEW; return -1; }
     RECT rects[MAX_DOCS]; int n = 0;
     TabBar_Rects(hwnd, rects, &n);
     int totalW = n ? rects[n - 1].right : 0;
     BOOL ovf = TabBar_Overflow(hwnd, totalW);
-    if (ovf && mx >= rc.right - 2 * ArrowW()) {
-        if (arrow) *arrow = (mx >= rc.right - ArrowW()) ? 1 : 0;
+    if (ovf && mx >= TabsVisibleW(hwnd, TRUE)) {
+        if (arrow) *arrow = (mx >= TabsVisibleW(hwnd, TRUE) + ArrowW()) ? 1 : 0;
         return -1;
     }
     int sx = mx + s_scroll;
@@ -152,7 +178,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         int totalW = n ? rects[n - 1].right : 0;
         BOOL ovf = TabBar_Overflow(hwnd, totalW);
         int aw = ArrowW();
-        int visible = ovf ? (rc.right - 2 * aw) : rc.right;
+        int visible = TabsVisibleW(hwnd, ovf);
         TabBar_ClampScroll(totalW, visible);
         if (g_curDoc != s_lastCurDoc) {
             if (g_curDoc >= 0 && g_curDoc < n && n > 0) {
@@ -165,7 +191,7 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             s_lastCurDoc = g_curDoc;
         }
         if (n > 0) {
-            HRGN clip = CreateRectRgn(0, 0, visible, rc.bottom);
+            HRGN clip = CreateRectRgn(MenuW(), 0, visible, rc.bottom);
             SelectClipRgn(hdc, clip);
             for (int i = 0; i < n; i++) {
                 RECT r = rects[i];
@@ -195,10 +221,12 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     HBRUSH hb = CreateSolidBrush(g_dark ? RGB(80,80,84) : RGB(210,210,214));
                     FillRect(hdc, &cb, hb); DeleteObject(hb);
                 }
-                SetTextColor(hdc, active ? (g_dark ? RGB(220,220,220) : RGB(0,0,0))
-                                         : (g_dark ? RGB(180,180,180) : RGB(90,90,90)));
-                wchar_t xc[2] = {L'x', 0};
-                DrawTextW(hdc, xc, 1, &cb, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                if (active || hovered) {
+                    SetTextColor(hdc, active ? (g_dark ? RGB(220,220,220) : RGB(0,0,0))
+                                             : (g_dark ? RGB(180,180,180) : RGB(90,90,90)));
+                    wchar_t xc[2] = {L'x', 0};
+                    DrawTextW(hdc, xc, 1, &cb, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                }
             }
             SelectClipRgn(hdc, NULL);
             DeleteObject(clip);
@@ -209,7 +237,8 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                                     DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN, L"Marlett");
             HFONT old = (HFONT)SelectObject(hdc, mar);
             for (int a = 0; a < 2; a++) {
-                RECT ab = {rc.right - 2*aw + a*aw, 0, rc.right - aw + a*aw, rc.bottom};
+                RECT ab = {rc.right - NewW() - 2*aw + a*aw, 0,
+                           rc.right - NewW() - aw + a*aw, rc.bottom};
                 BOOL on = (a == 0) ? (s_scroll > 0) : (s_scroll < totalW - visible);
                 HBRUSH abg = CreateSolidBrush(
                     a == s_hoverArrow ? (g_dark ? RGB(70,70,74) : RGB(200,200,205))
@@ -223,35 +252,77 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SelectObject(hdc, old);
             DeleteObject(mar);
         }
+        {
+            RECT mb = {0, 0, MenuW(), rc.bottom};
+            HBRUSH mbg = CreateSolidBrush(
+                s_hoverZone == TB_ZONE_MENU ? (g_dark ? RGB(70,70,74) : RGB(200,200,205))
+                                            : (g_dark ? RGB(45,45,48) : RGB(215,215,218)));
+            FillRect(hdc, &mb, mbg); DeleteObject(mbg);
+            static HICON s_appIcon;
+            if (!s_appIcon) s_appIcon = LoadIconW(g_hInst, MAKEINTRESOURCEW(IDI_APP));
+            int iw = UI_Scale(18);
+            DrawIconEx(hdc, (MenuW() - iw) / 2, (rc.bottom - iw) / 2,
+                       s_appIcon, iw, iw, 0, NULL, DI_NORMAL);
+        }
+        {
+            RECT nb = PlusRect(hwnd);
+            if (s_hoverZone == TB_ZONE_NEW) {
+                HBRUSH nbg = CreateSolidBrush(g_dark ? RGB(70,70,74) : RGB(200,200,205));
+                FillRect(hdc, &nb, nbg); DeleteObject(nbg);
+            }
+            HBRUSH pc = CreateSolidBrush(g_dark ? RGB(180,180,180) : RGB(90,90,90));
+            int cxm = (nb.left + nb.right) / 2;
+            int cym = rc.bottom / 2;
+            int th = UI_Scale(1) < 1 ? 1 : UI_Scale(1);
+            int arm = UI_Scale(5);
+            RECT hbar = {cxm - arm, cym - th / 2, cxm + arm + 1, cym - th / 2 + th};
+            RECT vbar = {cxm - th / 2, cym - arm, cxm - th / 2 + th, cym + arm + 1};
+            FillRect(hdc, &hbar, pc);
+            FillRect(hdc, &vbar, pc);
+            DeleteObject(pc);
+        }
         EndPaint(hwnd, &ps);
         return 0;
     }
     if (msg == WM_ERASEBKGND) return 1;
     if (msg == WM_LBUTTONDOWN) {
         int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
-        BOOL closeHit; int arrow;
-        TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow);
+        BOOL closeHit; int arrow; int zone;
+        TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow, &zone);
+        if (zone == TB_ZONE_MENU) {
+            RECT wr; GetWindowRect(hwnd, &wr);
+            PostMessage(g_hwndMain, WM_APP_STRIP_MENU,
+                        (WPARAM)(wr.left + MenuW() / 2), (LPARAM)(wr.bottom + 1));
+            return 0;
+        }
+        if (zone == TB_ZONE_NEW) {
+            PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(IDM_NEW, 0), 0);
+            return 0;
+        }
         if (arrow == 0) { s_scroll -= MTBH_SCROLL_STEP; s_lastCurDoc = g_curDoc; InvalidateRect(hwnd, NULL, TRUE); return 0; }
         if (arrow == 1) { s_scroll += MTBH_SCROLL_STEP; s_lastCurDoc = g_curDoc; InvalidateRect(hwnd, NULL, TRUE); return 0; }
-        int i = TabBar_HitTest(hwnd, mx, my, &closeHit, NULL);
+        int i = TabBar_HitTest(hwnd, mx, my, &closeHit, NULL, NULL);
         if (i >= 0) {
             if (closeHit) PostMessage(g_hwndMain, WM_APP_TABCLOSE, (WPARAM)i, 0);
             else PostMessage(g_hwndMain, WM_APP_TABSEL, (WPARAM)i, 0);
+        } else {
+            PostMessage(g_hwndMain, WM_SYSCOMMAND, SC_MOVE | 0x0002, 0);
         }
         return 0;
     }
     if (msg == WM_LBUTTONDBLCLK) {
         int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
-        BOOL closeHit; int arrow;
-        int i = TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow);
-        if (i < 0 && arrow < 0)
-            PostMessage(g_hwndMain, WM_COMMAND, MAKEWPARAM(IDM_NEW, 0), 0);
+        BOOL closeHit; int arrow; int zone;
+        int i = TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow, &zone);
+        if (i < 0 && arrow < 0 && zone < 0)
+            PostMessage(g_hwndMain, WM_SYSCOMMAND,
+                        IsZoomed(g_hwndMain) ? SC_RESTORE : SC_MAXIMIZE, 0);
         return 0;
     }
     if (msg == WM_MBUTTONDOWN) {
         int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
         BOOL closeHit; int arrow;
-        int i = TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow);
+        int i = TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow, NULL);
         if (i >= 0) PostMessage(g_hwndMain, WM_APP_TABCLOSE, (WPARAM)i, 0);
         return 0;
     }
@@ -259,28 +330,30 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         RECT rects[MAX_DOCS]; int n = 0;
         TabBar_Rects(hwnd, rects, &n);
         int totalW = n ? rects[n - 1].right : 0;
-        RECT rc; GetClientRect(hwnd, &rc);
         BOOL ovf = TabBar_Overflow(hwnd, totalW);
         if (ovf) {
             int delta = GET_WHEEL_DELTA_WPARAM(wp);
             s_scroll -= (delta / WHEEL_DELTA) * UI_Scale(60);
             s_lastCurDoc = g_curDoc;
-            TabBar_ClampScroll(totalW, rc.right - 2 * ArrowW());
+            TabBar_ClampScroll(totalW, TabsVisibleW(hwnd, TRUE));
             InvalidateRect(hwnd, NULL, TRUE);
         }
         return 0;
     }
     if (msg == WM_MOUSEMOVE) {
         int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
+        CaptionButton_ClearHover();
         if (s_tip) { MSG m; m.hwnd = hwnd; m.message = WM_MOUSEMOVE; m.wParam = 0; m.lParam = lp;
                      m.pt.x = mx; m.pt.y = my; SendMessage(s_tip, TTM_RELAYEVENT, 0, (LPARAM)&m); }
-        BOOL closeHit; int arrow;
-        int i = TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow);
-        if (i != s_hoverTab || closeHit != s_hoverClose || arrow != s_hoverArrow) {
+        BOOL closeHit; int arrow; int zone;
+        int i = TabBar_HitTest(hwnd, mx, my, &closeHit, &arrow, &zone);
+        if (i != s_hoverTab || closeHit != s_hoverClose || arrow != s_hoverArrow ||
+            zone != s_hoverZone) {
             s_hoverTab = i; s_hoverClose = closeHit; s_hoverArrow = arrow;
+            s_hoverZone = zone;
             InvalidateRect(hwnd, NULL, FALSE);
         }
-        TabBar_SetTipText(hwnd, i);
+        TabBar_SetTipText(hwnd, (zone >= 0) ? -1 : i);
         if (!s_tracking) {
             TRACKMOUSEEVENT tme; memset(&tme, 0, sizeof(tme));
             tme.cbSize = sizeof(tme); tme.dwFlags = TME_LEAVE; tme.hwndTrack = hwnd;
@@ -291,8 +364,8 @@ static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == WM_MOUSELEAVE) {
         s_tracking = FALSE;
-        if (s_hoverTab != -1 || s_hoverClose || s_hoverArrow != -1) {
-            s_hoverTab = -1; s_hoverClose = FALSE; s_hoverArrow = -1;
+        if (s_hoverTab != -1 || s_hoverClose || s_hoverArrow != -1 || s_hoverZone != -1) {
+            s_hoverTab = -1; s_hoverClose = FALSE; s_hoverArrow = -1; s_hoverZone = -1;
             InvalidateRect(hwnd, NULL, FALSE);
         }
         return 0;
@@ -311,5 +384,5 @@ void TabBar_Register(void) {
     RegisterClassExW(&tc);
 }
 int TabBar_HitTestPublic(HWND hwnd, int mx, int my, BOOL* closeHit, int* arrow) {
-    return TabBar_HitTest(hwnd, mx, my, closeHit, arrow);
+    return TabBar_HitTest(hwnd, mx, my, closeHit, arrow, NULL);
 }

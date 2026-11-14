@@ -351,6 +351,7 @@ void Settings_Load(void) {
     g_showGutter= GetPrivateProfileIntW(L"settings", L"gutter",  1, ini) != 0;
     g_mdOutline = GetPrivateProfileIntW(L"settings", L"mdoutline", 1, ini) != 0;
     g_fileTree = GetPrivateProfileIntW(L"settings", L"filetree", 1, ini) != 0;
+    g_mdLiveEdit = GetPrivateProfileIntW(L"settings", L"mdliveedit", 0, ini) != 0;
     int fs = (int)GetPrivateProfileIntW(L"settings", L"fontsize", 11, ini);
     if (fs >= 6 && fs <= 48) g_fontSize = fs;
     g_editorDWrite = GetPrivateProfileIntW(L"settings", L"dwrite", 1, ini) != 0;
@@ -363,6 +364,7 @@ void Settings_Save(void) {
     WritePrivateProfileStringW(L"settings", L"gutter",   g_showGutter ? L"1" : L"0", ini);
     WritePrivateProfileStringW(L"settings", L"mdoutline", g_mdOutline ? L"1" : L"0", ini);
     WritePrivateProfileStringW(L"settings", L"filetree", g_fileTree ? L"1" : L"0", ini);
+    WritePrivateProfileStringW(L"settings", L"mdliveedit", g_mdLiveEdit ? L"1" : L"0", ini);
     wchar_t v[16]; WFmt(v, L"%d", g_fontSize);
     WritePrivateProfileStringW(L"settings", L"fontsize", v, ini);
     WritePrivateProfileStringW(L"settings", L"dwrite",

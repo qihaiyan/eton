@@ -1202,15 +1202,15 @@ static void FontsEnsure(HDC hdc) {
     if (V.fontsOk) return;
     int b = g_fontSize;
     MdFonts* f = &V.fonts;
-    f->body     = MkFont(b, FW_NORMAL, FALSE, L"Segoe UI");
-    f->bold     = MkFont(b, FW_BOLD, FALSE, L"Segoe UI");
-    f->emph     = MkFont(b, FW_NORMAL, TRUE, L"Segoe UI");
-    f->boldemph = MkFont(b, FW_BOLD, TRUE, L"Segoe UI");
+    f->body     = MkFont(b, FW_NORMAL, FALSE, L"Consolas");
+    f->bold     = MkFont(b, FW_BOLD, FALSE, L"Consolas");
+    f->emph     = MkFont(b, FW_NORMAL, TRUE, L"Consolas");
+    f->boldemph = MkFont(b, FW_BOLD, TRUE, L"Consolas");
     static const double kHead[6] = { 1.9, 1.55, 1.32, 1.15, 1.0, 1.0 };
     for (int i = 0; i < 6; i++)
-        f->h[i] = MkFont((int)(b * kHead[i] + 0.5), FW_BOLD, FALSE, L"Segoe UI");
+        f->h[i] = MkFont((int)(b * kHead[i] + 0.5), FW_BOLD, FALSE, L"Consolas");
     f->mono  = MkFont(b, FW_NORMAL, FALSE, L"Consolas");
-    f->sm = MkFont(b - 2 > 8 ? b - 2 : 8, FW_NORMAL, FALSE, L"Segoe UI");
+    f->sm = MkFont(b - 2 > 8 ? b - 2 : 8, FW_NORMAL, FALSE, L"Consolas");
     f->mathIt   = MkFont(b,        FW_NORMAL, TRUE,  L"Cambria Math");
     f->mathUp   = MkFont(b,        FW_NORMAL, FALSE, L"Cambria Math");
     f->mathItS  = MkFont((int)(b * 0.72 + 0.5), FW_NORMAL, TRUE,  L"Cambria Math");
@@ -1227,12 +1227,12 @@ static void FontsEnsure(HDC hdc) {
         F.bodyH = tm.tmHeight;
         F.bodyAsc = tm.tmAscent;
         struct { HFONT hf; int pt, weight; BOOL italic; const wchar_t* face; } specs[] = {
-            { f->body,     b,           FW_NORMAL, FALSE, L"Segoe UI" },
-            { f->bold,     b,           FW_BOLD,   FALSE, L"Segoe UI" },
-            { f->emph,     b,           FW_NORMAL, TRUE,  L"Segoe UI" },
-            { f->boldemph, b,           FW_BOLD,   TRUE,  L"Segoe UI" },
+            { f->body,     b,           FW_NORMAL, FALSE, L"Consolas" },
+            { f->bold,     b,           FW_BOLD,   FALSE, L"Consolas" },
+            { f->emph,     b,           FW_NORMAL, TRUE,  L"Consolas" },
+            { f->boldemph, b,           FW_BOLD,   TRUE,  L"Consolas" },
             { f->mono,     b,           FW_NORMAL, FALSE, L"Consolas" },
-            { f->sm,       b - 2 > 8 ? b - 2 : 8, FW_NORMAL, FALSE, L"Segoe UI" },
+            { f->sm,       b - 2 > 8 ? b - 2 : 8, FW_NORMAL, FALSE, L"Consolas" },
         };
         F.ok = TRUE;
         DwtFmt** dst[] = { &F.body, &F.bold, &F.emph, &F.boldemph, &F.mono, &F.sm };
@@ -1253,7 +1253,7 @@ static void FontsEnsure(HDC hdc) {
             HFONT o2 = (HFONT)SelectObject(hdc, f->h[i]);
             GetTextMetricsW(hdc, &tmf);
             SelectObject(hdc, o2);
-            F.h[i] = Dwt_Font(L"Segoe UI", MulDiv(hp, (int)g_dpi, 72),
+            F.h[i] = Dwt_Font(L"Consolas", MulDiv(hp, (int)g_dpi, 72),
                               FW_BOLD, FALSE, tmf.tmHeight, tmf.tmAscent);
             if (!F.h[i]) F.ok = FALSE;
         }
@@ -1313,13 +1313,13 @@ static MdItem* ItemAlloc(void) {
     MdItem* it = &V.items[V.nItems++];
     ZeroMemory(it, sizeof(*it));
     it->role = ROLE_BODY;
+    it->blk = V.layIdx;
     return it;
 }
 static void ItemPush(int type, RECT rc, int flag) {
     MdItem* it = ItemAlloc();
     if (!it) return;
     it->type = type; it->rc = rc; it->flag = flag;
-    it->blk = V.layIdx;
 }
 typedef struct Tok { MdRun* run; const wchar_t* s; int len; BOOL space; } Tok;
 static int WrapRuns(HDC hdc, MdRun* runs, int nRuns, int avail, int role,
@@ -3071,10 +3071,44 @@ static BOOL OverlayRectFromY(int y0, int y1, RECT* out) {
     out->bottom = out->top + h;
     return TRUE;
 }
-static void TryEditBlock(int px, int py) {
+static int ClickToSourceLine(int blk, int itemIdx, int lineInItem) {
+    int srcLines = 1;
+    DWORD len = 0;
+    char* u8 = Editor_GetTextUtf8(g_curDoc, &len);
+    if (u8) {
+        MdSrcBlock* bs = NULL;
+        int n = MdEditScanBlocks(u8, (int)len, &bs);
+        if (n == MdView_BlockCount() && blk < n) {
+            int nl = 0;
+            for (int i = bs[blk].start; i < bs[blk].end; i++)
+                if (u8[i] == '\n') nl++;
+            int t = bs[blk].end - 1;
+            while (t >= bs[blk].start && (u8[t] == '\n' || u8[t] == '\r')) {
+                if (u8[t] == '\n') nl--;
+                t--;
+            }
+            srcLines = nl + 1;
+        }
+        free(bs);
+        free(u8);
+    }
+    int total = 0, clicked = 0;
+    for (int i = 0; i < V.nItems; i++) {
+        if (V.items[i].blk != blk || V.items[i].type != ITM_LINES) continue;
+        if (i < itemIdx) clicked += V.items[i].nLines;
+        total += V.items[i].nLines;
+    }
+    clicked += lineInItem;
+    if (total < 1 || clicked >= total) clicked = total - 1;
+    if (clicked < 0) clicked = 0;
+    return clicked * srcLines / total;
+}
+static void ClickToEdit(int px, int py) {
+    if (!g_mdLiveEdit) return;
     if (g_mdSplit || g_curDoc < 0 || g_curDoc >= g_docCount) return;
     if (g_docs[g_curDoc].lang != LANG_MD) return;
     if (!V.root) return;
+    if (MdEdit_Active()) return;
     if (HitLink(px, py)) return;
     int sbw = SbThickness();
     if ((!g_mdSplit && V.docH > V.clientH && px >= V.clientW - sbw) ||
@@ -3085,26 +3119,35 @@ static void TryEditBlock(int px, int py) {
         if (OverlayRectFromY(yDoc, yDoc, &rcm)) MdEdit_BeginNewRange(g_curDoc, &rcm);
         return;
     }
-    int blk = -1, bd = 0x7FFFFFFF;
-    for (int i = 0; i < V.nItems; i++) {
-        int t = V.items[i].rc.top, b = V.items[i].rc.bottom;
-        if (yDoc >= t && yDoc <= b) { blk = V.items[i].blk; break; }
-        int d = (yDoc < t) ? t - yDoc : yDoc - b;
-        if (d < bd) { bd = d; blk = V.items[i].blk; }
-    }
-    if (blk < 0) return;
+    MdPos pos;
+    if (!HitTextPos(px, py, &pos)) return;
+    int blk = V.items[pos.item].blk;
+    SelReset();
+    InvalidateRect(V.hwnd, NULL, FALSE);
+    MdEdit_OpenAt(g_curDoc, blk, ClickToSourceLine(blk, pos.item, pos.line), FALSE, -1);
+}
+int MdView_BlockCount(void) {
+    return V.root ? V.root->nChildren : 0;
+}
+BOOL MdView_BlockRect(int blk, RECT* out) {
     int y0, y1;
-    if (!BlockYRange(blk, &y0, &y1)) return;
-    DWORD len = 0;
-    char* u8 = Editor_GetTextUtf8(g_curDoc, &len);
-    if (!u8) return;
-    MdSrcBlock* bs = NULL;
-    int n = MdEditScanBlocks(u8, (int)len, &bs);
-    RECT rcm;
-    if (n == V.root->nChildren && blk < n && OverlayRectFromY(y0, y1, &rcm))
-        MdEdit_BeginRange(g_curDoc, bs[blk].start, bs[blk].end, &rcm);
-    free(bs);
-    free(u8);
+    if (!BlockYRange(blk, &y0, &y1)) return FALSE;
+    return OverlayRectFromY(y0, y1, out);
+}
+void MdView_EnsureVisibleDocY(int y0, int y1) {
+    int top = y0 - V.scrollY;
+    int bot = y1 - V.scrollY;
+    int m = UI_Scale(24);
+    if (bot > V.clientH - m) ScrollBy(bot - (V.clientH - m));
+    else if (top < m) ScrollBy(top - m);
+}
+void MdView_EnsureOverlayVisible(const RECT* rcmMain) {
+    RECT rcv;
+    GetWindowRect(V.hwnd, &rcv);
+    POINT org = { rcv.left, rcv.top };
+    ScreenToClient(GetParent(V.hwnd), &org);
+    MdView_EnsureVisibleDocY((rcmMain->top - org.y) + V.scrollY,
+                             (rcmMain->bottom - org.y) + V.scrollY);
 }
 static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
@@ -3159,12 +3202,6 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             d %= WHEEL_DELTA;
             if (!steps && d) steps = d > 0 ? 1 : -1;
             if (steps) ScrollByX(steps * V.fonts.lineH * 3);
-            return 0;
-        }
-        case WM_LBUTTONDBLCLK: {
-            int px = GET_X_LPARAM(lp), py = GET_Y_LPARAM(lp);
-            if (MdEdit_Active()) { MdEdit_Commit(TRUE); return 0; }
-            TryEditBlock(px, py);
             return 0;
         }
         case WM_LBUTTONDOWN: {
@@ -3300,16 +3337,18 @@ static LRESULT CALLBACK MdViewProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (V.selDrag || GetCapture() == hwnd) {
                 V.selDrag = FALSE;
                 if (GetCapture() == hwnd) ReleaseCapture();
+                int thr = GetSystemMetrics(SM_CXDRAG);
+                int ty = GetSystemMetrics(SM_CYDRAG);
+                if (thr < ty) thr = ty;
+                int dxp = GET_X_LPARAM(lp) - V.downPt.x;
+                int dyp = GET_Y_LPARAM(lp) - V.downPt.y;
+                BOOL nodrag = (dxp * dxp + dyp * dyp <= thr * thr);
                 if (V.pendLink) {
-                    int thr = GetSystemMetrics(SM_CXDRAG);
-                    int ty = GetSystemMetrics(SM_CYDRAG);
-                    if (thr < ty) thr = ty;
-                    int dxp = GET_X_LPARAM(lp) - V.downPt.x;
-                    int dyp = GET_Y_LPARAM(lp) - V.downPt.y;
-                    if (dxp * dxp + dyp * dyp <= thr * thr)
-                        OpenLink(V.pendLink);
+                    if (nodrag) OpenLink(V.pendLink);
                     free(V.pendLink);
                     V.pendLink = NULL;
+                } else if (nodrag && !MdEdit_Active()) {
+                    ClickToEdit(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
                 }
             }
             return 0;
@@ -3404,7 +3443,7 @@ void MdView_Register(void) {
     WNDCLASSEXW wc;
     ZeroMemory(&wc, sizeof(wc));
     wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
+    wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = MdViewProc;
     wc.hInstance = g_hInst;
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
@@ -3570,6 +3609,7 @@ void MdView_SoftRefresh(void) {
     MdView_RefreshIfActive(V.docIdx);
     V.scrollY = save;
     ClampScroll();
+    LayoutEnsure(V.scrollY + V.clientH + UI_Scale(64));
     InvalidateRect(V.hwnd, NULL, FALSE);
 }
 void MdView_RefreshIfActive(int index) {

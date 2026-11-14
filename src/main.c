@@ -36,6 +36,7 @@ BOOL g_suppressDirty = FALSE;
 BOOL g_draftsDirty = FALSE;
 BOOL g_sessionDirty = FALSE;
 BOOL g_mdSplit = FALSE;
+BOOL g_mdLiveEdit = FALSE;
 BOOL g_mdSyncLock = FALSE;
 BOOL g_mdOutline = TRUE;
 BOOL g_fileTree = TRUE;
@@ -50,26 +51,6 @@ int WFmtV(wchar_t* buf, int cch, const wchar_t* fmt, ...) {
     if (n < 0 || n >= cch) buf[cch - 1] = L'\0';
     return n;
 }
-static void DarkMenuEdge(HWND hwnd) {
-    if (!g_dark) return;
-    MENUBARINFO mbi;
-    memset(&mbi, 0, sizeof(mbi));
-    mbi.cbSize = sizeof(mbi);
-    if (!GetMenuBarInfo(hwnd, OBJID_MENU, 0, &mbi) || mbi.rcBar.bottom <= 0) return;
-    RECT wr;
-    GetWindowRect(hwnd, &wr);
-    int y = mbi.rcBar.bottom - wr.top;
-    HDC hdc = GetWindowDC(hwnd);
-    HPEN pen = CreatePen(PS_SOLID, 1, RGB(43, 43, 43));
-    HGDIOBJ old = SelectObject(hdc, pen);
-    MoveToEx(hdc, 0, y - 1, NULL);
-    LineTo(hdc, wr.right - wr.left, y - 1);
-    MoveToEx(hdc, 0, y, NULL);
-    LineTo(hdc, wr.right - wr.left, y);
-    SelectObject(hdc, old);
-    DeleteObject(pen);
-    ReleaseDC(hwnd, hdc);
-}
 void ApplyTitleBarTheme(HWND hwnd) {
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -83,6 +64,103 @@ void ApplyTitleBarTheme(HWND hwnd) {
     p(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &v, sizeof(v));
     InvalidateRect(hwnd, NULL, TRUE);
     RedrawWindow(hwnd, NULL, NULL, RDW_FRAME | RDW_INVALIDATE | RDW_UPDATENOW);
+}
+static HMENU g_hMenuRoot = NULL;
+static int  s_capHover = -1;
+static HHOOK s_menuHook = NULL;
+static int  s_menuOpenIdx = -1;
+static int  s_menuSwitchTo = -1;
+static int  s_capPress = -1;
+static BOOL s_capTrack = FALSE;
+static void CapInvalidate(HWND hwnd, int idx);
+void CaptionButton_ClearHover(void) {
+    if (s_capHover < 0) return;
+    s_capHover = -1;
+    RECT rc; GetClientRect(g_hwndMain, &rc);
+    RECT zone = { rc.right - CaptionButtonsWidth(), 0, rc.right, UI_Scale(32) };
+    InvalidateRect(g_hwndMain, &zone, FALSE);
+    UpdateWindow(g_hwndMain);
+}
+int CaptionButtonsWidth(void) {
+    return 3 * UI_Scale(46);
+}
+static void CapRects(HWND hwnd, RECT* out) {
+    RECT rc; GetClientRect(hwnd, &rc);
+    int w = UI_Scale(46);
+    int x = rc.right - 3 * w;
+    for (int i = 0; i < 3; i++) {
+        out[i].left = x; out[i].right = x + w;
+        out[i].top = 0; out[i].bottom = UI_Scale(30);
+        x += w;
+    }
+}
+static void CapInvalidate(HWND hwnd, int idx) {
+    if (idx < 0) return;
+    RECT rs[3]; CapRects(hwnd, rs);
+    InvalidateRect(hwnd, &rs[idx], FALSE);
+}
+static void CapPaint(HWND hwnd, HDC hdc) {
+    RECT rs[3]; CapRects(hwnd, rs);
+    HGDIOBJ ob = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    BOOL act = (GetActiveWindow() == hwnd);
+    for (int i = 0; i < 3; i++) {
+        HBRUSH bg = CreateSolidBrush(g_dark ? RGB(37, 37, 38) : RGB(225, 225, 228));
+        FillRect(hdc, &rs[i], bg);
+        DeleteObject(bg);
+        if (i == s_capHover && i == 2)
+            bg = CreateSolidBrush(RGB(232, 17, 35));
+        else if (i == s_capHover)
+            bg = CreateSolidBrush(g_dark ? RGB(70, 70, 74) : RGB(229, 229, 231));
+        if (bg) { FillRect(hdc, &rs[i], bg); DeleteObject(bg); }
+        COLORREF fg = act ? (g_dark ? RGB(236, 236, 236) : RGB(20, 20, 20))
+                          : (g_dark ? RGB(160, 160, 160) : RGB(160, 160, 160));
+        HPEN pen = CreatePen(PS_SOLID, UI_Scale(1) < 1 ? 1 : UI_Scale(1), fg);
+        HGDIOBJ op = SelectObject(hdc, pen);
+        int cx = (rs[i].left + rs[i].right) / 2;
+        int cy = (rs[i].top + rs[i].bottom) / 2;
+        int r = UI_Scale(4);
+        if (i == 0) {
+            MoveToEx(hdc, cx - r, cy, NULL); LineTo(hdc, cx + r + 1, cy);
+        } else if (i == 1) {
+            if (IsZoomed(hwnd)) {
+                RECT a = {cx - r + UI_Scale(2), cy - r, cx + r, cy + r - UI_Scale(2)};
+                RECT b = {cx - r, cy - r + UI_Scale(2), cx + r - UI_Scale(2), cy + r};
+                Rectangle(hdc, b.left, b.top, b.right, b.bottom);
+                Rectangle(hdc, a.left, a.top, a.right, a.bottom);
+            } else {
+                Rectangle(hdc, cx - r, cy - r, cx + r, cy + r);
+            }
+        } else {
+            MoveToEx(hdc, cx - r, cy - r, NULL); LineTo(hdc, cx + r, cy + r);
+            MoveToEx(hdc, cx + r, cy - r, NULL); LineTo(hdc, cx - r, cy + r);
+        }
+        SelectObject(hdc, op);
+        DeleteObject(pen);
+    }
+    SelectObject(hdc, ob);
+}
+static int CapHit(HWND hwnd, int x, int y) {
+    RECT rs[3]; CapRects(hwnd, rs);
+    for (int i = 0; i < 3; i++)
+        if (x >= rs[i].left && x < rs[i].right && y >= rs[i].top && y < rs[i].bottom)
+            return i;
+    return -1;
+}
+static LRESULT CALLBACK MenuStripHook(int code, WPARAM wp, LPARAM lp) {
+    if (code == MSGF_MENU && s_menuOpenIdx >= 0) {
+        MSG* m = (MSG*)lp;
+        if (m->message == WM_MOUSEMOVE || m->message == WM_NCLBUTTONDOWN ||
+            m->message == WM_LBUTTONDOWN) {
+            DWORD pos = GetMessagePos();
+            POINT pt = { GET_X_LPARAM(pos), GET_Y_LPARAM(pos) };
+            int hit = Toolbar_MenuHit(pt);
+            if (hit >= 0 && hit != s_menuOpenIdx) {
+                s_menuSwitchTo = hit;
+                PostMessage(g_hwndMain, WM_CANCELMODE, 0, 0);
+            }
+        }
+    }
+    return CallNextHookEx(NULL, code, wp, lp);
 }
 void AddRecent(const wchar_t* path) {
     for (int i = 0; i < g_recentCount; i++) {
@@ -114,16 +192,15 @@ void RefreshRecentMenu(void) {
     }
 }
 static void RebuildMainMenu(HWND hwnd) {
-    HMENU old = GetMenu(hwnd);
-    SetMenu(hwnd, I18n_BuildMainMenu());
-    if (old) DestroyMenu(old);
+    (void)hwnd;
+    if (g_hMenuRoot) DestroyMenu(g_hMenuRoot);
+    g_hMenuRoot = I18n_BuildMainMenu();
     RefreshRecentMenu();
 }
 static void Check(HMENU m, UINT id, BOOL on) {
     CheckMenuItem(m, id, on ? MF_CHECKED : MF_UNCHECKED);
 }
-static void UpdateMenuChecks(void) {
-    HMENU m = GetMenu(g_hwndMain);
+static void UpdateMenuChecksOn(HMENU m) {
     if (!m) return;
     Check(m, IDM_WRAP, g_wordWrap);
     Check(m, IDM_GUTTER, g_showGutter);
@@ -137,6 +214,9 @@ static void UpdateMenuChecks(void) {
     Check(m, IDM_VIEW_MDSPLT, isMd && g_mdSplit);
     EnableMenuItem(m, IDM_VIEW_MDSPLT, isMd ? MF_BYCOMMAND | MF_ENABLED
                                             : MF_BYCOMMAND | MF_GRAYED);
+    Check(m, IDM_VIEW_MDLIVE, isMd && g_mdLiveEdit);
+    EnableMenuItem(m, IDM_VIEW_MDLIVE, isMd ? MF_BYCOMMAND | MF_ENABLED
+                                            : MF_BYCOMMAND | MF_GRAYED);
     Check(m, IDM_VIEW_MDOUTLINE, isMd && g_mdOutline);
     EnableMenuItem(m, IDM_VIEW_MDOUTLINE, isMd ? MF_BYCOMMAND | MF_ENABLED
                                                : MF_BYCOMMAND | MF_GRAYED);
@@ -146,11 +226,8 @@ static void UpdateMenuChecks(void) {
                                            : MF_BYCOMMAND | MF_GRAYED);
     EnableMenuItem(m, IDM_EXPORT_DOCX, isMd ? MF_BYCOMMAND | MF_ENABLED
                 : MF_BYCOMMAND | MF_GRAYED);
-    Encoding e = (g_curDoc >= 0) ? g_docs[g_curDoc].enc : ENC_UTF8;
     LangID lg = (g_curDoc >= 0) ? g_docs[g_curDoc].lang : LANG_NONE;
     int eol = (g_curDoc >= 0) ? g_docs[g_curDoc].eol : 0;
-    for (int i = 0; i <= 4; i++) Check(m, IDM_ENC_ANSI + i, (Encoding)i == e);
-    for (int i = 0; i <= 4; i++) Check(m, IDM_REOPEN_ANSI + i, FALSE);
     for (int i = 0; i <= 2; i++) Check(m, IDM_EOL_CRLF + i, i == eol);
     for (int i = 0; i <= (IDM_LANG_LAST - IDM_LANG_FIRST); i++)
         Check(m, IDM_LANG_NONE + i, (LangID)i == lg);
@@ -174,6 +251,12 @@ static void UpdateMenuChecks(void) {
     EnableMenuItem(m, IDM_SAVE, hasDoc ? on : off);
     EnableMenuItem(m, IDM_SAVEAS, hasDoc ? on : off);
     EnableMenuItem(m, IDM_CLOSE, hasDoc ? on : off);
+}
+static void UpdateMenuChecks(void) {
+    if (!g_hMenuRoot) return;
+    int n = GetMenuItemCount(g_hMenuRoot);
+    for (int i = 0; i < n; i++)
+        UpdateMenuChecksOn(GetSubMenu(g_hMenuRoot, i));
 }
 static void OpenFiles(HWND hwnd) {
     wchar_t buf[32768]; memset(buf, 0, sizeof(buf));
@@ -358,14 +441,6 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             Editor_ApplyTextRendering();
             UpdateMenuChecks();
             break;
-        case IDM_ENC_ANSI: case IDM_ENC_UTF8: case IDM_ENC_UTF8BOM: case IDM_ENC_UTF16LE: case IDM_ENC_UTF16BE:
-            if (g_curDoc >= 0) { g_docs[g_curDoc].enc = (Encoding)(id - IDM_ENC_ANSI); UpdateMenuChecks(); } break;
-        case IDM_REOPEN_ANSI: case IDM_REOPEN_UTF8: case IDM_REOPEN_UTF8BOM: case IDM_REOPEN_UTF16LE: case IDM_REOPEN_UTF16BE:
-            if (g_curDoc >= 0 && !g_docs[g_curDoc].isNew) {
-                Encoding e = (Encoding)(id - IDM_REOPEN_ANSI);
-                Editor_LoadFile(g_curDoc, g_docs[g_curDoc].path, e);
-                Editor_Activate(g_curDoc);
-            } break;
         case IDM_EOL_CRLF: case IDM_EOL_LF: case IDM_EOL_CR:
             if (g_curDoc >= 0) { g_docs[g_curDoc].eol = id - IDM_EOL_CRLF; Editor_UpdateStatus(); UpdateMenuChecks(); } break;
         case IDM_EOL_CONVERT: if (g_curDoc >= 0) Editor_ConvertEol(g_curDoc, g_docs[g_curDoc].eol); break;
@@ -378,6 +453,11 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             break;
         case IDM_VIEW_MDSPLT:
             MdView_ToggleSplit();
+            break;
+        case IDM_VIEW_MDLIVE:
+            g_mdLiveEdit = !g_mdLiveEdit;
+            if (!g_mdLiveEdit && MdEdit_Active()) MdEdit_Commit(TRUE);
+            UpdateMenuChecks();
             break;
         case IDM_VIEW_MDOUTLINE:
             MdOutline_Toggle();
@@ -493,7 +573,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             InitCommonControlsEx(&icex);
             ScrollBars_Create(hwnd);
             Editor_Init();
-            SetMenu(hwnd, I18n_BuildMainMenu());
+            g_hMenuRoot = I18n_BuildMainMenu();
+            RefreshRecentMenu();
             Toolbar_Register();
             g_hwndTool = CreateWindowExW(0, L"ETONToolbar", NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, g_hInst, NULL);
             g_hwndTab = CreateWindowExW(0, L"NPPTabBar", NULL, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, hwnd, NULL, g_hInst, NULL);
@@ -523,14 +604,90 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ResizeStatus();
             Editor_Layout();
             return 0;
-        case WM_NCACTIVATE:
+        case WM_NCCALCSIZE: {
+            if (!wp) break;
+            NCCALCSIZE_PARAMS* ncp = (NCCALCSIZE_PARAMS*)lp;
+            RECT wr = ncp->rgrc[0];
             DefWindowProcW(hwnd, msg, wp, lp);
-            DarkMenuEdge(hwnd);
-            return TRUE;
-        case WM_NCPAINT: {
-            LRESULT r = DefWindowProcW(hwnd, msg, wp, lp);
-            DarkMenuEdge(hwnd);
-            return r;
+            int fx = GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+            int fy = GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+            ncp->rgrc[0].left = wr.left + fx;
+            ncp->rgrc[0].top = wr.top + fy;
+            ncp->rgrc[0].right = wr.right - fx;
+            ncp->rgrc[0].bottom = wr.bottom - fy;
+            return 0;
+        }
+        case WM_NCHITTEST: {
+            LRESULT ht = DefWindowProcW(hwnd, msg, wp, lp);
+            if (ht == HTCLIENT) {
+                int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+                RECT wl; GetWindowRect(hwnd, &wl);
+                int fy = GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                int fx = GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
+                x -= wl.left; y -= wl.top;
+                if (!IsZoomed(hwnd) && y < fy) {
+                    if (x < fx) return HTTOPLEFT;
+                    if (x >= wl.right - wl.left - fx) return HTTOPRIGHT;
+                    return HTTOP;
+                }
+                RECT rc; GetClientRect(hwnd, &rc);
+                POINT pt = { x, y };
+                ScreenToClient(hwnd, &pt);
+                if (pt.y < UI_Scale(30) && pt.x >= rc.right - CaptionButtonsWidth()) {
+                    if (CapHit(hwnd, pt.x, pt.y) >= 0) return HTCLIENT;
+                    return HTCAPTION;
+                }
+            }
+            return ht;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+            CapPaint(hwnd, hdc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_MOUSEMOVE: {
+            int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+            int h = CapHit(hwnd, x, y);
+            if (h != s_capHover) {
+                s_capHover = h;
+                RECT rc; GetClientRect(hwnd, &rc);
+                RECT zone = { rc.right - CaptionButtonsWidth(), 0, rc.right, UI_Scale(32) };
+                InvalidateRect(hwnd, &zone, FALSE);
+                UpdateWindow(hwnd);
+            }
+            if (!s_capTrack) {
+                TRACKMOUSEEVENT tme; memset(&tme, 0, sizeof(tme));
+                tme.cbSize = sizeof(tme); tme.dwFlags = TME_LEAVE; tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+                s_capTrack = TRUE;
+            }
+            break;
+        }
+        case WM_MOUSELEAVE:
+            s_capTrack = FALSE;
+            CaptionButton_ClearHover();
+            break;
+        case WM_NCMOUSEMOVE:
+            CaptionButton_ClearHover();
+            break;
+        case WM_LBUTTONDOWN: {
+            int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+            int h = CapHit(hwnd, x, y);
+            if (h >= 0) s_capPress = h;
+            break;
+        }
+        case WM_LBUTTONUP: {
+            int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+            int h = CapHit(hwnd, x, y);
+            if (h >= 0 && h == s_capPress) {
+                if (h == 0) ShowWindow(hwnd, SW_MINIMIZE);
+                else if (h == 1) ShowWindow(hwnd, IsZoomed(hwnd) ? SW_RESTORE : SW_MAXIMIZE);
+                else PostMessage(hwnd, WM_CLOSE, 0, 0);
+            }
+            s_capPress = -1;
+            break;
         }
         case WM_ERASEBKGND: {
             RECT rc; GetClientRect(hwnd, &rc);
@@ -587,15 +744,66 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_NOTIFY:
+            if (MdEdit_OnNotify(lp)) return 0;
             Editor_OnNotify(lp);
             return 0;
         case WM_APP_TABSEL:
             Editor_Activate((int)wp); return 0;
         case WM_APP_TABCLOSE:
             Editor_CloseDoc((int)wp); return 0;
-        case WM_INITMENU:
+        case WM_INITMENUPOPUP:
             UpdateMenuChecks();
             return 0;
+        case WM_APP_STRIP_MENU: {
+            if (!g_hMenuRoot) break;
+            UpdateMenuChecks();
+            int mx = (int)wp;
+            int my = (int)lp;
+            if (mx == 0 && my == 0) {
+                RECT rc; GetWindowRect(g_hwndTool, &rc);
+                mx = rc.left + UI_Scale(15);
+                my = rc.bottom + 1;
+            }
+            int cmd = TrackPopupMenu(g_hMenuRoot, TPM_RETURNCMD | TPM_LEFTBUTTON,
+                                     mx, my, 0, hwnd, NULL);
+            if (cmd) PostMessage(hwnd, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
+            return 0;
+        }
+        case WM_APP_STRIP_GROUP: {
+            if (!g_hMenuRoot) break;
+            int idx = (int)wp;
+            int mx = (int)(short)LOWORD(lp);
+            int my = (int)(short)HIWORD(lp);
+            for (;;) {
+                HMENU sub = GetSubMenu(g_hMenuRoot, idx);
+                if (!sub) break;
+                UpdateMenuChecks();
+                s_menuOpenIdx = idx;
+                s_menuSwitchTo = -1;
+                s_menuHook = SetWindowsHookExW(WH_MSGFILTER, MenuStripHook,
+                                               NULL, GetCurrentThreadId());
+                int cmd = TrackPopupMenu(sub, TPM_RETURNCMD | TPM_LEFTBUTTON,
+                                         mx, my, 0, hwnd, NULL);
+                if (s_menuHook) { UnhookWindowsHookEx(s_menuHook); s_menuHook = NULL; }
+                s_menuOpenIdx = -1;
+                if (cmd) {
+                    PostMessage(hwnd, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
+                    break;
+                }
+                if (s_menuSwitchTo >= 0) {
+                    idx = s_menuSwitchTo;
+                    s_menuSwitchTo = -1;
+                    RECT rcm;
+                    if (Toolbar_MenuItemRect(idx, &rcm)) {
+                        mx = (rcm.left + rcm.right) / 2;
+                        my = rcm.bottom + 1;
+                    }
+                    continue;
+                }
+                break;
+            }
+            return 0;
+        }
         case WM_MEASUREITEM:
             if (I18n_OnMeasureItem(hwnd, (MEASUREITEMSTRUCT*)lp)) return TRUE;
             break;
@@ -659,6 +867,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             } else if (wp == 3) {
                 KillTimer(hwnd, 3);
                 if (MdView_IsVisible()) MdView_SoftRefresh();
+            } else if (wp == 4) {
+                KillTimer(hwnd, 4);
+                MdEdit_Tick();
             }
             return 0;
         case WM_CLOSE:

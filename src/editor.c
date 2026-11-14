@@ -1,7 +1,7 @@
 #include "common.h"
-static const int TOOLBAR_HEIGHT_96 = 32;
-static const int TAB_HEIGHT_96 = 22;
-static const int EDIT_TOP_PAD_96 = 4;
+static const int TABSTRIP_HEIGHT_96 = 30;
+static const int CMDSTRIP_HEIGHT_96 = 34;
+static const int EDIT_TOP_PAD_96 = 16;
 static const int EDIT_SIDE_PAD_96 = 12;
 static const int STATUS_HEIGHT_96 = 22;
 static const char* LexerName[] = {
@@ -123,10 +123,8 @@ BOOL Editor_Init(void) {
     Editor_SetFont();
     return TRUE;
 }
-static void ApplyLineSpacing(HWND hed, LangID lang) {
+static void ApplyLineSpacing(HWND hed) {
     int extra = (MulDiv(g_fontSize, (int)g_dpi, 72) + 6) / 13;
-    if (lang != LANG_MD)
-        extra += MulDiv(5, (int)g_dpi, 144);
     SendMessage(hed, SCI_SETEXTRAASCENT, extra, 0);
     SendMessage(hed, SCI_SETEXTRADESCENT, extra, 0);
 }
@@ -135,8 +133,7 @@ static void ApplyScintillaStyle(HWND hed) {
     SendMessage(hed, SCI_STYLESETFORE, STYLE_DEFAULT, (LPARAM)g_clrFg);
     SendMessage(hed, SCI_STYLESETSIZE, STYLE_DEFAULT, g_fontSize);
     SendMessage(hed, SCI_STYLESETFONT, STYLE_DEFAULT, (LPARAM)"Consolas");
-    int idx = Editor_IndexFromHwnd(hed);
-    ApplyLineSpacing(hed, idx >= 0 ? g_docs[idx].lang : LANG_NONE);
+    ApplyLineSpacing(hed);
     SendMessage(hed, SCI_STYLECLEARALL, 0, 0);
     SendMessage(hed, SCI_SETMARGINTYPEN, 0, SC_MARGIN_NUMBER);
     SendMessage(hed, SCI_STYLESETBACK, STYLE_LINENUMBER, (LPARAM)g_clrGutterBg);
@@ -195,7 +192,6 @@ static void ApplyScintillaStyle(HWND hed) {
     Editor_UpdateScrollWidth(Editor_IndexFromHwnd(hed));
 }
 static void ApplyLexer(HWND hed, LangID lang) {
-    ApplyLineSpacing(hed, lang);
     SendMessage(hed, SCI_SETMARGINWIDTHN, 1,
                 (lang == LANG_NONE || lang == LANG_MD) ? 0 : UI_Scale(14));
     if (lang == LANG_NONE) {
@@ -659,13 +655,14 @@ void Editor_ComputeGutterWidth(int index) {
 void Editor_Layout(void) {
     RECT rc; GetClientRect(g_hwndMain, &rc);
     int cx = rc.right, cy = rc.bottom;
-    int toolH = UI_Scale(TOOLBAR_HEIGHT_96);
-    int tabH = UI_Scale(TAB_HEIGHT_96);
+    int tabH = UI_Scale(TABSTRIP_HEIGHT_96);
+    int cmdH = UI_Scale(CMDSTRIP_HEIGHT_96);
     int statusH = UI_Scale(STATUS_HEIGHT_96);
-    SetWindowPos(g_hwndTool, NULL, 0, 0, cx, toolH, SWP_NOZORDER);
-    SetWindowPos(g_hwndTab, NULL, 0, toolH, cx, tabH, SWP_NOZORDER);
+    SetWindowPos(g_hwndTab, NULL, 0, 0, cx - CaptionButtonsWidth(), tabH, SWP_NOZORDER);
+    ShowWindow(g_hwndTool, SW_SHOW);
+    SetWindowPos(g_hwndTool, NULL, 0, tabH, cx, cmdH, SWP_NOZORDER);
     SetWindowPos(g_hwndStatus, NULL, 0, cy - statusH, cx, statusH, SWP_NOZORDER);
-    int top = toolH + tabH + UI_Scale(EDIT_TOP_PAD_96);
+    int top = tabH + cmdH + UI_Scale(EDIT_TOP_PAD_96);
     int bottom = cy - statusH;
     int h = bottom - top;
     int tw = FileTree_IsVisible() ? FileTree_Width() : 0;
