@@ -136,6 +136,7 @@ LONG DoFindFrom(HWND hed, const wchar_t* text, BOOL cs, BOOL ww, BOOL re,
                 BOOL down, LONG start, BOOL wrap, BOOL* found);
 int  Find_TextToUtf8(const wchar_t* src, char* utf8, int utf8Max);
 void Json_FormatActiveDoc(BOOL minify);
+void Yaml_FormatActiveDoc(void);
 enum {
     DT_B64_ENC = 0, DT_B64_DEC, DT_URL_ENC, DT_URL_DEC, DT_UNI_ESC, DT_UNI_UNESC
 };

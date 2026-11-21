@@ -84,6 +84,7 @@
 #define IDM_ENC_UTF8BOM   1722
 #define IDM_ENC_UTF16LE   1723
 #define IDM_ENC_UTF16BE   1724
+#define IDM_YAML_FMT      1730
 #define IDM_UI_LANG_FIRST  1650
 #define IDM_UI_LANG_ZH     1650
 #define IDM_UI_LANG_EN     1651

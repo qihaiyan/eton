@@ -396,6 +396,7 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
         case IDM_TIME: InsertDateTime(); break;
         case IDM_JSON_FMT: Json_FormatActiveDoc(FALSE); break;
         case IDM_JSON_MIN: Json_FormatActiveDoc(TRUE); break;
+        case IDM_YAML_FMT: Yaml_FormatActiveDoc(); break;
         case IDM_DT_B64_ENC:   DevTools_TransformActiveDoc(DT_B64_ENC);   break;
         case IDM_DT_B64_DEC:   DevTools_TransformActiveDoc(DT_B64_DEC);   break;
         case IDM_DT_URL_ENC:   DevTools_TransformActiveDoc(DT_URL_ENC);   break;

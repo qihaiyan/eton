@@ -376,3 +376,61 @@ static INT_PTR CALLBACK TsDlgProc(HWND hdlg, UINT msg, WPARAM wp, LPARAM lp) {
 void DevTools_ShowTsDlg(HWND parent) {
     DialogBoxParamW(g_hInst, MAKEINTRESOURCEW(IDD_TS), parent, TsDlgProc, 0);
 }
+
+void Yaml_FormatActiveDoc(void) {
+    if (g_curDoc < 0 || g_curDoc >= g_docCount) return;
+    Doc* d = &g_docs[g_curDoc];
+    HWND hed = d->hwndEdit;
+    Sci_Position docLen = (Sci_Position)SendMessage(hed, SCI_GETLENGTH, 0, 0);
+    Sci_Position selStart = (Sci_Position)SendMessage(hed, SCI_GETSELECTIONSTART, 0, 0);
+    Sci_Position selEnd = (Sci_Position)SendMessage(hed, SCI_GETSELECTIONEND, 0, 0);
+    BOOL hasSel = (selEnd > selStart);
+    Sci_Position start = hasSel ? selStart : 0;
+    Sci_Position end = hasSel ? selEnd : docLen;
+    if (end <= start) {
+        MessageBoxW(g_hwndMain, T(STR_YAML_EMPTY), T(STR_YAML_TITLE), MB_ICONINFORMATION);
+        return;
+    }
+    if (end - start > (Sci_Position)(100 * 1024 * 1024)) {
+        wchar_t msg[128];
+        WFmt(msg, T(STR_YAML_BIG), 100);
+        MessageBoxW(g_hwndMain, msg, T(STR_YAML_TITLE), MB_ICONINFORMATION);
+        return;
+    }
+    Sci_Position rlen = end - start;
+    char* src = (char*)malloc((size_t)rlen + 1);
+    if (!src) return;
+    struct Sci_TextRange tr;
+    tr.chrg.cpMin = (Sci_PositionCR)start;
+    tr.chrg.cpMax = (Sci_PositionCR)end;
+    tr.lpstrText = src;
+    SendMessage(hed, SCI_GETTEXTRANGE, 0, (LPARAM)&tr);
+    char ind[16];
+    int useTabs = (int)SendMessage(hed, SCI_GETUSETABS, 0, 0);
+    int tabW = (int)SendMessage(hed, SCI_GETTABWIDTH, 0, 0);
+    if (tabW < 1) tabW = 2;
+    if (tabW > 12) tabW = 12;
+    if (useTabs) {
+        strcpy_s(ind, sizeof(ind), "	");
+    } else {
+        for (int k = 0; k < tabW; k++) ind[k] = ' ';
+        ind[tabW] = '\0';
+    }
+    const char* nl = (d->eol == 1) ? "\n" : ((d->eol == 2) ? "\r" : "\r\n");
+    char* out = NULL;
+    size_t outLen = 0;
+    int rc = Yaml_Reprint(src, (size_t)rlen, nl, ind, &out, &outLen);
+    free(src);
+    if (rc != 0) {
+        MessageBoxW(g_hwndMain, T(STR_JERR_MEM), T(STR_YAML_TITLE), MB_ICONERROR);
+        return;
+    }
+    SendMessage(hed, SCI_BEGINUNDOACTION, 0, 0);
+    SendMessage(hed, SCI_SETTARGETSTART, start, 0);
+    SendMessage(hed, SCI_SETTARGETEND, end, 0);
+    SendMessage(hed, SCI_REPLACETARGET, (WPARAM)outLen, (LPARAM)(out ? out : ""));
+    SendMessage(hed, SCI_ENDUNDOACTION, 0, 0);
+    SendMessage(hed, SCI_SETSEL, start, start);
+    SendMessage(hed, SCI_SCROLLCARET, 0, 0);
+    free(out);
+}

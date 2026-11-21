@@ -450,7 +450,26 @@ int Editor_NewDoc(const wchar_t* path, const wchar_t* title, BOOL isNew) {
     d->bakRestored = FALSE;
     if (isNew) {
         d->path[0] = L'\0';
-        wcscpy_s(d->baseTitle, 256, title ? title : T(STR_UNTITLED));
+        const wchar_t* base = title ? title : T(STR_UNTITLED);
+        if (wcscmp(base, T(STR_UNTITLED)) == 0) {
+            int seq = 1;
+            for (;;) {
+                BOOL used = FALSE;
+                for (int k = 0; k < g_docCount && !used; k++) {
+                    const wchar_t* bt = g_docs[k].baseTitle;
+                    int parsed;
+                    if (seq == 1) used = (wcscmp(bt, L"未命名") == 0 || wcscmp(bt, L"Untitled") == 0);
+                    else if (swscanf(bt, L"未命名 %d", &parsed) == 1) used = (parsed == seq);
+                    else if (swscanf(bt, L"Untitled %d", &parsed) == 1) used = (parsed == seq);
+                }
+                if (!used) break;
+                seq++;
+            }
+            if (seq == 1) wcscpy_s(d->baseTitle, 256, base);
+            else WFmt(d->baseTitle, T(STR_UNTITLED_N), seq);
+        } else {
+            wcscpy_s(d->baseTitle, 256, base);
+        }
         d->enc = ENC_UTF8;
     } else {
         wcscpy_s(d->path, MAX_PATH, path); d->path[MAX_PATH-1]=L'\0';

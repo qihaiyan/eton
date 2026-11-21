@@ -187,6 +187,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"文件过大，无法比较。",
         L"此文档结构暂不支持就地编辑",
         L"预览内编辑(&E)",
+        L"YAML 格式化(&Y)	Ctrl+Shift+Y",
+        L"YAML 格式化",
+        L"当前内容为空，没有可处理的 YAML。",
+        L"文档过大（超过 %d MB），YAML 工具仅支持较小的文档。",
     },
     {
         L"ETON",
@@ -371,6 +375,10 @@ static const wchar_t* const kStr[UI_LANG_COUNT][STR_COUNT] = {
         L"The files are too large to compare.",
         L"In-place editing unavailable for this document structure",
         L"Edit in &Preview",
+        L"Format &YAML	Ctrl+Shift+Y",
+        L"Format YAML",
+        L"The content is empty; there is no YAML to process.",
+        L"The document is too large (over %d MB) for the YAML tools.",
     },
 };
 const wchar_t* T(StrId id) {
@@ -663,6 +671,7 @@ HMENU I18n_BuildMainMenu(void) {
     AddSep(mTools);
     AddIt(mTools, STR_ITEM_JSONFMT, IDM_JSON_FMT);
     AddIt(mTools, STR_ITEM_JSONMIN, IDM_JSON_MIN);
+    AddIt(mTools, STR_ITEM_YAMLFMT, IDM_YAML_FMT);
     AddSep(mTools);
     AddIt(mTools, STR_DT_B64ENC, IDM_DT_B64_ENC);
     AddIt(mTools, STR_DT_B64DEC, IDM_DT_B64_DEC);

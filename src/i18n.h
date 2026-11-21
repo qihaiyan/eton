@@ -185,6 +185,10 @@ typedef enum {
     STR_MSG_DIFF_BIG,
     STR_MD_NOBLOCK,
     STR_ITEM_MDLIVE,
+    STR_ITEM_YAMLFMT,
+    STR_YAML_TITLE,
+    STR_YAML_EMPTY,
+    STR_YAML_BIG,
     STR_COUNT
 } StrId;
 void I18n_Init(void);
