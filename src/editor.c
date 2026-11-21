@@ -713,6 +713,22 @@ void Editor_Zoom(int delta) {
     MdView_OnZoom();
     Editor_UpdateStatus();
 }
+const wchar_t* LangDisplayName(LangID lang) {
+    switch (lang) {
+    case LANG_C: return L"C";
+    case LANG_CPP: return L"C++";
+    case LANG_CS: return L"C#";
+    case LANG_JAVA: return L"Java";
+    case LANG_JS: return L"JavaScript";
+    case LANG_PY: return L"Python";
+    case LANG_XML: return L"XML/HTML";
+    case LANG_JSON: return L"JSON";
+    case LANG_SQL: return L"SQL";
+    case LANG_MD: return T(STR_SYN_MARKDOWN);
+    case LANG_YAML: return L"YAML";
+    default: return T(STR_SYN_NONE);
+    }
+}
 void Editor_SetLang(int index, LangID lang) {
     g_docs[index].lang = lang;
     ApplyLexer(g_docs[index].hwndEdit, lang);
@@ -974,7 +990,8 @@ void Editor_UpdateStatus(void) {
     StatusBar_SetText(1, s2);
     StatusBar_SetText(2, s3);
     StatusBar_SetText(3, s4);
-    StatusBar_SetText(4, s5);
+    StatusBar_SetText(4, LangDisplayName(d->lang));
+    StatusBar_SetText(5, s5);
     ScrollBars_Update();
 }
 void Editor_OnLanguageChanged(void) {

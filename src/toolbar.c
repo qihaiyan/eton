@@ -2,23 +2,12 @@
 typedef struct { int cmd; int strId; int icon; } TbBtn;
 static const TbBtn kBtns[] = {
     { 0,           STR_MENU_FILE,      -3 },
-    { 1,           STR_MENU_EDIT,      -3 },
     { 2,           STR_MENU_TOOLS,     -3 },
     { 3,           STR_MENU_VIEW,      -3 },
-    { 4,           STR_MENU_EOL,       -3 },
-    { 5,           STR_MENU_SYNTAX,    -3 },
-    { 6,           STR_MENU_HELP,      -3 },
     { 0,           0,                  -1 },
     { IDM_NEW,     STR_ITEM_NEW,        0 },
     { IDM_OPEN,    STR_ITEM_OPEN,       1 },
     { IDM_SAVE,    STR_ITEM_SAVE,       2 },
-    { 0,           0,                  -1 },
-    { IDM_UNDO,    STR_ITEM_UNDO,       3 },
-    { IDM_REDO,    STR_ITEM_REDO,       4 },
-    { 0,           0,                  -1 },
-    { IDM_CUT,     STR_ITEM_CUT,        5 },
-    { IDM_COPY,    STR_ITEM_COPY,       6 },
-    { IDM_PASTE,   STR_ITEM_PASTE,      7 },
     { 0,           0,                  -1 },
     { IDM_FIND,    STR_ITEM_FIND,       8 },
     { 0,           0,                  -1 },
@@ -72,12 +61,25 @@ static int ItemW(HWND hwnd, int i) {
     return (kBtns[i].icon < 0) ? SepW() : BtnW();
 }
 static void TbRects(HWND hwnd, RECT rc, RECT* out) {
+    int sepIdx = 0;
+    while (sepIdx < BTN_N && kBtns[sepIdx].icon != -1) sepIdx++;
     int x = PadL();
-    for (int i = 0; i < BTN_N; i++) {
+    for (int i = 0; i <= sepIdx && i < BTN_N; i++) {
         int w = ItemW(hwnd, i);
         out[i].left = x; out[i].right = x + w;
         out[i].top = 0; out[i].bottom = rc.bottom;
         x += w;
+    }
+    if (sepIdx >= BTN_N) return;
+    int clusterW = 0;
+    for (int i = sepIdx + 1; i < BTN_N; i++) clusterW += ItemW(hwnd, i);
+    int cx = (rc.right - clusterW) / 2;
+    if (cx < x) cx = x;
+    for (int i = sepIdx + 1; i < BTN_N; i++) {
+        int w = ItemW(hwnd, i);
+        out[i].left = cx; out[i].right = cx + w;
+        out[i].top = 0; out[i].bottom = rc.bottom;
+        cx += w;
     }
 }
 static int HitBtn(HWND hwnd, int mx, int my) {
@@ -128,11 +130,6 @@ static BOOL BtnEnabled(int i) {
     case IDM_EXPORT_DOCX:
         return g_curDoc >= 0 && g_curDoc < g_docCount &&
                g_docs[g_curDoc].lang == LANG_MD;
-    case IDM_UNDO:  return SendMessage(hed, SCI_CANUNDO, 0, 0) != 0;
-    case IDM_REDO:  return SendMessage(hed, SCI_CANREDO, 0, 0) != 0;
-    case IDM_CUT:
-    case IDM_COPY:  return SendMessage(hed, SCI_GETSELECTIONEMPTY, 0, 0) == 0;
-    case IDM_PASTE: return SendMessage(hed, SCI_CANPASTE, 0, 0) != 0;
     }
     return TRUE;
 }

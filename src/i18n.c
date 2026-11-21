@@ -657,8 +657,6 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mEdit, STR_BM_TOGGLE, IDM_BM_TOGGLE);
     AddIt(mEdit, STR_BM_NEXT, IDM_BM_NEXT);
     AddIt(mEdit, STR_BM_PREV, IDM_BM_PREV);
-    AddSep(mEdit);
-    AddIt(mEdit, STR_ITEM_TIME, IDM_TIME);
     AddBar(bar, (UINT_PTR)mEdit, STR_MENU_EDIT);
     HMENU mTools = CreatePopupMenu();
     AddIt(mTools, STR_ITEM_FILEDIFF, IDM_FILEDIFF);
@@ -676,6 +674,7 @@ HMENU I18n_BuildMainMenu(void) {
     AddIt(mTools, STR_DT_HASH, IDM_DT_HASH);
     AddIt(mTools, STR_DT_UUID, IDM_DT_UUID);
     AddIt(mTools, STR_DT_TS, IDM_DT_TS);
+    AddIt(mTools, STR_ITEM_TIME, IDM_TIME);
     AddBar(bar, (UINT_PTR)mTools, STR_MENU_TOOLS);
     HMENU mView = CreatePopupMenu();
     AddIt(mView, STR_ITEM_WRAP, IDM_WRAP);

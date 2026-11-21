@@ -92,6 +92,7 @@ void Editor_ApplyTextRendering(void);
 void Editor_Zoom(int delta);
 void Editor_ApplyTheme(int index);
 void Editor_SetLang(int index, LangID lang);
+const wchar_t* LangDisplayName(LangID lang);
 void Editor_OnLanguageChanged(void);
 void Editor_MarkDirty(int index, BOOL dirty);
 void Editor_UpdateStatus(void);

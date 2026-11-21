@@ -355,9 +355,10 @@ static void FindNextAccel(HWND hwnd, BOOL down) {
 static void ResizeStatus(void) {
     RECT rc; GetClientRect(g_hwndMain, &rc);
     int cx = rc.right;
-    int p[5];
-    p[0] = cx * 45 / 100; p[1] = cx * 65 / 100; p[2] = cx * 78 / 100; p[3] = cx * 90 / 100; p[4] = -1;
-    StatusBar_SetParts(p, 5);
+    int p[6];
+    p[0] = cx * 45 / 100; p[1] = cx * 65 / 100; p[2] = cx * 72 / 100;
+    p[3] = cx * 82 / 100; p[4] = cx * 90 / 100; p[5] = -1;
+    StatusBar_SetParts(p, 6);
 }
 static BOOL ConfirmExit(void) {
     for (int i = 0; i < g_docCount; i++) {
@@ -442,12 +443,28 @@ static LRESULT OnCommand(HWND hwnd, WPARAM wp, LPARAM lp) {
             UpdateMenuChecks();
             break;
         case IDM_EOL_CRLF: case IDM_EOL_LF: case IDM_EOL_CR:
-            if (g_curDoc >= 0) { g_docs[g_curDoc].eol = id - IDM_EOL_CRLF; Editor_UpdateStatus(); UpdateMenuChecks(); } break;
+            if (g_curDoc >= 0) {
+                g_docs[g_curDoc].eol = id - IDM_EOL_CRLF;
+                Editor_MarkDirty(g_curDoc, TRUE);
+                Editor_UpdateStatus();
+                UpdateMenuChecks();
+            } break;
         case IDM_EOL_CONVERT: if (g_curDoc >= 0) Editor_ConvertEol(g_curDoc, g_docs[g_curDoc].eol); break;
+        case IDM_ENC_ANSI: case IDM_ENC_UTF8: case IDM_ENC_UTF8BOM:
+        case IDM_ENC_UTF16LE: case IDM_ENC_UTF16BE:
+            if (g_curDoc >= 0) {
+                g_docs[g_curDoc].enc = id - IDM_ENC_ANSI;
+                Editor_MarkDirty(g_curDoc, TRUE);
+                Editor_UpdateStatus();
+            } break;
         case IDM_LANG_NONE: case IDM_LANG_C: case IDM_LANG_CPP: case IDM_LANG_CS: case IDM_LANG_JAVA:
         case IDM_LANG_JS: case IDM_LANG_PY: case IDM_LANG_XML: case IDM_LANG_JSON: case IDM_LANG_SQL:
         case IDM_LANG_MD: case IDM_LANG_YAML:
-            if (g_curDoc >= 0) { Editor_SetLang(g_curDoc, (LangID)(id - IDM_LANG_NONE)); UpdateMenuChecks(); } break;
+            if (g_curDoc >= 0) {
+                Editor_SetLang(g_curDoc, (LangID)(id - IDM_LANG_NONE));
+                Editor_UpdateStatus();
+                UpdateMenuChecks();
+            } break;
         case IDM_VIEW_MD:
             MdView_Toggle();
             break;

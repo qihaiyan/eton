@@ -166,6 +166,7 @@ static int ReplaceAllInDoc(HWND hed, const char* utf8find, const char* utf8repl,
     if (g_findRegex) flags |= SCFIND_REGEXP;
     SendMessage(hed, SCI_SETSEARCHFLAGS, flags, 0);
     Sci_Position pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8find);
+    if (pos >= 0) SendMessage(hed, SCI_BEGINUNDOACTION, 0, 0);
     while (pos >= 0) {
         Sci_Position tend = (Sci_Position)SendMessage(hed, SCI_GETTARGETEND, 0, 0);
         SendMessage(hed, SCI_SETTARGETSTART, pos, 0);
@@ -179,6 +180,7 @@ static int ReplaceAllInDoc(HWND hed, const char* utf8find, const char* utf8repl,
         SendMessage(hed, SCI_SETTARGETEND, (WPARAM)SendMessage(hed, SCI_GETLENGTH, 0, 0), 0);
         pos = (Sci_Position)SendMessage(hed, SCI_SEARCHINTARGET, u8len, (LPARAM)utf8find);
     }
+    if (count > 0) SendMessage(hed, SCI_ENDUNDOACTION, 0, 0);
     return count;
 }
 static void FindNextAllTabs(HWND hdlg, HWND* lastEdit, BOOL down) {
