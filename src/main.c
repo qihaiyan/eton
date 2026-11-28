@@ -638,18 +638,18 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_NCHITTEST: {
             LRESULT ht = DefWindowProcW(hwnd, msg, wp, lp);
             if (ht == HTCLIENT) {
-                int x = GET_X_LPARAM(lp), y = GET_Y_LPARAM(lp);
+                int sx = GET_X_LPARAM(lp), sy = GET_Y_LPARAM(lp);
                 RECT wl; GetWindowRect(hwnd, &wl);
                 int fy = GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
                 int fx = GetSystemMetrics(SM_CXSIZEFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER);
-                x -= wl.left; y -= wl.top;
-                if (!IsZoomed(hwnd) && y < fy) {
-                    if (x < fx) return HTTOPLEFT;
-                    if (x >= wl.right - wl.left - fx) return HTTOPRIGHT;
+                int wx = sx - wl.left, wy = sy - wl.top;
+                if (!IsZoomed(hwnd) && wy < fy) {
+                    if (wx < fx) return HTTOPLEFT;
+                    if (wx >= wl.right - wl.left - fx) return HTTOPRIGHT;
                     return HTTOP;
                 }
                 RECT rc; GetClientRect(hwnd, &rc);
-                POINT pt = { x, y };
+                POINT pt = { sx, sy };
                 ScreenToClient(hwnd, &pt);
                 if (pt.y < UI_Scale(30) && pt.x >= rc.right - CaptionButtonsWidth()) {
                     if (CapHit(hwnd, pt.x, pt.y) >= 0) return HTCLIENT;
